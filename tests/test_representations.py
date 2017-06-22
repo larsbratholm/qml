@@ -266,7 +266,7 @@ def eigenvalue_coulomb_matrix(nuclear_charges, coordinates, size):
 
 def test_bob():
 
-    asize = dict([(key, value) for key,value in mol.natypes.items()])
+    asize = dict([(key, value+1) for key,value in mol.natypes.items()])
 
     # Generate bag of bonds representation using the Compound class
     mol.generate_bob(asize)
