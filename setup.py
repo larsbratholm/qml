@@ -5,7 +5,7 @@ __author__ = "Anders S. Christensen"
 __copyright__ = "Copyright 2016"
 __credits__ = ["Anders S. Christensen (2016) https://github.com/qmlcode/qml"]
 __license__ = "MIT"
-__version__ = "0.2.12"
+__version__ = "0.3.1"
 __maintainer__ = "Anders S. Christensen"
 __email__ = "andersbiceps@gmail.com"
 __status__ = "Beta"
@@ -30,7 +30,7 @@ if sys.platform == "darwin" and all(["gnu" not in arg for arg in sys.argv]):
 
 # Intel
 if any(["intelem" in arg for arg in sys.argv]):
-    COMPILER_FLAGS = ["-fast", "-axCORE-AVX2", "-unroll-aggressive", "-qopenmp"]
+    COMPILER_FLAGS = ["-xHost", "-O3", "-axAVX", "-qopenmp"]
     LINKER_FLAGS = ["-liomp5", " -lpthread", "-lm", "-ldl"]
     MATH_LINKER_FLAGS = ["-L${MKLROOT}/lib/intel64", "-lmkl_rt"]
 
