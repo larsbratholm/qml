@@ -888,7 +888,7 @@ subroutine fgenerate_atomic_coulomb_matrix_sncf(atomic_charges, coordinates, nat
     !$OMP PARALLEL DO PRIVATE(norm, pair_norm, prefactor)
     do i = 1, natoms
         pair_norm = 0.5d0 * atomic_charges(i) ** 2.4d0
-        pair_distance_matrix(i,i,k) = pair_norm
+        pair_distance_matrix(i,i,i) = pair_norm
         do k = 1, natoms
             ! self interaction
             if (distance_matrix(i,k) > cent_cutoff) then

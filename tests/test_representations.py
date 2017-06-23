@@ -156,6 +156,27 @@ def test_atomic_coulomb_matrix():
 
     assert np.allclose(mol.representation, acm), "Error in atomic coulomb matrix representation"
 
+    acm = generate_atomic_coulomb_matrix(mol.nuclear_charges,
+            mol.coordinates, size = size, sorting = "distance",
+            central_cutoff = 4.0, central_decay = 0.5,
+            interaction_cutoff = 5.0, interaction_decay = 1.0,
+            variant = "sncf1", localization = 2.0)
+    acm2 = generate_atomic_coulomb_matrix(mol.nuclear_charges,
+            mol.coordinates, size = size, sorting = "distance",
+            central_cutoff = 4.0, central_decay = 0.5,
+            interaction_cutoff = 5.0, interaction_decay = 1.0,
+            variant = "sncf1", localization = 2.0)
+
+    print (np.sum((acm-acm2)**2))
+
+    
+
+    #acm = atomic_coulomb_matrix(mol.nuclear_charges, mol.coordinates, size, sorting = "row-norm",
+    #        cent_cutoff = 4.0, cent_decay = 0.5,
+    #        int_cutoff = 5.0, int_decay = 1.0)
+
+    #assert np.allclose(mol.representation, acm), "Error in atomic coulomb matrix representation"
+
 def atomic_coulomb_matrix(nuclear_charges, coordinates, size, sorting = "distance",
         cent_cutoff = 1e6, cent_decay = -1, int_cutoff = 1e6, int_decay = -1):
 
@@ -332,8 +353,8 @@ def vector_to_matrix(vec):
     return mat
 
 if __name__ == "__main__":
-    test_coulomb_matrix()
+    #test_coulomb_matrix()
     test_atomic_coulomb_matrix()
-    test_eigenvalue_coulomb_matrix()
-    test_bob()
+    #test_eigenvalue_coulomb_matrix()
+    #test_bob()
 

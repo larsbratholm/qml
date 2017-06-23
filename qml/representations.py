@@ -28,9 +28,12 @@ import itertools as itl
 from .frepresentations import fgenerate_coulomb_matrix
 from .frepresentations import fgenerate_unsorted_coulomb_matrix
 from .frepresentations import fgenerate_local_coulomb_matrix
+from .frepresentations import fgenerate_local_coulomb_matrix_sncf
 from .frepresentations import fgenerate_atomic_coulomb_matrix
+from .frepresentations import fgenerate_atomic_coulomb_matrix_sncf
 from .frepresentations import fgenerate_eigenvalue_coulomb_matrix
 from .frepresentations import fgenerate_bob
+from .frepresentations import fgenerate_local_bob
 
 from .data import NUCLEAR_CHARGE
 
@@ -87,7 +90,8 @@ def generate_coulomb_matrix(nuclear_charges, coordinates, size = 23, sorting = "
 
 
 def generate_atomic_coulomb_matrix(nuclear_charges, coordinates, size = 23, sorting = "distance",
-            central_cutoff = 1e6, central_decay = -1, interaction_cutoff = 1e6, interaction_decay = -1):
+            central_cutoff = 1e6, central_decay = -1, interaction_cutoff = 1e6, interaction_decay = -1,
+            variant = "classic", localization = 1.0):
     """ Creates a Coulomb Matrix representation of the local environment of a central atom.
         For each central atom :math:`k`, a matrix :math:`M` is constructed with elements
 
@@ -161,14 +165,42 @@ def generate_atomic_coulomb_matrix(nuclear_charges, coordinates, size = 23, sort
 
 
     if (sorting == "row-norm"):
-        return fgenerate_local_coulomb_matrix(nuclear_charges,
-            coordinates, nuclear_charges.size, size,
-            central_cutoff, central_decay, interaction_cutoff, interaction_decay)
+        if variant == "classic":
+            return fgenerate_local_coulomb_matrix(nuclear_charges,
+                coordinates, nuclear_charges.size, size,
+                central_cutoff, central_decay, interaction_cutoff, interaction_decay)
+        elif variant in ["sncf1", "sncf2"]:
+            if variant == "sncf1":
+                alt = 0
+            else:
+                alt = 1
+
+            return fgenerate_local_coulomb_matrix_sncf(nuclear_charges,
+                coordinates, nuclear_charges.size, size,
+                central_cutoff, central_decay, interaction_cutoff, interaction_decay,
+                localization, alt)
+        else:
+            print("ERROR: Unknown coulomb matrix variant requested")
+            raise SystemExit
 
     elif (sorting == "distance"):
-        return fgenerate_atomic_coulomb_matrix(nuclear_charges,
-            coordinates, nuclear_charges.size, size, 
-            central_cutoff, central_decay, interaction_cutoff, interaction_decay)
+        if variant == "classic":
+            return fgenerate_atomic_coulomb_matrix(nuclear_charges,
+                coordinates, nuclear_charges.size, size, 
+                central_cutoff, central_decay, interaction_cutoff, interaction_decay)
+        elif variant in ["sncf1", "sncf2"]:
+            if variant == "sncf1":
+                alt = 0
+            else:
+                alt = 1
+
+            return fgenerate_atomic_coulomb_matrix_sncf(nuclear_charges,
+                coordinates, nuclear_charges.size, size,
+                central_cutoff, central_decay, interaction_cutoff, interaction_decay,
+                localization, alt)
+        else:
+            print("ERROR: Unknown coulomb matrix variant requested")
+            raise SystemExit
 
     else:
         print("ERROR: Unknown sorting scheme requested")
@@ -250,6 +282,23 @@ def generate_bob(nuclear_charges, coordinates, atomtypes, asize = {"O":3, "C":7,
 
     return fgenerate_bob(nuclear_charges, coordinates, nuclear_charges, ids, nmax, n)
 
+def generate_bob_local(nuclear_charges, coordinates, atomtypes, asize = {"O":3, "C":7, "N":3, "H":16, "S":1},
+            central_cutoff = 1e6, central_decay = -1, interaction_cutoff = 1e6, interaction_decay = -1):
+
+    n = 0
+    atoms = sorted(asize, key=asize.get)
+    nmax = [asize[key] for key in atoms]
+    ids = np.zeros(len(nmax), dtype=int)
+    for i, (key, value) in enumerate(zip(atoms,nmax)):
+        n += value * (1+value)
+        ids[i] = NUCLEAR_CHARGE[key]
+        for j in range(i):
+            v = nmax[j]
+            n += 2 * value * v
+    n /= 2
+
+    return fgenerate_bob(nuclear_charges, coordinates, nuclear_charges, ids, nmax, n,
+            central_cutoff, central_decay, interaction_cutoff, interaction_decay)
 
 def get_slatm_mbtypes(nuclear_charges, pbc='000'):
     """
@@ -308,7 +357,6 @@ def get_slatm_mbtypes(nuclear_charges, pbc='000'):
     mbtypes = boas + bops + bots
 
     return mbtypes #, np.array(zs_ravel), np.array(nas)
-
 
 def generate_slatm(coordinates, nuclear_charges, mbtypes,
         unit_cell=None, local=False, sigmas=[0.05,0.05], dgrids=[0.03,0.03],
