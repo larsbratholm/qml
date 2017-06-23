@@ -91,6 +91,7 @@ def generate_coulomb_matrix(nuclear_charges, coordinates, size = 23, sorting = "
 def generate_atomic_coulomb_matrix(nuclear_charges, coordinates, size = 23, sorting = "distance",
             central_cutoff = 1e6, central_decay = -1, interaction_cutoff = 1e6, interaction_decay = -1,
             variant = "classic", localization = 1.0):
+
     """ Creates a Coulomb Matrix representation of the local environment of a central atom.
         For each central atom :math:`k`, a matrix :math:`M` is constructed with elements
 
@@ -200,7 +201,6 @@ def generate_atomic_coulomb_matrix(nuclear_charges, coordinates, size = 23, sort
         else:
             print("ERROR: Unknown coulomb matrix variant requested")
             raise SystemExit
-
     else:
         print("ERROR: Unknown sorting scheme requested")
         raise SystemExit
