@@ -88,7 +88,6 @@ def generate_coulomb_matrix(nuclear_charges, coordinates, size = 23, sorting = "
         print("ERROR: Unknown sorting scheme requested")
         raise SystemExit
 
-
 def generate_atomic_coulomb_matrix(nuclear_charges, coordinates, size = 23, sorting = "distance",
             central_cutoff = 1e6, central_decay = -1, interaction_cutoff = 1e6, interaction_decay = -1,
             variant = "classic", localization = 1.0):
@@ -281,24 +280,6 @@ def generate_bob(nuclear_charges, coordinates, atomtypes, asize = {"O":3, "C":7,
     n /= 2
 
     return fgenerate_bob(nuclear_charges, coordinates, nuclear_charges, ids, nmax, n)
-
-def generate_bob_local(nuclear_charges, coordinates, atomtypes, asize = {"O":3, "C":7, "N":3, "H":16, "S":1},
-            central_cutoff = 1e6, central_decay = -1, interaction_cutoff = 1e6, interaction_decay = -1):
-
-    n = 0
-    atoms = sorted(asize, key=asize.get)
-    nmax = [asize[key] for key in atoms]
-    ids = np.zeros(len(nmax), dtype=int)
-    for i, (key, value) in enumerate(zip(atoms,nmax)):
-        n += value * (1+value)
-        ids[i] = NUCLEAR_CHARGE[key]
-        for j in range(i):
-            v = nmax[j]
-            n += 2 * value * v
-    n /= 2
-
-    return fgenerate_bob(nuclear_charges, coordinates, nuclear_charges, ids, nmax, n,
-            central_cutoff, central_decay, interaction_cutoff, interaction_decay)
 
 def get_slatm_mbtypes(nuclear_charges, pbc='000'):
     """
@@ -533,3 +514,21 @@ def generate_slatm(coordinates, nuclear_charges, mbtypes,
                     mbs = np.concatenate( (mbs, mbsi), axis=0 )
 
     return mbs
+
+def generate_bob_local(nuclear_charges, coordinates, atomtypes, asize = {"O":3, "C":7, "N":3, "H":16, "S":1},
+            central_cutoff = 1e6, central_decay = -1, interaction_cutoff = 1e6, interaction_decay = -1):
+
+    n = 0
+    atoms = sorted(asize, key=asize.get)
+    nmax = [asize[key] for key in atoms]
+    ids = np.zeros(len(nmax), dtype=int)
+    for i, (key, value) in enumerate(zip(atoms,nmax)):
+        n += value * (1+value)
+        ids[i] = NUCLEAR_CHARGE[key]
+        for j in range(i):
+            v = nmax[j]
+            n += 2 * value * v
+    n /= 2
+
+    return fgenerate_bob(nuclear_charges, coordinates, nuclear_charges, ids, nmax, n,
+            central_cutoff, central_decay, interaction_cutoff, interaction_decay)
