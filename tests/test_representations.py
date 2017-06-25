@@ -134,67 +134,114 @@ def test_atomic_coulomb_matrix():
 
     assert np.allclose(mol.representation, acm), "Error in atomic coulomb matrix representation"
 
-    # Generate atomic coulomb matrix representation, sorted by distance, using the Compound class
+    # Generate atomic coulomb matrix representation, sorted by distance,
+    # with cutoffs, using the Compound class
     mol.generate_atomic_coulomb_matrix(size = size, sorting = "distance",
             central_cutoff = 4.0, central_decay = 0.5,
             interaction_cutoff = 5.0, interaction_decay = 1.0)
 
     acm = atomic_coulomb_matrix(mol.nuclear_charges, mol.coordinates, size, sorting = "distance",
-            cent_cutoff = 4.0, cent_decay = 0.5,
-            int_cutoff = 5.0, int_decay = 1.0)
+            central_cutoff = 4.0, central_decay = 0.5,
+            interaction_cutoff = 5.0, interaction_decay = 1.0)
 
     assert np.allclose(mol.representation, acm), "Error in atomic coulomb matrix representation"
 
-    # Generate atomic coulomb matrix representation, sorted by row-norm, using the Compound class
+    # Generate atomic coulomb matrix representation, sorted by row-norm,
+    # with cutoffs, using the Compound class
     mol.generate_atomic_coulomb_matrix(size = size, sorting = "row-norm",
             central_cutoff = 4.0, central_decay = 0.5,
             interaction_cutoff = 5.0, interaction_decay = 1.0)
 
     acm = atomic_coulomb_matrix(mol.nuclear_charges, mol.coordinates, size, sorting = "row-norm",
-            cent_cutoff = 4.0, cent_decay = 0.5,
-            int_cutoff = 5.0, int_decay = 1.0)
+            central_cutoff = 4.0, central_decay = 0.5,
+            interaction_cutoff = 5.0, interaction_decay = 1.0)
 
     assert np.allclose(mol.representation, acm), "Error in atomic coulomb matrix representation"
 
+
+    # Generate the sncf1 variant of the atomic coulomb matrix representation, sorted by distance,
+    # with cutoffs using the python interface
     acm = generate_atomic_coulomb_matrix(mol.nuclear_charges,
             mol.coordinates, size = size, sorting = "distance",
             central_cutoff = 4.0, central_decay = 0.5,
             interaction_cutoff = 5.0, interaction_decay = 1.0,
             variant = "sncf1", localization = 2.0)
-    acm2 = generate_atomic_coulomb_matrix(mol.nuclear_charges,
+
+    acm2 = atomic_coulomb_matrix(mol.nuclear_charges,
             mol.coordinates, size = size, sorting = "distance",
             central_cutoff = 4.0, central_decay = 0.5,
             interaction_cutoff = 5.0, interaction_decay = 1.0,
             variant = "sncf1", localization = 2.0)
 
-    print (np.sum((acm-acm2)**2))
+    assert np.allclose(acm2, acm), "Error in atomic coulomb matrix representation"
 
-    
+    # Generate the sncf1 variant of the atomic coulomb matrix representation, sorted by row-norm,
+    # with cutoffs using the python interface
+    acm = generate_atomic_coulomb_matrix(mol.nuclear_charges,
+            mol.coordinates, size = size, sorting = "row-norm",
+            central_cutoff = 4.0, central_decay = 0.5,
+            interaction_cutoff = 5.0, interaction_decay = 1.0,
+            variant = "sncf1", localization = 2.0)
 
-    #acm = atomic_coulomb_matrix(mol.nuclear_charges, mol.coordinates, size, sorting = "row-norm",
-    #        cent_cutoff = 4.0, cent_decay = 0.5,
-    #        int_cutoff = 5.0, int_decay = 1.0)
+    acm2 = atomic_coulomb_matrix(mol.nuclear_charges,
+            mol.coordinates, size = size, sorting = "row-norm",
+            central_cutoff = 4.0, central_decay = 0.5,
+            interaction_cutoff = 5.0, interaction_decay = 1.0,
+            variant = "sncf1", localization = 2.0)
 
-    #assert np.allclose(mol.representation, acm), "Error in atomic coulomb matrix representation"
+    assert np.allclose(acm2, acm), "Error in atomic coulomb matrix representation"
+
+    # Generate the sncf2 variant of the atomic coulomb matrix representation, sorted by distance,
+    # with cutoffs using the python interface
+    acm = generate_atomic_coulomb_matrix(mol.nuclear_charges,
+            mol.coordinates, size = size, sorting = "distance",
+            central_cutoff = 4.0, central_decay = 0.5,
+            interaction_cutoff = 5.0, interaction_decay = 1.0,
+            variant = "sncf2", localization = 2.0)
+
+    acm2 = atomic_coulomb_matrix(mol.nuclear_charges,
+            mol.coordinates, size = size, sorting = "distance",
+            central_cutoff = 4.0, central_decay = 0.5,
+            interaction_cutoff = 5.0, interaction_decay = 1.0,
+            variant = "sncf2", localization = 2.0)
+
+    assert np.allclose(acm2, acm), "Error in atomic coulomb matrix representation"
+
+    # Generate the sncf2 variant of the atomic coulomb matrix representation, sorted by distance,
+    # with cutoffs using the python interface
+    acm = generate_atomic_coulomb_matrix(mol.nuclear_charges,
+            mol.coordinates, size = size, sorting = "row-norm",
+            central_cutoff = 4.0, central_decay = 0.5,
+            interaction_cutoff = 5.0, interaction_decay = 1.0,
+            variant = "sncf2", localization = 2.0)
+
+    acm2 = atomic_coulomb_matrix(mol.nuclear_charges,
+            mol.coordinates, size = size, sorting = "row-norm",
+            central_cutoff = 4.0, central_decay = 0.5,
+            interaction_cutoff = 5.0, interaction_decay = 1.0,
+            variant = "sncf2", localization = 2.0)
+
+    assert np.allclose(acm2, acm), "Error in atomic coulomb matrix representation"
 
 def atomic_coulomb_matrix(nuclear_charges, coordinates, size, sorting = "distance",
-        cent_cutoff = 1e6, cent_decay = -1, int_cutoff = 1e6, int_decay = -1):
+        central_cutoff = 1e6, central_decay = -1, interaction_cutoff = 1e6, interaction_decay = -1,
+        variant = "classic", localization = 1.0):
 
-    if cent_cutoff < 0:
-        cent_cutoff = 1e6
+    if central_cutoff < 0:
+        central_cutoff = 1e6
 
-    if int_cutoff < 0 or int_cutoff > 2 * cent_cutoff:
-        int_cutoff = 2 * cent_cutoff
+    if interaction_cutoff < 0 or interaction_cutoff > 2 * central_cutoff:
+        interaction_cutoff = 2 * central_cutoff
 
-    if cent_decay < 0:
-        cent_decay = 0
-    elif cent_decay > cent_cutoff:
-        cent_decay = cent_cutoff
+    if central_decay < 0:
+        central_decay = 0
+    elif central_decay > central_cutoff:
+        central_decay = central_cutoff
 
-    if int_decay < 0:
-        int_decay = 0
-    elif int_decay > int_cutoff:
-        int_decay = int_cutoff
+    if interaction_decay < 0:
+        interaction_decay = 0
+    elif interaction_decay > interaction_cutoff:
+        interaction_decay = interaction_cutoff
 
     natoms = nuclear_charges.size
     sorted_cm = np.zeros((natoms, (size * (size + 1)) // 2))
@@ -203,26 +250,33 @@ def atomic_coulomb_matrix(nuclear_charges, coordinates, size, sorting = "distanc
     for k in range(natoms):
         for i in range(natoms):
             for j in range(i, natoms):
-                if i == j:
+                if variant == "classic" and i == j:
                     dik = np.sqrt(np.sum((coordinates[i] - coordinates[k])**2))
-                    if dik < cent_cutoff:
+                    if dik < central_cutoff:
                         cm_mat[k,i,i] = 0.5 * nuclear_charges[i]**2.4
-                        if dik > cent_cutoff - cent_decay:
-                            cm_mat[k,i,i] *= (0.5 * (1 + np.cos(np.pi * (dik - cent_cutoff + cent_decay) / cent_decay)))**2
+                        if dik > central_cutoff - central_decay:
+                            cm_mat[k,i,i] *= (0.5 * (1 + np.cos(np.pi * (dik - central_cutoff + central_decay) / central_decay)))**2
+                elif i == j and j == k:
+                    dik = np.sqrt(np.sum((coordinates[i] - coordinates[k])**2))
+                    if dik < central_cutoff:
+                        cm_mat[k,i,i] = 0.5 * nuclear_charges[i]**2.4
+                        if dik > central_cutoff - central_decay:
+                            cm_mat[k,i,i] *= (0.5 * (1 + np.cos(np.pi * (dik - central_cutoff + central_decay) / central_decay)))**2
                 else:
                     dij = np.sqrt(np.sum((coordinates[i] - coordinates[j])**2))
-                    if dij < int_cutoff:
+                    if dij < interaction_cutoff:
                         dik = np.sqrt(np.sum((coordinates[i] - coordinates[k])**2))
                         djk = np.sqrt(np.sum((coordinates[j] - coordinates[k])**2))
-                        if dik < cent_cutoff and djk < cent_cutoff:
-                            cm_mat[k,i,j] = nuclear_charges[i] * nuclear_charges[j] / dij
+                        if dik < central_cutoff and djk < central_cutoff:
+                            cm_mat[k,i,j] = nuclear_charges[i] * nuclear_charges[j] / \
+                            (dij*(variant in ["classic","sncf2"]) + (dik+djk) * (variant in ["sncf1","sncf2"]))**localization
 
-                            if dij > int_cutoff - int_decay:
-                                cm_mat[k,i,j] *= 0.5 * (1 + np.cos(np.pi * (dij - int_cutoff + int_decay) / int_decay))
-                            if dik > cent_cutoff - cent_decay:
-                                cm_mat[k,i,j] *= 0.5 * (1 + np.cos(np.pi * (dik - cent_cutoff + cent_decay) / cent_decay))
-                            if djk > cent_cutoff - cent_decay:
-                                cm_mat[k,i,j] *= 0.5 * (1 + np.cos(np.pi * (djk - cent_cutoff + cent_decay) / cent_decay))
+                            if dij > interaction_cutoff - interaction_decay:
+                                cm_mat[k,i,j] *= 0.5 * (1 + np.cos(np.pi * (dij - interaction_cutoff + interaction_decay) / interaction_decay))
+                            if dik > central_cutoff - central_decay:
+                                cm_mat[k,i,j] *= 0.5 * (1 + np.cos(np.pi * (dik - central_cutoff + central_decay) / central_decay))
+                            if djk > central_cutoff - central_decay:
+                                cm_mat[k,i,j] *= 0.5 * (1 + np.cos(np.pi * (djk - central_cutoff + central_decay) / central_decay))
 
                     cm_mat[k,j,i] = cm_mat[k,i,j]
 
@@ -246,12 +300,11 @@ def atomic_coulomb_matrix(nuclear_charges, coordinates, size, sorting = "distanc
             sorting[k] = np.argsort(distances)
 
 
-    sortargs = np.arange(size)
 
     for k in range(natoms):
-        sortargs[:natoms] = sorting[k]
+        sortargs = sorting[k]
         idx = 0
-        for i in range(size):
+        for i in range(natoms):
             si = sortargs[i]
             for j in range(i+1):
                 sj = sortargs[j]
@@ -339,6 +392,241 @@ def bob_reference(nuclear_charges, coordinates, atomtypes, size = 23, asize = {"
 
     return np.concatenate(descriptor)
 
+def test_local_bob():
+
+    asize = dict([(key, value+1) for key,value in mol.natypes.items()])
+
+    # Generate atomic coulomb matrix representation, sorted by row-norm, using the Compound class
+    bob = generate_local_bob(mol.nuclear_charges,
+            mol.coordinates, mol.atomtypes, asize = asize)
+    print(asize)
+    print(bob)
+
+    ## Generate atomic coulomb matrix representation, sorted by distance,
+    ## with cutoffs, using the Compound class
+    #mol.generate_atomic_coulomb_matrix(size = size, sorting = "distance",
+    #        central_cutoff = 4.0, central_decay = 0.5,
+    #        interaction_cutoff = 5.0, interaction_decay = 1.0)
+
+    #acm = atomic_coulomb_matrix(mol.nuclear_charges, mol.coordinates, size, sorting = "distance",
+    #        central_cutoff = 4.0, central_decay = 0.5,
+    #        interaction_cutoff = 5.0, interaction_decay = 1.0)
+
+    #assert np.allclose(mol.representation, acm), "Error in atomic coulomb matrix representation"
+
+    ## Generate atomic coulomb matrix representation, sorted by row-norm,
+    ## with cutoffs, using the Compound class
+    #mol.generate_atomic_coulomb_matrix(size = size, sorting = "row-norm",
+    #        central_cutoff = 4.0, central_decay = 0.5,
+    #        interaction_cutoff = 5.0, interaction_decay = 1.0)
+
+    #acm = atomic_coulomb_matrix(mol.nuclear_charges, mol.coordinates, size, sorting = "row-norm",
+    #        central_cutoff = 4.0, central_decay = 0.5,
+    #        interaction_cutoff = 5.0, interaction_decay = 1.0)
+
+    #assert np.allclose(mol.representation, acm), "Error in atomic coulomb matrix representation"
+
+
+    ## Generate the sncf1 variant of the atomic coulomb matrix representation, sorted by distance,
+    ## with cutoffs using the python interface
+    #acm = generate_atomic_coulomb_matrix(mol.nuclear_charges,
+    #        mol.coordinates, size = size, sorting = "distance",
+    #        central_cutoff = 4.0, central_decay = 0.5,
+    #        interaction_cutoff = 5.0, interaction_decay = 1.0,
+    #        variant = "sncf1", localization = 2.0)
+
+    #acm2 = atomic_coulomb_matrix(mol.nuclear_charges,
+    #        mol.coordinates, size = size, sorting = "distance",
+    #        central_cutoff = 4.0, central_decay = 0.5,
+    #        interaction_cutoff = 5.0, interaction_decay = 1.0,
+    #        variant = "sncf1", localization = 2.0)
+
+    #assert np.allclose(acm2, acm), "Error in atomic coulomb matrix representation"
+
+    ## Generate the sncf1 variant of the atomic coulomb matrix representation, sorted by row-norm,
+    ## with cutoffs using the python interface
+    #acm = generate_atomic_coulomb_matrix(mol.nuclear_charges,
+    #        mol.coordinates, size = size, sorting = "row-norm",
+    #        central_cutoff = 4.0, central_decay = 0.5,
+    #        interaction_cutoff = 5.0, interaction_decay = 1.0,
+    #        variant = "sncf1", localization = 2.0)
+
+    #acm2 = atomic_coulomb_matrix(mol.nuclear_charges,
+    #        mol.coordinates, size = size, sorting = "row-norm",
+    #        central_cutoff = 4.0, central_decay = 0.5,
+    #        interaction_cutoff = 5.0, interaction_decay = 1.0,
+    #        variant = "sncf1", localization = 2.0)
+
+    #assert np.allclose(acm2, acm), "Error in atomic coulomb matrix representation"
+
+    ## Generate the sncf2 variant of the atomic coulomb matrix representation, sorted by distance,
+    ## with cutoffs using the python interface
+    #acm = generate_atomic_coulomb_matrix(mol.nuclear_charges,
+    #        mol.coordinates, size = size, sorting = "distance",
+    #        central_cutoff = 4.0, central_decay = 0.5,
+    #        interaction_cutoff = 5.0, interaction_decay = 1.0,
+    #        variant = "sncf2", localization = 2.0)
+
+    #acm2 = atomic_coulomb_matrix(mol.nuclear_charges,
+    #        mol.coordinates, size = size, sorting = "distance",
+    #        central_cutoff = 4.0, central_decay = 0.5,
+    #        interaction_cutoff = 5.0, interaction_decay = 1.0,
+    #        variant = "sncf2", localization = 2.0)
+
+    #assert np.allclose(acm2, acm), "Error in atomic coulomb matrix representation"
+
+    ## Generate the sncf2 variant of the atomic coulomb matrix representation, sorted by distance,
+    ## with cutoffs using the python interface
+    #acm = generate_atomic_coulomb_matrix(mol.nuclear_charges,
+    #        mol.coordinates, size = size, sorting = "row-norm",
+    #        central_cutoff = 4.0, central_decay = 0.5,
+    #        interaction_cutoff = 5.0, interaction_decay = 1.0,
+    #        variant = "sncf2", localization = 2.0)
+
+    #acm2 = atomic_coulomb_matrix(mol.nuclear_charges,
+    #        mol.coordinates, size = size, sorting = "row-norm",
+    #        central_cutoff = 4.0, central_decay = 0.5,
+    #        interaction_cutoff = 5.0, interaction_decay = 1.0,
+    #        variant = "sncf2", localization = 2.0)
+
+    #assert np.allclose(acm2, acm), "Error in atomic coulomb matrix representation"
+    pass
+
+
+def local_bob_reference(nuclear_charges, coordinates, atomtypes, size = 23, asize = {"O":3, "C":7, "N":3, "H":16, "S":1},
+        central_cutoff = 1e6, central_decay = -1, interaction_cutoff = 1e6, interaction_decay = -1):
+
+    if central_cutoff < 0:
+        central_cutoff = 1e6
+
+    if interaction_cutoff < 0 or interaction_cutoff > 2 * central_cutoff:
+        interaction_cutoff = 2 * central_cutoff
+
+    if central_decay < 0:
+        central_decay = 0
+    elif central_decay > central_cutoff:
+        central_decay = central_cutoff
+
+    if interaction_decay < 0:
+        interaction_decay = 0
+    elif interaction_decay > interaction_cutoff:
+        interaction_decay = interaction_cutoff
+
+    natoms = nuclear_charges.size
+    cm_mat = np.zeros((natoms, size, size))
+
+    for k in range(natoms):
+        for i in range(natoms):
+            for j in range(i, natoms):
+                if variant == "classic" and i == j:
+                    dik = np.sqrt(np.sum((coordinates[i] - coordinates[k])**2))
+                    if dik < central_cutoff:
+                        cm_mat[k,i,i] = 0.5 * nuclear_charges[i]**2.4
+                        if dik > central_cutoff - central_decay:
+                            cm_mat[k,i,i] *= (0.5 * (1 + np.cos(np.pi * (dik - central_cutoff + central_decay) / central_decay)))**2
+                elif i == j and j == k:
+                    dik = np.sqrt(np.sum((coordinates[i] - coordinates[k])**2))
+                    if dik < central_cutoff:
+                        cm_mat[k,i,i] = 0.5 * nuclear_charges[i]**2.4
+                        if dik > central_cutoff - central_decay:
+                            cm_mat[k,i,i] *= (0.5 * (1 + np.cos(np.pi * (dik - central_cutoff + central_decay) / central_decay)))**2
+                else:
+                    dij = np.sqrt(np.sum((coordinates[i] - coordinates[j])**2))
+                    if dij < interaction_cutoff:
+                        dik = np.sqrt(np.sum((coordinates[i] - coordinates[k])**2))
+                        djk = np.sqrt(np.sum((coordinates[j] - coordinates[k])**2))
+                        if dik < central_cutoff and djk < central_cutoff:
+                            cm_mat[k,i,j] = nuclear_charges[i] * nuclear_charges[j] / \
+                            (dij*(variant in ["classic","sncf2"]) + (dik+djk) * (variant in ["sncf1","sncf2"]))**localization
+
+                            if dij > interaction_cutoff - interaction_decay:
+                                cm_mat[k,i,j] *= 0.5 * (1 + np.cos(np.pi * (dij - interaction_cutoff + interaction_decay) / interaction_decay))
+                            if dik > central_cutoff - central_decay:
+                                cm_mat[k,i,j] *= 0.5 * (1 + np.cos(np.pi * (dik - central_cutoff + central_decay) / central_decay))
+                            if djk > central_cutoff - central_decay:
+                                cm_mat[k,i,j] *= 0.5 * (1 + np.cos(np.pi * (djk - central_cutoff + central_decay) / central_decay))
+
+                    cm_mat[k,j,i] = cm_mat[k,i,j]
+
+    atoms = sorted(asize, key=asize.get)
+    nmax = [asize[key] for key in atoms]
+    descriptor = [[] for _ in atomtypes]
+    positions = dict([(element, np.where(atomtypes == element)[0]) for element in atoms])
+    for i, (element1, size1) in enumerate(zip(atoms,nmax)):
+        pos1 = positions[element1]
+        # A-bag
+        for k in range(natoms):
+            feature_vector = np.diag(cm_mat[k])[pos1]
+            descriptor[k].append(feature_vector)
+        for j, (element2, size2) in enumerate(zip(atoms,nmax)):
+            if i > j:
+                continue
+            if i == j:
+                for k in range(natoms):
+                    # Ak,Ai-bag
+                    feature_vector = np.zeros(size1-1)
+                    if atomtypes[k] == element1:
+                        pos = pos1[pos1 != k]
+                        feature_vector = cm_mat[k,k,pos]
+
+                    descriptor[k].append(feature_vector)
+
+                    # Ai,Aj bag
+                    if atomtypes[k] == element1:
+                        pos = pos1[pos1 != k]
+                        idx1, idx2 = np.triu_indices(size1-1,1)
+                        feature_vector = np.zeros((size1*(size1-1))//2)
+                        feature_vector[:idx1.size] = cm_mat(k,idx1,idx2).ravel()
+                    else:
+                        idx1, idx2 = np.triu_indices(size1,1)
+                        feature_vector = cm_mat(k,idx1,idx2).ravel()
+
+                    descriptor[k].append(feature_vector)
+
+            else:
+                pos2 = positions[element2]
+
+                for k in range(natoms):
+                    # Ak,Bi-bag
+                    feature_vector = np.zeros(size2)
+                    if atomtypes[k] == element1:
+                        feature_vector = cm_mat[k,k,pos2]
+
+                    descriptor[k].append(feature_vector)
+
+                    # Ai,Bk-bag
+                    feature_vector = np.zeros(size1)
+                    if atomtypes[k] == element2:
+                        feature_vector = cm_mat[k,k,pos1]
+
+                    descriptor[k].append(feature_vector)
+
+                    # Ai,Bj bag
+                    if atomtypes[k] in [element1,element2]:
+                        if atomtypes[k] == element1:
+                            bagsize = (size1-1)*size2
+                        else:
+                            bagsize = (size2-1)*size1
+
+                        feature_vector = np.zeros(size1*size2)
+                        pos = np.ix_([k], pos1[pos1 != k], pos2[pos2 != k])
+                        feature_vector[:bagsize] = cm_mat(pos).ravel()
+                    else:
+                        idx1, idx2 = np.triu_indices(size1,1)
+                        feature_vector = cm_mat(k,idx1,idx2)
+
+                    descriptor[k].append(feature_vector)
+
+
+    representation = np.empty(natoms,np.concatenate(descriptor[0]).size)
+
+    for i in range(natoms):
+        for j in range(len(descriptor(i))):
+            descriptor[i][j][::-1].sort()
+        representation[i] = np.concatenate(descriptor[i])
+
+    return representation
+
 def vector_to_matrix(vec):
     size = (-1 + int(np.sqrt(1 + 8 * vec.size))) // 2
     mat = np.zeros((size,size))
@@ -353,8 +641,9 @@ def vector_to_matrix(vec):
     return mat
 
 if __name__ == "__main__":
-    #test_coulomb_matrix()
+    test_coulomb_matrix()
     test_atomic_coulomb_matrix()
-    #test_eigenvalue_coulomb_matrix()
-    #test_bob()
+    test_eigenvalue_coulomb_matrix()
+    test_bob()
+    test_local_bob()
 

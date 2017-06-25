@@ -281,6 +281,24 @@ def generate_bob(nuclear_charges, coordinates, atomtypes, asize = {"O":3, "C":7,
 
     return fgenerate_bob(nuclear_charges, coordinates, nuclear_charges, ids, nmax, n)
 
+def generate_local_bob(nuclear_charges, coordinates, atomtypes, asize = {"O":3, "C":7, "N":3, "H":16, "S":1},
+        central_cutoff = 1e6, central_decay = -1, interaction_cutoff = 1e6, interaction_decay = -1):
+
+    n = 0
+    atoms = sorted(asize, key=asize.get)
+    nmax = [asize[key] for key in atoms]
+    ids = np.zeros(len(nmax), dtype=int)
+    for i, (key, value) in enumerate(zip(atoms,nmax)):
+        n += value * (1+value)
+        ids[i] = NUCLEAR_CHARGE[key]
+        for j in range(i):
+            v = nmax[j]
+            n += 2 * value * v
+    n /= 2
+
+    return fgenerate_local_bob(nuclear_charges, coordinates, nuclear_charges, ids, nmax, nuclear_charges.size,
+            central_cutoff, central_decay, interaction_cutoff, interaction_decay, n)
+
 def get_slatm_mbtypes(nuclear_charges, pbc='000'):
     """
     Get the list of minimal types of many-body terms in a dataset. This resulting list
