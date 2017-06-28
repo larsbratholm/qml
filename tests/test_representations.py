@@ -492,7 +492,6 @@ def test_local_bob():
     #assert np.allclose(acm2, acm), "Error in atomic coulomb matrix representation"
     pass
 
-
 def local_bob_reference(nuclear_charges, coordinates, atomtypes, size = 23, asize = {"O":3, "C":7, "N":3, "H":16, "S":1},
         central_cutoff = 1e6, central_decay = -1, interaction_cutoff = 1e6, interaction_decay = -1):
 

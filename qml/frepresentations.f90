@@ -47,6 +47,22 @@ subroutine get_indices(natoms, nuclear_charges, type1, n, type1_indices)
 
 end subroutine get_indices
 
+!subroutine OMP_init_lock(svar)
+!    integer(kind = OMP_lock_kind), intent(out) :: svar
+!end subroutine OMP_init_lock
+!
+!subroutine call OMP_set_lock(svar)
+!    integer(kind = OMP_lock_kind), intent(inout) :: svar
+!end subroutine call OMP_set_lock
+!
+!subroutine call OMP_unset_lock(svar)
+!    integer(kind = OMP_lock_kind), intent(inout) :: svar
+!end subroutine call OMP_unset_lock
+!
+!subroutine OMP_destroy_lock(svar)
+!    integer(kind = OMP_lock_kind), intent(inout) :: svar
+!end subroutine OMP_destroy_lock
+
 end module representations
 
 subroutine fgenerate_coulomb_matrix(atomic_charges, coordinates, nmax, cm)
@@ -70,6 +86,7 @@ subroutine fgenerate_coulomb_matrix(atomic_charges, coordinates, nmax, cm)
 
     integer :: i, j, m, n, idx
     integer :: natoms
+
 
     if (size(coordinates, dim=1) /= size(atomic_charges, dim=1)) then
         write(*,*) "ERROR: Coulomb matrix generation"
@@ -230,7 +247,6 @@ subroutine fgenerate_local_coulomb_matrix(atomic_charges, coordinates, natoms, n
 
     double precision, allocatable, dimension(:, :, :) :: pair_distance_matrix
     double precision, allocatable, dimension(:, :) :: distance_matrix
-    double precision, allocatable, dimension(:, :) :: distance_matrix_tmp
 
     integer i, j, m, n, k
 
@@ -307,9 +323,7 @@ subroutine fgenerate_local_coulomb_matrix(atomic_charges, coordinates, natoms, n
     do i = 1, natoms
         do k = 1, natoms
             ! self interaction
-            if (distance_matrix(i,k) > cent_cutoff) then
-                cycle
-            endif
+            if (distance_matrix(i,k) > cent_cutoff) cycle
 
             prefactor = 1.0d0
             if (distance_matrix(i,k) > cent_cutoff - cent_decay) then
@@ -322,13 +336,9 @@ subroutine fgenerate_local_coulomb_matrix(atomic_charges, coordinates, natoms, n
             row_norms(i,k) = row_norms(i,k) + pair_norm * pair_norm
 
             do j = i+1, natoms
-                if (distance_matrix(j,k) > cent_cutoff) then
-                    cycle
-                endif
+                if (distance_matrix(j,k) > cent_cutoff) cycle
 
-                if (distance_matrix(i,j) > int_cutoff) then
-                    cycle
-                endif
+                if (distance_matrix(i,j) > int_cutoff) cycle
 
                 pair_norm = prefactor * atomic_charges(i) * atomic_charges(j) &
                     & / distance_matrix(j, i)
@@ -503,9 +513,7 @@ subroutine fgenerate_atomic_coulomb_matrix(atomic_charges, coordinates, natoms, 
         do i = 1, natoms
             pair_distance_matrix(i, i) = 0.5d0 * atomic_charges(i) ** 2.4d0
             do j = i+1, natoms
-                if (distance_matrix(j,i) > int_cutoff) then
-                    cycle
-                endif
+                if (distance_matrix(j,i) > int_cutoff) cycle
                 pair_norm = atomic_charges(i) * atomic_charges(j) &
                     & / distance_matrix(j, i)
                 if (distance_matrix(j,i) > int_cutoff - int_decay) then
@@ -549,9 +557,7 @@ subroutine fgenerate_atomic_coulomb_matrix(atomic_charges, coordinates, natoms, 
             do m = 1, cutoff_count(k)
                 i = sorted_atoms_all(m, k)
 
-                if (distance_matrix(i,k) > cent_cutoff) then
-                    cycle
-                endif
+                if (distance_matrix(i,k) > cent_cutoff) cycle
                 prefactor = 1.0d0
                 if (distance_matrix(i,k) > cent_cutoff - cent_decay) then
                     prefactor = 0.5d0 * (cos(pi &
@@ -853,7 +859,9 @@ end subroutine fgenerate_bob
 subroutine fgenerate_local_bob(atomic_charges, coordinates, nuclear_charges, id, &
         & nmax, natoms, cent_cutoff, cent_decay, int_cutoff, int_decay, ncm, cm)
 
-    use representations, only: get_indices
+    use omp_lib
+    !use representations, only: OMP_init_lock, OMP_set_lock, OMP_unset_lock, OMP_destroy_lock
+
     implicit none
 
     double precision, dimension(:), intent(in) :: atomic_charges
@@ -866,31 +874,33 @@ subroutine fgenerate_local_bob(atomic_charges, coordinates, nuclear_charges, id,
     integer, intent(in) :: ncm
     double precision, dimension(natoms, ncm), intent(out):: cm
 
-    integer :: idx
-
     double precision :: pair_norm
-    double precision :: prefactor
     double precision :: norm
+    double precision :: decay_dist
     double precision :: huge_double
+    double precision :: prefactor
 
-    integer, allocatable, dimension(:) :: cutoff_count
+    integer, allocatable, dimension(:, :, :) :: start_indices
+    integer, allocatable, dimension(:) :: index_types
+    integer, allocatable, dimension(:, :) :: n_pair_indices
+    integer, allocatable, dimension(:, :, :) :: pair_indices
+    integer, allocatable, dimension(:, :, :, :) :: n_all_pair_indices
+    integer, allocatable, dimension(:, :, :, :, :) :: all_pair_indices
 
-    double precision, allocatable, dimension(:, :, :) :: pair_distance_matrix
-    double precision, allocatable, dimension(:, :) :: distance_matrix
-    double precision, allocatable, dimension(:, :) :: distance_matrix_tmp
-    double precision, allocatable, dimension(:, :) :: type_indices
-    double precision, allocatable, dimension(:) :: natomtypes
+    logical, allocatable, dimension(:, :) :: mask
 
-    integer i, j, m, n, k, l, nid, nbag, idx1, idx2
-    integer :: natoms1, natoms2, type1, type2
+    integer(kind = OMP_lock_kind), allocatable, dimension(:,:) :: lock
 
-    integer, allocatable, dimension(:) :: type1_indices
-    integer, allocatable, dimension(:) :: type2_indices
-    integer, allocatable, dimension(:,:,:) :: start_indices
     double precision, allocatable, dimension(:) :: bag
+    double precision, allocatable, dimension(:, :) :: distance_matrix
+    double precision, allocatable, dimension(:, :) :: cent_decay_matrix
+    double precision, allocatable, dimension(:, :) :: int_decay_matrix
+
+    integer :: i, j, k, l, m, n, p, nid, type0, type1, type2, nbag
 
     double precision, parameter :: pi = 4.0d0 * atan(1.0d0)
 
+    ! size checks
     if (size(coordinates, dim=1) /= size(atomic_charges, dim=1)) then
         write(*,*) "ERROR: Coulomb matrix generation"
         write(*,*) size(coordinates, dim=1), "coordinates, but", &
@@ -913,14 +923,12 @@ subroutine fgenerate_local_bob(atomic_charges, coordinates, nuclear_charges, id,
     endif
 
     n = 0
-    !$OMP PARALLEL DO REDUCTION(+:n)
-        do i = 1, nid
-            n = n + nmax(i) * (1 + nmax(i))
-            do j = 1, i - 1
-                n = n + 2 * nmax(i) * nmax(j)
-            enddo
+    do i = 1, nid
+        n = n + (nmax(i) * (3 + nmax(i))) / 2 - 1
+        do j = i + 1, nid
+            n = n + nmax(i) * (1 + nmax(j)) + nmax(j)
         enddo
-    !$OMP END PARALLEL DO
+    enddo
 
     if (n /= 2*ncm) then
         write(*,*) "ERROR: Bag of Bonds generation"
@@ -928,12 +936,8 @@ subroutine fgenerate_local_bob(atomic_charges, coordinates, nuclear_charges, id,
         stop
     endif
 
-    ! Allocate temporary
-    allocate(distance_matrix(natoms,natoms))
-    !allocate(cutoff_count(natoms))
 
-    huge_double = huge(distance_matrix(1,1))
-
+    ! Fix cutoffs and decays outside legal range
     if (cent_cutoff < 0) then
         cent_cutoff = huge_double
     endif
@@ -955,107 +959,204 @@ subroutine fgenerate_local_bob(atomic_charges, coordinates, nuclear_charges, id,
     endif
 
     ! Allocate temporary
-    allocate(type_indices(nid, natoms))
-    allocate(natomtypes(nid))
+    allocate(lock(natoms, nid))
 
-    !$OMP PARALLEL DO PRIVATE(norm) REDUCTION(+:natomtypes)
-    do i = 1, natoms
-        do j = 1, nid
-            if (atomtypes(i) == id(j)) then
-                !$OMP CRITICAL
-                natomtypes(j) = natomtypes(j) + 1
-                type_indices(j, n) = natomtypes(j)
-                !$OMP END CRITICAL
-            endif
-        enddo
-    enddo
-    !$OMP END PARALLEL DO
-
-    !cutoff_count = 1
-
-    !$OMP PARALLEL DO PRIVATE(norm) REDUCTION(+:cutoff_count)
-    do i = 1, natoms
-        distance_matrix(i, i) = 0.0d0
-        do j = i+1, natoms
-            norm = sqrt(sum((coordinates(j,:) - coordinates(i,:))**2))
-            distance_matrix(i, j) = norm
-            distance_matrix(j, i) = norm
-    !        if (norm < cent_cutoff) then
-    !            cutoff_count(i) = cutoff_count(i) + 1
-    !            cutoff_count(j) = cutoff_count(j) + 1
-    !        endif
-        enddo
-    enddo
-    !$OMP END PARALLEL DO
-
-    !do i = 1, natoms
-    !    do j = 1, nid
-    !        if (nuclear_charges(i) == id(j)) then
-    !            n = nmax(j)
-    !            exit
-    !        endif
-    !    enddo
-
-    !    if (cutoff_count(i) > n) then
-    !        write(*,*) "ERROR: Coulomb matrix generation"
-    !        write(*,*) nmax, "size set, but", &
-    !            & cutoff_count(i), "size needed!"
-    !        stop
-    !    endif
-    !enddo
-
-    ! Allocate temporary
-    allocate(pair_distance_matrix(natoms, natoms, natoms))
-
-    pair_distance_matrix = 0.0d0
-
-    !$OMP PARALLEL DO PRIVATE(pair_norm, prefactor) COLLAPSE(2)
-    do i = 1, natoms
-        do k = 1, natoms
-            ! self interaction
-            if (distance_matrix(i,k) > cent_cutoff) then
-                cycle
-            endif
-
-            prefactor = 1.0d0
-            if (distance_matrix(i,k) > cent_cutoff - cent_decay) then
-                prefactor = 0.5d0 * (cos(pi &
-                    & * (distance_matrix(i,k) - cent_cutoff + cent_decay) / cent_decay) + 1)
-            endif
-
-            pair_norm = prefactor * prefactor * 0.5d0 * atomic_charges(i) ** 2.4d0
-            pair_distance_matrix(i,i,k) = pair_norm
-
-            do j = i+1, natoms
-                if (distance_matrix(j,k) > cent_cutoff) then
-                    cycle
-                endif
-
-                if (distance_matrix(i,j) > int_cutoff) then
-                    cycle
-                endif
-
-                pair_norm = prefactor * atomic_charges(i) * atomic_charges(j) &
-                    & / distance_matrix(j, i)
-
-                if (distance_matrix(i,j) > int_cutoff - int_decay) then
-                    pair_norm = pair_norm * 0.5d0 * (cos(pi &
-                        & * (distance_matrix(i,j) - int_cutoff + int_decay) / int_decay) + 1)
-                endif
-
-
-                if (distance_matrix(j,k) > cent_cutoff - cent_decay) then
-                    pair_norm = pair_norm * 0.5d0 * (cos(pi &
-                        & * (distance_matrix(j,k) - cent_cutoff + cent_decay) / cent_decay) + 1)
-                endif
-
-                pair_distance_matrix(i, j, k) = pair_norm
-                pair_distance_matrix(j, i, k) = pair_norm
-                pair_norm = pair_norm * pair_norm
+    !$OMP PARALLEL DO
+        do i = 1, natoms
+            do j = 1, nid
+                call OMP_init_lock(lock(i,j))
             enddo
         enddo
-    enddo
     !$OMP END PARALLEL DO
+
+
+    ! Allocate temporary
+    allocate(index_types(natoms))
+
+    index_types = 1
+
+    ! Get element types
+    if (nid > 2) then
+        !$OMP PARALLEL DO PRIVATE(type1)
+        do i = 1, natoms
+            type1 = nuclear_charges(i)
+            do j = 2, nid
+                if (type1 == id(j)) then
+                    index_types(i) = j
+                endif
+            enddo
+        enddo
+        !$OMP END PARALLEL DO
+    endif
+
+    ! Allocate temporary
+    allocate(distance_matrix(natoms,natoms))
+    allocate(n_pair_indices(natoms, nid))
+    allocate(pair_indices(natoms, nid, natoms))
+    allocate(mask(natoms, natoms))
+    allocate(cent_decay_matrix(natoms,natoms))
+    allocate(int_decay_matrix(natoms,natoms))
+
+    huge_double = huge(distance_matrix(1,1))
+    n_pair_indices = 1
+    mask = .false.
+    cent_decay_matrix = 1.0d0
+    int_decay_matrix = 1.0d0
+
+    ! Create convenience arrays
+    !$OMP PARALLEL DO PRIVATE(norm, type1, type2, prefactor, decay_dist) &
+    !$OMP& REDUCTION(*:cent_decay_matrix,int_decay_matrix) SCHEDULE(guided)
+        do i = 1, natoms
+            distance_matrix(i, i) = 0.0d0
+            type1 = index_types(i)
+            ! keep central atom first
+            pair_indices(i, type1, 1) = i
+            do j = i+1, natoms
+                type2 = index_types(j)
+                ! Get distances
+                norm = sqrt(sum((coordinates(i,:) - coordinates(j,:))**2))
+                distance_matrix(i, j) = norm
+                distance_matrix(j, i) = norm
+                if (norm < cent_cutoff) then
+                    ! Store indices that yield non-zero contributions
+                    call OMP_set_lock(lock(i, type2))
+                    n_pair_indices(i, type2) = n_pair_indices(i, type2) + 1
+                    pair_indices(i, type2, n_pair_indices(i, type2)) = j
+                    call OMP_unset_lock(lock(i, type2))
+
+                    call OMP_set_lock(lock(j, type1))
+                    n_pair_indices(j, type1) = n_pair_indices(j, type1) + 1
+                    pair_indices(j, type1, n_pair_indices(j, type1)) = i
+                    call OMP_unset_lock(lock(j, type1))
+
+                    ! Calculate decay factors
+                    decay_dist = norm - cent_cutoff + cent_decay
+                    if (decay_dist > 0) then
+                        prefactor = 0.5d0 * &
+                            & (cos(pi * decay_dist / cent_decay) + 1)
+
+                        cent_decay_matrix(i,j) = cent_decay_matrix(i,j) * prefactor
+                        cent_decay_matrix(j,i) = cent_decay_matrix(j,i) * prefactor
+
+                    endif
+                else if (norm > int_cutoff) then
+                    mask(i,j) = .true.
+                    mask(j,i) = .true.
+
+                    decay_dist = norm - int_cutoff + int_decay
+                    if (decay_dist > 0) then
+                        prefactor = 0.5d0 * &
+                            & (cos(pi * decay_dist / int_decay) + 1)
+
+                        int_decay_matrix(i,j) = int_decay_matrix(i,j) * prefactor
+                        int_decay_matrix(j,i) = int_decay_matrix(j,i) * prefactor
+                    endif
+                endif
+            enddo
+        enddo
+    !$OMP END PARALLEL DO
+
+    ! Clean up
+    deallocate(lock)
+
+    ! Check given array sizes
+    do j = 1, nid
+        n = maxval(n_pair_indices(:,j), dim=1)
+        if (n > nmax(j)) then
+            write(*,*) "ERROR: Bag of Bonds generation"
+            write(*,*) nmax(j), "size set for atom with nuclear charge,", &
+                & id(j), "but", n, "size needed!"
+        endif
+    enddo
+
+
+    ! Allocate temporary
+    n = 0
+    do j = 1, nid
+        n = max(n,maxval(n_pair_indices(:,j), dim=1))
+    enddo
+    allocate(n_all_pair_indices(natoms, nid, nid, n))
+    allocate(all_pair_indices(natoms,nid,nid,n,n))
+
+    n_all_pair_indices = 0
+
+    !$OMP PARALLEL DO PRIVATE(l, m, n, type0, type1, type2)
+        do k = 1, natoms
+            type0 = index_types(k)
+            ! Only fill the indices needed for the bags.
+
+            do type1 = 1, nid
+                do i = 1, n_pair_indices(k, type1)
+                    l = pair_indices(k, type1, i)
+
+                    ! bags with interactions between atoms of same atom type
+                    do j = i+1, n_pair_indices(k, type1)
+                        m = pair_indices(k, type1, j)
+                        if (mask(l,m)) cycle
+
+                        n = n_all_pair_indices(k, type1, type1, i) + 1
+                        n_all_pair_indices(k, type1, type1, i) = n
+                        all_pair_indices(k, type1, type1, i, n) = m
+                    enddo
+
+                    ! bags with interactions between atoms of different atom type
+                    do type2 = 1, nid
+                        if (type1 == type2) cycle
+                        do j = 1, n_pair_indices(k, type2)
+                            m = pair_indices(k, type2, j)
+                            if (mask(l,m)) cycle
+
+                            n = n_all_pair_indices(k, type1, type2, i) + 1
+                            n_all_pair_indices(k, type1, type2, i) = n
+                            all_pair_indices(k, type1, type2, i, n) = m
+                        enddo
+                    enddo
+                enddo
+            enddo
+        enddo
+    !$OMP END PARALLEL DO
+
+    ! Clean up
+    deallocate(mask)
+
+    ! Allocate temporary
+    allocate(start_indices(nid,nid,4))
+
+    ! get start indices
+    ! bags with atom types A,B,C with k of type X in (A,B,C):
+    ! (A, B, C, XA, XB, XC, AA, BB, CC, AB, AC, BC)
+    do i = 1, nid
+        if (i == 1) then
+            start_indices(1,1,1) = 0
+        else
+            start_indices(i,1,1) = start_indices(i-1,1,1) + nmax(i-1)
+        endif
+    enddo
+    do i = 1, nid
+        if (i == 1) then
+            start_indices(1,1,2) = start_indices(nid,1,1) + nmax(nid)
+        else
+            start_indices(i,1,2) = start_indices(i-1,1,2) + nmax(i-1)
+        endif
+    enddo
+    do i = 1, nid
+        if (i == 1) then
+            start_indices(1,1,3) = start_indices(nid,1,2) + nmax(nid)
+        else
+            start_indices(i,1,3) = start_indices(i-1,1,3) + (nmax(i-1)* (nmax(i-1) - 1)) / 2
+        endif
+    enddo
+    do i = 1, nid
+        do j = i+1, nid
+            if (j == 2) then
+                start_indices(1,2,4) = start_indices(nid,1,3) + (nmax(nid)* (nmax(nid) - 1)) / 2
+            else
+                if (j == i+1) then
+                    start_indices(i,j,4) = start_indices(i-1,nid,4) + nmax(i-1)*nmax(nid)
+                endif
+            endif
+        enddo
+    enddo
 
 
     ! Get max bag size
@@ -1063,226 +1164,160 @@ subroutine fgenerate_local_bob(atomic_charges, coordinates, nuclear_charges, id,
     do i = 1, nid
         nbag = max(nbag, nmax(i))
         nbag = max(nbag, (nmax(i)*(nmax(i)-1))/2)
-        do j = 1, i - 1
+        do j = i + 1, nid
             nbag = max(nbag, nmax(i)*nmax(j))
         enddo
     enddo
 
     ! Allocate temporary
-    ! Too large but easier
     allocate(bag(nbag))
-    allocate(start_indices(nid,nid,3))
 
-
-    ! get start indices
-    ! bags: (A,AkAi,AiAj,AkBi,AiBk,AiBj etc)
-    do i = 1, nid
-        if (i == 1) then
-            start_indices(1,1,1) = 0
-        else
-            start_indices(i,i,1) = start_indices(i-1,nid,3) + nmax(i) * nmax(nid)
-        endif
-
-        start_indices(i,i,2) = start_indices(i,i,1) + nmax(i)
-        start_indices(i,i,3) = start_indices(i,i,2) + nmax(i) - 1
-
-        do j = i+1, nid
-            start_indices(i,j,1) = start_indices(i,i,3) + (nmax(i) * (nmax(i) -1)) / 2
-            start_indices(i,j,2) = start_indices(i,j,1) + nmax(j)
-            start_indices(i,j,3) = start_indices(i,j,2) + nmax(i)
-        enddo
-    enddo
-
-    ! Allocate temporary
-    ! Too large but easier
-    allocate(type1_indices(maxval(nmax, dim=1)))
-    allocate(type2_indices(maxval(nmax, dim=1)))
-
+    ! Construct representation
     cm = 0.0d0
 
-    !$OMP PARALLEL DO PRIVATE(type1, type1_indices, l, m, n, &
-    !$OMP& bag, natoms1, idx1, idx2, k, nbag, type2, natoms2, type2_indices) &
-    !$OMP& SCHEDULE(dynamic)
-    do i = 1, nid
-        type1 = id(i)
-        natoms1 = 0
+    !$OMP PARALLEL DO &
+    !$OMP& PRIVATE(type0, type1, type2, l, m, n, norm, bag, pair_norm, nbag, p)
+        do k = 1, natoms
+            type0 = index_types(k)
 
-        call get_indices(natoms, nuclear_charges, type1, natoms1, type1_indices)
+            !A bag (self-interactions)
+            do type1 = 1, nid
+                nbag = n_pair_indices(k, type1)
+                do i = 1, nbag
+                    l = pair_indices(k, type1, i)
 
-        if (natoms1 == 0) then
-            cycle
-        endif
+                    norm = distance_matrix(l, k)
+                    pair_norm = 0.5 * atomic_charges(l) ** 2.4 * cent_decay_matrix(k,i) ** 2
+                    bag(i) = pair_norm
+                enddo
 
-        ! A bag (self-interactions)
-        do j = 1, natoms1
-            idx1 = type1_indices(j)
-            cm(:, start_indices(i,i,1) + j) = pair_distance_matrix(idx1,idx1,:)
-        enddo
-
-
-        ! Ai,Aj bag
-        do k = 1, natoms1
-            idx1 = type1_indices(k)
-            do j = k + 1, natoms1
-                idx2 = type1_indices(j)
-                cm(:, start_indices(i,i,3) + (k - 1) * (nmax(i) - 1) + j - k) &
-                    & = pair_distance_matrix(idx1, idx2, :)
+                ! sort
+                n = start_indices(type1, 1, 1)
+                do i = 1, nbag
+                    l = maxloc(bag(:nbag), dim=1)
+                    cm(k, n + i) = bag(l)
+                    bag(l) = -huge_double
+                enddo
+                ! end sort
             enddo
-        enddo
+            ! end A bag
 
-        ! Ak,Ai bag
-        do k = 1, natoms1
-            idx1 = type1_indices(k)
-            do j = k + 1, natoms1
-                idx2 = type1_indices(j)
-                cm(idx1, start_indices(i,i,2) + j - 1) = pair_distance_matrix(idx1, idx2, idx1)
-                cm(idx2, start_indices(i,i,2) + k) = pair_distance_matrix(idx1, idx2, idx2)
-                ! Remove the Ak,Ai pairs from the Ai,Aj bag
-                cm(idx1, start_indices(i,i,3) + (k - 1) * (nmax(i) - 1) + j - k) = 0.0d0
-                cm(idx2, start_indices(i,i,3) + (k - 1) * (nmax(i) - 1) + j - k) = 0.0d0
+            ! XA bag
+            do type1 = 1, nid
+                n = 1
+                nbag = n_pair_indices(k, type1)
+                if (type0 == type1) then
+                    n = 2
+                    nbag = nbag - 1
+                endif
+
+                do i = n, nbag + n - 1
+                    l = pair_indices(k, type1, i)
+
+                    norm = distance_matrix(l, k)
+
+                    pair_norm = atomic_charges(k) * atomic_charges(l) / norm &
+                        & * cent_decay_matrix(k,l) &
+                        & * int_decay_matrix(k,l)
+
+                    bag(i-n+1) = pair_norm
+                enddo
+
+                ! sort
+                n = start_indices(type1, 1, 2)
+                do i = 1, nbag
+                    l = maxloc(bag(:nbag), dim=1)
+                    cm(k, n + i) = bag(l)
+                    bag(l) = -huge_double
+                enddo
+                ! end sort
             enddo
-        enddo
 
+            ! AA bag
+            do type1 = 1, nid
+                n = 1
+                if (type0 == type1) then
+                    n = 2
+                endif
 
-        do j = i + 1, nid
-            type2 = id(j)
-            natoms2 = 0
+                nbag = 0
+                do i = n, n_pair_indices(k, type1)
+                    l = pair_indices(k, type1, i)
+                    do j = 1, n_all_pair_indices(k, type1, type1, i)
+                        m = all_pair_indices(k, type1, type1, i, j)
+                        norm = distance_matrix(l, m)
 
-            call get_indices(natoms, nuclear_charges, type2, natoms2, type2_indices)
+                        pair_norm = atomic_charges(k) * atomic_charges(l) / norm &
+                            & * cent_decay_matrix(k,l) * cent_decay_matrix(k, m) &
+                            & * int_decay_matrix(l,m)
 
-            if (natoms2 == 0) then
-                cycle
-            endif
+                        bag(nbag + j) = pair_norm
+                    enddo
+                    nbag = nbag + n_all_pair_indices(k, type1, type1, i)
+                enddo
 
-            ! Ai,Bj bag
-            do k = 1, natoms1
-                idx1 = type1_indices(k)
-                do l = 1, natoms2
-                    idx2 = type2_indices(l)
-                    cm(:, start_indices(i,j,3) + (k - 1) * nmax(l) + l) &
-                        & = pair_distance_matrix(idx1, idx2, :)
+                ! sort
+                n = start_indices(type1, 1, 3)
+                do i = 1, nbag
+                    l = maxloc(bag(:nbag), dim=1)
+                    cm(k, n + i) = bag(l)
+                    bag(l) = -huge_double
+                enddo
+                ! end sort
+            enddo
+
+            ! AB bag
+            do type1 = 1, nid
+                p = 1
+                if (type0 == type1) then
+                    p = 2
+                endif
+
+                do type2 = type1, nid
+                    n = 1
+                    if (type0 == type2) then
+                        n = 2
+                    endif
+
+                    nbag = 0
+                    do i = p, n_pair_indices(k, type1)
+                        l = pair_indices(k, type1, i)
+                        do j = 1, n_all_pair_indices(k, type1, type2, i)
+                            m = all_pair_indices(k, type1, type2, i, j)
+                            norm = distance_matrix(l, m)
+
+                            pair_norm = atomic_charges(k) * atomic_charges(l) / norm &
+                                & * cent_decay_matrix(k,l) * cent_decay_matrix(k, m) &
+                                & * int_decay_matrix(l,m)
+
+                            bag(nbag + j) = pair_norm
+                        enddo
+                        nbag = nbag + n_all_pair_indices(k, type1, type2, i)
+                    enddo
+
+                    ! sort
+                    n = start_indices(type1, type2, 4)
+                    do i = 1, nbag
+                        l = maxloc(bag(:nbag), dim=1)
+                        cm(k, n + i) = bag(l)
+                        bag(l) = -huge_double
+                    enddo
+                    ! end sort
                 enddo
             enddo
-
-            do k = 1, natoms1
-                idx1 = type1_indices(k)
-                do l = 1, natoms2
-                    idx2 = type2_indices(l)
-                    ! Ak,Bi bag
-                    cm(idx1, start_indices(i,j,1) + l) &
-                        & = pair_distance_matrix(idx1, idx2, idx1)
-                    ! Ai,Bk bag
-                    cm(idx2, start_indices(i,j,2) + k) &
-                        & = pair_distance_matrix(idx2, idx1, idx2)
-
-                    ! Remove dublicates in Ai,Bj bag
-                    cm(idx1, start_indices(i,j,3) + (k - 1) * nmax(l) + l) = 0.0d0
-                    cm(idx2, start_indices(i,j,3) + (l - 1) * nmax(k) + k) = 0.0d0
-                enddo
-            enddo
-
         enddo
-    enddo
     !$OMP END PARALLEL DO
 
     ! Clean up
-    deallocate(pair_distance_matrix)
-    deallocate(type1_indices)
-    deallocate(type2_indices)
-
-    !$OMP PARALLEL DO PRIVATE(nbag, bag, l)
-    do i = 1, nid
-        ! sort A bag
-        nbag = start_indices(i,i,2) - start_indices(i,i,1)
-        do k = 1, natoms
-            bag(:nbag) = cm(k,start_indices(i,i,1)+1:start_indices(i,i,1) + nbag)
-            !$OMP CRITICAL
-            do m = 1, nbag
-                l = maxloc(bag(:nbag), dim=1)
-                cm(k,start_indices(i,i,1) + m) = bag(l)
-                bag(l) = -huge_double
-            enddo
-            !$OMP END CRITICAL
-        enddo
-
-        ! sort Ak,Ai bag
-        nbag = start_indices(i,i,3) - start_indices(i,i,2)
-        do k = 1, natoms
-            bag(:nbag) = cm(k,start_indices(i,i,2)+1:start_indices(i,i,2) + nbag)
-            !$OMP CRITICAL
-            do m = 1, nbag
-                l = maxloc(bag(:nbag), dim=1)
-                cm(k,start_indices(i,i,2) + m) = bag(l)
-                bag(l) = -huge_double
-            enddo
-            !$OMP END CRITICAL
-        enddo
-
-        ! sort Ai,Aj bag
-        if (i == nid) then
-            nbag = ncm - start_indices(i,i,3)
-        else
-            nbag = start_indices(i,i+1,1) - start_indices(i,i,3)
-        endif
-        do k = 1, natoms
-            bag(:nbag) = cm(k,start_indices(i,i,3)+1:start_indices(i,i,3) + nbag)
-            !$OMP CRITICAL
-            do m = 1, nbag
-                l = maxloc(bag(:nbag), dim=1)
-                cm(k,start_indices(i,i,3) + m) = bag(l)
-                bag(l) = -huge_double
-            enddo
-            !$OMP END CRITICAL
-        enddo
-
-        do j = i + 1, nid
-
-            ! sort Ak,Bi bag
-            nbag = start_indices(i,j,2) - start_indices(i,j,1)
-            do k = 1, natoms
-                bag(:nbag) = cm(k,start_indices(i,j,1)+1:start_indices(i,j,1) + nbag)
-                !$OMP CRITICAL
-                do m = 1, nbag
-                    l = maxloc(bag(:nbag), dim=1)
-                    cm(k,start_indices(i,j,1) + m) = bag(l)
-                    bag(l) = -huge_double
-                enddo
-                !$OMP END CRITICAL
-            enddo
-
-            ! sort Ai,Bk bag
-            nbag = start_indices(i,j,3) - start_indices(i,j,2)
-            do k = 1, natoms
-                bag(:nbag) = cm(k,start_indices(i,j,2)+1:start_indices(i,j,2) + nbag)
-                !$OMP CRITICAL
-                do m = 1, nbag
-                    l = maxloc(bag(:nbag), dim=1)
-                    cm(k,start_indices(i,j,2) + m) = bag(l)
-                    bag(l) = -huge_double
-                enddo
-                !$OMP END CRITICAL
-            enddo
-
-            ! sort Ai,Bj bag
-            nbag = start_indices(i+1,i+1,1) - start_indices(i,j,3)
-            do k = 1, natoms
-                bag(:nbag) = cm(k,start_indices(i,j,3)+1:start_indices(i,j,3) + nbag)
-                !$OMP CRITICAL
-                do m = 1, nbag
-                    l = maxloc(bag(:nbag), dim=1)
-                    cm(k,start_indices(i,j,3) + m) = bag(l)
-                    bag(l) = -huge_double
-                enddo
-                !$OMP END CRITICAL
-            enddo
-
-        enddo
-    enddo
-    !$OMP END PARALLEL DO
-
-    ! Clean up
+    deallocate(index_types)
+    deallocate(n_pair_indices)
+    deallocate(pair_indices)
+    deallocate(n_all_pair_indices)
+    deallocate(all_pair_indices)
+    deallocate(distance_matrix)
+    deallocate(cent_decay_matrix)
+    deallocate(int_decay_matrix)
     deallocate(bag)
-    deallocate(start_indices)
 
 end subroutine fgenerate_local_bob
 
