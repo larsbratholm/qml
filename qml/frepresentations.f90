@@ -875,7 +875,6 @@ end subroutine fgenerate_bob
 subroutine fgenerate_local_bob(atomic_charges, coordinates, nuclear_charges, id, &
         & nmax, natoms, cent_cutoff, cent_decay, int_cutoff, int_decay, ncm, cm)
 
-    use omp_lib
 
     implicit none
 
@@ -899,12 +898,9 @@ subroutine fgenerate_local_bob(atomic_charges, coordinates, nuclear_charges, id,
     integer, allocatable, dimension(:) :: index_types
     integer, allocatable, dimension(:, :) :: n_pair_indices
     integer, allocatable, dimension(:, :, :) :: pair_indices
-    integer, allocatable, dimension(:, :, :, :) :: n_all_pair_indices
-    integer, allocatable, dimension(:, :, :, :, :) :: all_pair_indices
 
     logical, allocatable, dimension(:, :) :: mask
 
-    integer(kind = OMP_lock_kind), allocatable, dimension(:,:) :: lock
 
     double precision, allocatable, dimension(:) :: bag
     double precision, allocatable, dimension(:, :) :: distance_matrix
@@ -979,17 +975,6 @@ subroutine fgenerate_local_bob(atomic_charges, coordinates, nuclear_charges, id,
         int_decay = int_cutoff
     endif
 
-    ! Allocate temporary
-    allocate(lock(natoms, nid))
-
-    !$OMP PARALLEL DO
-        do i = 1, natoms
-            do j = 1, nid
-                call OMP_init_lock(lock(i,j))
-            enddo
-        enddo
-    !$OMP END PARALLEL DO
-
 
     ! Allocate temporary
     allocate(index_types(natoms))
@@ -998,16 +983,15 @@ subroutine fgenerate_local_bob(atomic_charges, coordinates, nuclear_charges, id,
 
     ! Get element types
     if (nid > 2) then
-        !$OMP PARALLEL DO PRIVATE(type1)
         do i = 1, natoms
             type1 = nuclear_charges(i)
             do j = 2, nid
                 if (type1 == id(j)) then
                     index_types(i) = j
+                    exit
                 endif
             enddo
         enddo
-        !$OMP END PARALLEL DO
     endif
 
     ! Allocate temporary
@@ -1023,8 +1007,6 @@ subroutine fgenerate_local_bob(atomic_charges, coordinates, nuclear_charges, id,
     int_decay_matrix = 1.0d0
 
     ! Create convenience arrays
-    !$OMP PARALLEL DO PRIVATE(norm, type1, type2, prefactor, decay_dist) &
-    !$OMP& REDUCTION(*:cent_decay_matrix,int_decay_matrix) SCHEDULE(guided)
         do i = 1, natoms
             distance_matrix(i, i) = 0.0d0
             type1 = index_types(i)
@@ -1036,15 +1018,11 @@ subroutine fgenerate_local_bob(atomic_charges, coordinates, nuclear_charges, id,
                 distance_matrix(j, i) = norm
                 if (norm < cent_cutoff) then
                     ! Store indices that yield non-zero contributions
-                    call OMP_set_lock(lock(i, type2))
                     n_pair_indices(i, type2) = n_pair_indices(i, type2) + 1
                     pair_indices(i, type2, n_pair_indices(i, type2)) = j
-                    call OMP_unset_lock(lock(i, type2))
 
-                    call OMP_set_lock(lock(j, type1))
                     n_pair_indices(j, type1) = n_pair_indices(j, type1) + 1
                     pair_indices(j, type1, n_pair_indices(j, type1)) = i
-                    call OMP_unset_lock(lock(j, type1))
 
                     ! Calculate decay factors
                     decay_dist = norm - cent_cutoff + cent_decay
@@ -1075,10 +1053,6 @@ subroutine fgenerate_local_bob(atomic_charges, coordinates, nuclear_charges, id,
                 endif
             enddo
         enddo
-    !$OMP END PARALLEL DO
-
-    ! Clean up
-    deallocate(lock)
 
     ! Check given array sizes
     do j = 1, nid
@@ -1090,62 +1064,6 @@ subroutine fgenerate_local_bob(atomic_charges, coordinates, nuclear_charges, id,
         endif
     enddo
 
-
-    ! Allocate temporary
-    max_idx = 1 ! to store k index
-    do j = 1, nid
-        max_idx = max(max_idx,maxval(n_pair_indices(:,j), dim=1) + 1)
-    enddo
-    allocate(n_all_pair_indices(natoms, nid, nid, max_idx))
-    allocate(all_pair_indices(natoms,nid,nid,max_idx, max_idx-1))
-
-
-    n_all_pair_indices = 0
-
-    !$OMP PARALLEL DO PRIVATE(l, m, n, type0, type1, type2)
-        do k = 1, natoms
-            type0 = index_types(k)
-            ! Only fill the indices needed for the bags.
-            do type1 = 1, nid
-                do i = 1, n_pair_indices(k, type1)
-                    l = pair_indices(k, type1, i)
-
-                    ! bags with interactions between atoms of same atom type
-                    do j = i+1, n_pair_indices(k, type1)
-                        m = pair_indices(k, type1, j)
-                        if (mask(l,m)) cycle
-
-                        n = n_all_pair_indices(k, type1, type1, i) + 1
-                        n_all_pair_indices(k, type1, type1, i) = n
-                        all_pair_indices(k, type1, type1, i, n) = m
-                    enddo
-
-                    ! bags with interactions between atoms of different atom type
-                    do type2 = type1+1, nid
-                        do j = 1, n_pair_indices(k, type2)
-                            m = pair_indices(k, type2, j)
-                            if (mask(l,m)) cycle
-                            if (m == k) cycle
-
-                            n = n_all_pair_indices(k, type1, type2, i) + 1
-                            n_all_pair_indices(k, type1, type2, i) = n
-                            all_pair_indices(k, type1, type2, i, n) = m
-                        enddo
-                    enddo
-
-                    ! Indices for XA bag
-                    ! Alternatively, don't include int_cutoff (mask)
-                    if (mask(l,k)) cycle
-                    n = n_all_pair_indices(k, type0, type1, max_idx) + 1
-                    n_all_pair_indices(k, type0, type1, max_idx) = n
-                    all_pair_indices(k, type0, type1, max_idx, n) = l
-                enddo
-            enddo
-        enddo
-    !$OMP END PARALLEL DO
-
-    ! Clean up
-    deallocate(mask)
 
     ! Allocate temporary
     allocate(start_indices(nid,nid,3))
@@ -1174,7 +1092,7 @@ subroutine fgenerate_local_bob(atomic_charges, coordinates, nuclear_charges, id,
     do i = 1, nid
         do j = i, nid
             if (j == 1) then
-                start_indices(1,1,3) = start_indices(nid,1,2) + (nmax(nid)* (nmax(nid) - 1)) / 2
+                start_indices(1,1,3) = start_indices(nid,1,2) + nmax(nid)
             else if (j == i) then
                 start_indices(i,i,3) = start_indices(i-1,nid,3) + nmax(i-1)*nmax(nid)
             else if (j == i+1) then
@@ -1185,10 +1103,6 @@ subroutine fgenerate_local_bob(atomic_charges, coordinates, nuclear_charges, id,
         enddo
     enddo
 
-    do i = 1, nid
-        do j = i, nid
-            enddo
-            enddo
 
     ! Get max bag size
     nbag = 1
@@ -1206,14 +1120,18 @@ subroutine fgenerate_local_bob(atomic_charges, coordinates, nuclear_charges, id,
     ! Construct representation
     cm = 0.0d0
 
+    ! X bag
+    do k = 1, natoms
+        cm(k,1) = 0.5d0 * atomic_charges(k) ** 2.4d0
+    enddo
+
+
+    !$OMP PARALLEL DO PRIVATE(type0, nbag, l, norm, pair_norm, bag, n, m) COLLAPSE(2)
         do k = 1, natoms
-            type0 = index_types(k)
-
-            ! X bag
-            cm(k,1) = 0.5d0 * atomic_charges(k) ** 2.4d0
-
-            !A bag (self-interactions)
             do type1 = 1, nid
+                type0 = index_types(k)
+
+                ! start A bag
                 nbag = n_pair_indices(k, type1)
                 do i = 1, nbag
                     l = pair_indices(k, type1, i)
@@ -1232,15 +1150,14 @@ subroutine fgenerate_local_bob(atomic_charges, coordinates, nuclear_charges, id,
                     bag(l) = -huge_double
                 enddo
                 ! end sort
-            enddo
-            ! end A bag
+                ! end A bag
 
-            ! XA bag
-            do type1 = 1, nid
-                nbag = n_all_pair_indices(k, type0, type1, max_idx)
-
-                do i = 1, nbag
-                    l = all_pair_indices(k, type0, type1, max_idx, i)
+                ! start XA bag
+                nbag = 0
+                do i = 1, n_pair_indices(k,type1)
+                    l = pair_indices(k, type1, i)
+                    if (mask(l,k)) cycle
+                    nbag = nbag + 1
 
                     norm = distance_matrix(l, k)
 
@@ -1249,7 +1166,7 @@ subroutine fgenerate_local_bob(atomic_charges, coordinates, nuclear_charges, id,
                         & * cent_decay_matrix(k,l) &
                         & * int_decay_matrix(k,l)
 
-                    bag(i) = pair_norm
+                    bag(nbag) = pair_norm
                 enddo
 
                 ! sort
@@ -1260,46 +1177,74 @@ subroutine fgenerate_local_bob(atomic_charges, coordinates, nuclear_charges, id,
                     bag(l) = -huge_double
                 enddo
                 ! end sort
-            enddo
+                ! end XA bag
 
-            ! AB bag including AA
-            do type1 = 1, nid
-                do type2 = type1, nid
+                ! start AA bag
+                nbag = 0
+                do i = 1, n_pair_indices(k, type1)
+                    l = pair_indices(k, type1, i)
+                    do j = 1, i-1
+                        m = pair_indices(k, type1, j)
+                        if (mask(l,m)) cycle
+                        nbag = nbag + 1
+                        norm = distance_matrix(l, m)
+
+                        pair_norm = atomic_charges(l) * atomic_charges(m) / norm &
+                            & * cent_decay_matrix(k,l) * cent_decay_matrix(k, m) &
+                            & * int_decay_matrix(l,m)
+
+                        bag(nbag) = pair_norm
+                    enddo
+                enddo
+
+                ! sort
+                n = start_indices(type1, type1, 3)
+                do i = 1, nbag
+                    l = maxloc(bag(:nbag), dim=1)
+                    cm(k, n + i) = bag(l)
+                    bag(l) = -huge_double
+                enddo
+                ! end sort
+                ! end AA bag
+
+                ! start AB bag
+                do type2 = type1+1, nid
                     nbag = 0
                     do i = 1, n_pair_indices(k, type1)
                         l = pair_indices(k, type1, i)
-                        n = n_all_pair_indices(k, type1, type2, i)
-                        do j = 1, n
-                            m = all_pair_indices(k, type1, type2, i, j)
+                        do j = 1, n_pair_indices(k, type2)
+                            m = pair_indices(k, type2, j)
+                            if (mask(l,m)) cycle
+                            nbag = nbag + 1
                             norm = distance_matrix(l, m)
 
                             pair_norm = atomic_charges(l) * atomic_charges(m) / norm &
                                 & * cent_decay_matrix(k,l) * cent_decay_matrix(k, m) &
                                 & * int_decay_matrix(l,m)
 
-                            bag(nbag + j) = pair_norm
+                            bag(nbag) = pair_norm
                         enddo
-                        nbag = nbag + n
                     enddo
 
-                    !! sort
-                    !m = start_indices(type1, type2, 3)
-                    !do i = 1, nbag
-                    !    l = maxloc(bag(:nbag), dim=1)
-                    !    cm(k, m + i) = bag(l)
-                    !    bag(l) = -huge_double
-                    !enddo
+                    ! sort
+                    n = start_indices(type1, type2, 3)
+                    do i = 1, nbag
+                        l = maxloc(bag(:nbag), dim=1)
+                        cm(k, n + i) = bag(l)
+                        bag(l) = -huge_double
+                    enddo
                     ! end sort
+                    ! end AB bag
                 enddo
             enddo
         enddo
+    !$OMP END PARALLEL DO
 
     ! Clean up
     deallocate(index_types)
     deallocate(n_pair_indices)
     deallocate(pair_indices)
-    deallocate(n_all_pair_indices)
-    deallocate(all_pair_indices)
+    deallocate(mask)
     deallocate(distance_matrix)
     deallocate(cent_decay_matrix)
     deallocate(int_decay_matrix)
@@ -1531,7 +1476,6 @@ subroutine fgenerate_local_coulomb_matrix_sncf(atomic_charges, coordinates, nato
 
     double precision, allocatable, dimension(:, :, :) :: pair_distance_matrix
     double precision, allocatable, dimension(:, :) :: distance_matrix
-    double precision, allocatable, dimension(:, :) :: distance_matrix_tmp
 
     integer i, j, m, n, k
 

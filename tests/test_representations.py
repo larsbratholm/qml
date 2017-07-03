@@ -189,13 +189,15 @@ def print_mol(mol):
 
 def test_local_bob():
 
-    t = time.time()
     path = test_dir = os.path.dirname(os.path.realpath(__file__))
+    base = "qm9/dsgdb9nsd_"
+    nlen = 6
+    nmol = 128000
     mols = []
-    for i in range(1,7000):
+    for i in range(1,nmol):
         n = str(i)
-        n = "0"*(4-len(n)) + n
-        xyz_file = "qm7/%s.xyz" % n
+        n = "0"*(nlen-len(n)) + n
+        xyz_file = base + "%s.xyz" % n
         try:
             mol = qml.Compound(xyz=path + "/" + xyz_file)
             mols.append(mol)
@@ -210,6 +212,7 @@ def test_local_bob():
                 continue
             asize[key] = max(asize[key], value)
 
+    t = time.time()
     for mol in mols:
        # print (time.time() - t)
         # Generate atomic coulomb matrix representation, sorted by row-norm, using the Compound class
