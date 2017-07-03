@@ -17,7 +17,7 @@ FORTRAN = "f90"
 
 # GNU (default)
 COMPILER_FLAGS = ["-O3", "-fopenmp", "-m64", "-march=native", "-fPIC", 
-                    "-Wno-maybe-uninitialized", "-Wno-unused-function", "-Wno-cpp"]
+                    "-Wno-maybe-uninitialized", "-Wno-unused-function", "-Wno-cpp"]#, "-fcheck=all"]
 LINKER_FLAGS = ["-lgomp"]
 MATH_LINKER_FLAGS = ["-lblas", "-llapack"]
 

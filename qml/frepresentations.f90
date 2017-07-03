@@ -915,7 +915,6 @@ subroutine fgenerate_local_bob(atomic_charges, coordinates, nuclear_charges, id,
 
     double precision, parameter :: pi = 4.0d0 * atan(1.0d0)
 
-    write(*,*) "start"
 
     ! size checks
     if (size(coordinates, dim=1) /= size(atomic_charges, dim=1)) then
@@ -954,6 +953,10 @@ subroutine fgenerate_local_bob(atomic_charges, coordinates, nuclear_charges, id,
         stop
     endif
 
+    ! Allocate temporary
+    allocate(distance_matrix(natoms,natoms))
+
+    huge_double = huge(distance_matrix(1,1))
 
     ! Fix cutoffs and decays outside legal range
     if (cent_cutoff < 0) then
@@ -1006,17 +1009,14 @@ subroutine fgenerate_local_bob(atomic_charges, coordinates, nuclear_charges, id,
         enddo
         !$OMP END PARALLEL DO
     endif
-    write(*,*) "start2"
 
     ! Allocate temporary
-    allocate(distance_matrix(natoms,natoms))
     allocate(n_pair_indices(natoms, nid))
     allocate(pair_indices(natoms, nid, natoms))
     allocate(mask(natoms, natoms))
     allocate(cent_decay_matrix(natoms,natoms))
     allocate(int_decay_matrix(natoms,natoms))
 
-    huge_double = huge(distance_matrix(1,1))
     n_pair_indices = 0
     mask = .false.
     cent_decay_matrix = 1.0d0
@@ -1090,15 +1090,15 @@ subroutine fgenerate_local_bob(atomic_charges, coordinates, nuclear_charges, id,
         endif
     enddo
 
-    write(*,*) "start3"
 
     ! Allocate temporary
     max_idx = 1 ! to store k index
     do j = 1, nid
-        max_idx = max(max_idx,maxval(n_pair_indices(:,j), dim=1))
+        max_idx = max(max_idx,maxval(n_pair_indices(:,j), dim=1) + 1)
     enddo
     allocate(n_all_pair_indices(natoms, nid, nid, max_idx))
     allocate(all_pair_indices(natoms,nid,nid,max_idx, max_idx-1))
+
 
     n_all_pair_indices = 0
 
@@ -1169,7 +1169,6 @@ subroutine fgenerate_local_bob(atomic_charges, coordinates, nuclear_charges, id,
             start_indices(i,1,2) = start_indices(i-1,1,2) + nmax(i-1)
         endif
     enddo
-    write(*,*) "start4"
 
     ! AB (including AA)
     do i = 1, nid
@@ -1178,11 +1177,18 @@ subroutine fgenerate_local_bob(atomic_charges, coordinates, nuclear_charges, id,
                 start_indices(1,1,3) = start_indices(nid,1,2) + (nmax(nid)* (nmax(nid) - 1)) / 2
             else if (j == i) then
                 start_indices(i,i,3) = start_indices(i-1,nid,3) + nmax(i-1)*nmax(nid)
+            else if (j == i+1) then
+                start_indices(i,j,3) = start_indices(i,i,3) + (nmax(i)* (nmax(i) - 1)) / 2
             else
                 start_indices(i,j,3) = start_indices(i,j-1,3) + nmax(i)*nmax(j-1)
             endif
         enddo
     enddo
+
+    do i = 1, nid
+        do j = i, nid
+            enddo
+            enddo
 
     ! Get max bag size
     nbag = 1
@@ -1200,15 +1206,12 @@ subroutine fgenerate_local_bob(atomic_charges, coordinates, nuclear_charges, id,
     ! Construct representation
     cm = 0.0d0
 
-    write(*,*) "start5"
         do k = 1, natoms
-            write(*,*) "k", k
             type0 = index_types(k)
 
             ! X bag
             cm(k,1) = 0.5d0 * atomic_charges(k) ** 2.4d0
 
-            write(*,*) "start A"
             !A bag (self-interactions)
             do type1 = 1, nid
                 nbag = n_pair_indices(k, type1)
@@ -1232,8 +1235,6 @@ subroutine fgenerate_local_bob(atomic_charges, coordinates, nuclear_charges, id,
             enddo
             ! end A bag
 
-            write(*,*) "start XA"
-                        write(*,*) n_all_pair_indices(5,2,2,1)
             ! XA bag
             do type1 = 1, nid
                 nbag = n_all_pair_indices(k, type0, type1, max_idx)
@@ -1261,23 +1262,15 @@ subroutine fgenerate_local_bob(atomic_charges, coordinates, nuclear_charges, id,
                 ! end sort
             enddo
 
-            write(*,*) "start AB"
-                        write(*,*) n_all_pair_indices(5,2,2,1)
             ! AB bag including AA
             do type1 = 1, nid
-                write(*,*) "type1", type1
                 do type2 = type1, nid
-                    write(*,*) "type2", type2
                     nbag = 0
                     do i = 1, n_pair_indices(k, type1)
-                        write(*,*) "i", i
                         l = pair_indices(k, type1, i)
-                        write(*,*) "l", l
                         n = n_all_pair_indices(k, type1, type2, i)
-                        write(*,*) "n", n
                         do j = 1, n
                             m = all_pair_indices(k, type1, type2, i, j)
-                            write(*,*) type1, type2, i, j
                             norm = distance_matrix(l, m)
 
                             pair_norm = atomic_charges(l) * atomic_charges(m) / norm &
@@ -1285,28 +1278,21 @@ subroutine fgenerate_local_bob(atomic_charges, coordinates, nuclear_charges, id,
                                 & * int_decay_matrix(l,m)
 
                             bag(nbag + j) = pair_norm
-                            write(*,*) "end"
                         enddo
                         nbag = nbag + n
                     enddo
-                    write(*,*) "end2"
 
-                    ! sort
-                    n = start_indices(type1, type2, 3)
-                    do i = 1, nbag
-                        write(*,*) i, nbag
-                        l = maxloc(bag(:nbag), dim=1)
-                        cm(k, n + i) = bag(l)
-                        bag(l) = -huge_double
-                    enddo
-                    write(*,*) "end3"
+                    !! sort
+                    !m = start_indices(type1, type2, 3)
+                    !do i = 1, nbag
+                    !    l = maxloc(bag(:nbag), dim=1)
+                    !    cm(k, m + i) = bag(l)
+                    !    bag(l) = -huge_double
+                    !enddo
                     ! end sort
                 enddo
-                write(*,*) "end4"
             enddo
-            write(*,*) "end5"
         enddo
-        write(*,*) "end6"
 
     ! Clean up
     deallocate(index_types)
@@ -1319,7 +1305,6 @@ subroutine fgenerate_local_bob(atomic_charges, coordinates, nuclear_charges, id,
     deallocate(int_decay_matrix)
     deallocate(bag)
     deallocate(start_indices)
-        write(*,*) "end7"
 
 end subroutine fgenerate_local_bob
 
