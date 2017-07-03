@@ -541,8 +541,8 @@ subroutine fgenerate_atomic_coulomb_matrix(central_atom_indices, central_natoms,
     !$OMP END PARALLEL DO
 
     ! Allocate temporary
-    allocate(sorted_atoms_all(natoms, natoms))
     allocate(distance_matrix_tmp(natoms, natoms))
+    allocate(sorted_atoms_all(natoms, central_natoms))
 
     distance_matrix_tmp = distance_matrix
     !Generate sorted list of atom ids by distance matrix

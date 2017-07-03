@@ -61,6 +61,10 @@ def generate_coulomb_matrix(nuclear_charges, coordinates, size = 23, sorting = "
 
         The upper triangular of M, including the diagonal, is concatenated to a 1D
         vector representation.
+
+        If ``sorting = 'unsorted``, the elements are sorted in the same order as the input coordinates
+        and nuclear charges.
+
         The representation is calculated using an OpenMP parallel Fortran routine.
 
         :param nuclear_charges: Nuclear charges of the atoms in the molecule
@@ -90,7 +94,7 @@ def generate_coulomb_matrix(nuclear_charges, coordinates, size = 23, sorting = "
 
 def generate_atomic_coulomb_matrix(nuclear_charges, coordinates, size = 23, sorting = "distance",
             central_cutoff = 1e6, central_decay = -1, interaction_cutoff = 1e6, interaction_decay = -1,
-            variant = "classic", localization = 1.0):
+            variant = "classic", localization = 1.0, indices = None):
 
     """ Creates a Coulomb Matrix representation of the local environment of a central atom.
         For each central atom :math:`k`, a matrix :math:`M` is constructed with elements
@@ -191,7 +195,7 @@ def generate_atomic_coulomb_matrix(nuclear_charges, coordinates, size = 23, sort
 
     if (sorting == "row-norm"):
         if variant == "classic":
-            return fgenerate_local_coulomb_matrix(nuclear_charges,
+            return fgenerate_local_coulomb_matrix(indices, nindices, nuclear_charges,
                 coordinates, nuclear_charges.size, size,
                 central_cutoff, central_decay, interaction_cutoff, interaction_decay)
         elif variant in ["sncf1", "sncf2"]:
@@ -210,7 +214,7 @@ def generate_atomic_coulomb_matrix(nuclear_charges, coordinates, size = 23, sort
 
     elif (sorting == "distance"):
         if variant == "classic":
-            return fgenerate_atomic_coulomb_matrix(nuclear_charges,
+            return fgenerate_atomic_coulomb_matrix(indices, nindices, nuclear_charges,
                 coordinates, nuclear_charges.size, size, 
                 central_cutoff, central_decay, interaction_cutoff, interaction_decay)
         elif variant in ["sncf1", "sncf2"]:

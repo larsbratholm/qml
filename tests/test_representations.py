@@ -27,6 +27,19 @@ import numpy as np
 import os
 import qml
 from qml.representations import *
+from qml.data import NUCLEAR_CHARGE
+
+def get_asize(mols, pad):
+
+    asize = {}
+
+    for mol in mols:
+        for key, value in mol.natypes.items():
+            if key not in asize:
+                asize[key] = value + pad
+                continue
+            asize[key] = max(asize[key], value + pad)
+    return asize
 
 def test_representations():
     files = ["qm7/0101.xyz",
@@ -46,13 +59,17 @@ def test_representations():
     for xyz_file in files:
         mol = qml.Compound(xyz=path + "/" + xyz_file)
         mols.append(mol)
-    
+
     size = max(mol.nuclear_charges.size for mol in mols) + 1
 
-    coulomb_matrix_test(mols, size, path)
-    atomic_coulomb_matrix_test(mols, size, path)
+    asize = get_asize(mols,1)
 
-def coulomb_matrix_test(mols, size, path):
+    coulomb_matrix(mols, size, path)
+    atomic_coulomb_matrix(mols, size, path)
+    eigenvalue_coulomb_matrix(mols, size, path)
+    bob(mols, asize, path)
+
+def coulomb_matrix(mols, size, path):
 
     # Generate coulomb matrix representation, sorted by row-norm
     for i, mol in enumerate(mols): 
@@ -70,7 +87,7 @@ def coulomb_matrix_test(mols, size, path):
     X_ref = np.loadtxt(path + "/data/coulomb_matrix_representation_unsorted.txt")
     assert np.allclose(X_test, X_ref), "Error in coulomb matrix representation"
 
-def atomic_coulomb_matrix_test(mols, size, path):
+def atomic_coulomb_matrix(mols, size, path):
 
     # Generate coulomb matrix representation, sorted by distance
     for i, mol in enumerate(mols): 
@@ -137,6 +154,38 @@ def atomic_coulomb_matrix_test(mols, size, path):
                     print (i,j,diff, representation_subset[i,j],mol.representation[i,j])
         assert np.allclose(representation_subset, mol.representation), \
                 "Error in atomic coulomb matrix representation"
+
+def eigenvalue_coulomb_matrix(mols, size, path):
+
+    # Generate coulomb matrix representation, sorted by row-norm
+    for i, mol in enumerate(mols): 
+        mol.generate_eigenvalue_coulomb_matrix(size = size)
+
+    X_test = np.asarray([mol.representation for mol in mols])
+    X_ref = np.loadtxt(path + "/data/eigenvalue_coulomb_matrix_representation.txt")
+    assert np.allclose(X_test, X_ref), "Error in eigenvalue coulomb matrix representation"
+
+def bob(mols, asize, path):
+
+    # Generate coulomb matrix representation, sorted by row-norm
+    for i, mol in enumerate(mols): 
+        mol.generate_bob(asize)
+
+    X_test = np.asarray([mol.representation for mol in mols])
+    X_ref = np.loadtxt(path + "/data/bob_representation.txt")
+    assert np.allclose(X_test, X_ref), "Error in bag of bonds representation"
+
+def print_mol(mol):
+    n = len(mol.representation.shape)
+    if n == 1:
+        for item in mol.representation:
+            print("{:.9e}".format(item), end='  ')
+        print()
+    elif n == 2:
+        for atom in mol.representation:
+            for item in atom:
+                print("{:.9e}".format(item), end='  ')
+            print()
 
 def test_local_bob():
 

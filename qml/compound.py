@@ -245,7 +245,6 @@ class Compound(object):
         self.representation = generate_bob(self.nuclear_charges, self.coordinates, 
                 self.atomtypes, asize = asize)
 
-
     def generate_arad_representation(self, size = 23):
         """Generates the representation for the ARAD-kernel. Note that this representation is incompatible with generic ``qml.kernel.*`` kernels.
     :param size: Max number of atoms in representation.
