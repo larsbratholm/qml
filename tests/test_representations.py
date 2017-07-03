@@ -367,38 +367,13 @@ def bob_reference(nuclear_charges, coordinates, atomtypes, size = 23, asize = {"
 
 def test_local_bob():
 
-    t = time.time()
-    path = test_dir = os.path.dirname(os.path.realpath(__file__))
-    mols = []
-    for i in range(1,50):
-        n = str(i)
-        n = "0"*(4-len(n)) + n
-        xyz_file = "qm7/%s.xyz" % n
-        mol = qml.Compound(xyz=path + "/" + xyz_file)
-        mols.append(mol)
-    print (time.time() - t)
+    asize = dict([(key, value+1) for key,value in mol.natypes.items()])
 
-    t = time.time()
-    asize = {}
-    for mol in mols:
-        for key, value in mol.natypes.items():
-            if key not in asize.keys():
-                asize[key] = value
-                continue
-            asize[key] = max(asize[key], value)
-    print (time.time() - t)
-    print (asize)
-
-
-    t = time.time()
-    for mol in mols:
-       # print (time.time() - t)
-        # Generate atomic coulomb matrix representation, sorted by row-norm, using the Compound class
-        if (len(mol.atomtypes) != 8):
-            continue
-        bob = generate_local_bob(mol.nuclear_charges,
-                mol.coordinates, mol.atomtypes, asize = asize)
-    print (time.time() - t)
+    # Generate atomic coulomb matrix representation, sorted by row-norm, using the Compound class
+    bob = generate_local_bob(mol.nuclear_charges,
+            mol.coordinates, mol.atomtypes, asize = asize)
+    print(asize)
+    print(bob)
 
     ## Generate atomic coulomb matrix representation, sorted by distance,
     ## with cutoffs, using the Compound class
@@ -638,9 +613,9 @@ def vector_to_matrix(vec):
     return mat
 
 if __name__ == "__main__":
-    #test_coulomb_matrix()
-    #test_atomic_coulomb_matrix()
-    #test_eigenvalue_coulomb_matrix()
-    #test_bob()
+    test_coulomb_matrix()
+    test_atomic_coulomb_matrix()
+    test_eigenvalue_coulomb_matrix()
+    test_bob()
     test_local_bob()
 
