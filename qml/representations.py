@@ -34,6 +34,7 @@ from .frepresentations import fgenerate_atomic_coulomb_matrix_sncf
 from .frepresentations import fgenerate_eigenvalue_coulomb_matrix
 from .frepresentations import fgenerate_bob
 from .frepresentations import fgenerate_local_bob
+from .frepresentations import fgenerate_local_bob_sncf
 
 from .data import NUCLEAR_CHARGE
 
@@ -311,7 +312,8 @@ def generate_bob(nuclear_charges, coordinates, atomtypes, asize = {"O":3, "C":7,
     return fgenerate_bob(nuclear_charges, coordinates, nuclear_charges, ids, nmax, n)
 
 def generate_local_bob(nuclear_charges, coordinates, atomtypes, asize = {"O":3, "C":7, "N":3, "H":16, "S":1},
-        central_cutoff = 1e6, central_decay = -1, interaction_cutoff = 1e6, interaction_decay = -1):
+        central_cutoff = 1e6, central_decay = -1, interaction_cutoff = 1e6, interaction_decay = -1,
+        variant = "classic", localization = 1):
 
     n = 1
     atoms = sorted(asize, key=asize.get)
@@ -325,8 +327,17 @@ def generate_local_bob(nuclear_charges, coordinates, atomtypes, asize = {"O":3, 
             v = nmax[j]
             n += value * v
 
-    return fgenerate_local_bob(nuclear_charges, coordinates, nuclear_charges, ids, nmax, nuclear_charges.size,
-            central_cutoff, central_decay, interaction_cutoff, interaction_decay, n)
+    if variant == "classic":
+        return fgenerate_local_bob(nuclear_charges, coordinates, nuclear_charges, ids, nmax, nuclear_charges.size,
+                central_cutoff, central_decay, interaction_cutoff, interaction_decay, n)
+    elif variant in ["sncf1", "sncf2"]:
+        if variant == "sncf1":
+            alt = 0
+        else:
+            alt = 1
+        return fgenerate_local_bob_sncf(nuclear_charges, coordinates, nuclear_charges, ids, nmax, nuclear_charges.size,
+                central_cutoff, central_decay, interaction_cutoff, interaction_decay, localization, alt, n)
+
 
 def get_slatm_mbtypes(nuclear_charges, pbc='000'):
     """

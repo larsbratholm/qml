@@ -223,6 +223,21 @@ def test_local_bob():
         bob2 = local_bob_reference(mol.nuclear_charges, mol.coordinates, mol.atomtypes, asize, 
                 central_cutoff = 2.0, central_decay = 1.0, interaction_cutoff = 3.0, interaction_decay = 0.5)
 
+        assert(np.allclose(bob,bob2))
+
+        bob = generate_local_bob(mol.nuclear_charges,
+                mol.coordinates, mol.atomtypes, asize = asize, variant = "sncf1",
+                central_cutoff = 2.0, central_decay = 1.0, interaction_cutoff = 3.0, interaction_decay = 0.5)
+        bob2 = local_bob_reference(mol.nuclear_charges, mol.coordinates, mol.atomtypes, asize, variant = "sncf1",
+                central_cutoff = 2.0, central_decay = 1.0, interaction_cutoff = 3.0, interaction_decay = 0.5)
+
+        bob = generate_local_bob(mol.nuclear_charges,
+                mol.coordinates, mol.atomtypes, asize = asize, variant = "sncf2",
+                central_cutoff = 2.0, central_decay = 1.0, interaction_cutoff = 3.0, interaction_decay = 0.5)
+        bob2 = local_bob_reference(mol.nuclear_charges, mol.coordinates, mol.atomtypes, asize, variant = "sncf2",
+                central_cutoff = 2.0, central_decay = 1.0, interaction_cutoff = 3.0, interaction_decay = 0.5)
+
+
         for i in range(bob.shape[0]):
             for j in range(bob.shape[1]):
                 #if (i == 0 and j in [3,4,5]):
@@ -232,6 +247,7 @@ def test_local_bob():
                     print(i+1,j+1,diff,bob[i,j],bob2[i,j])
 
         assert(np.allclose(bob,bob2))
+
 
     print (time.time() - t)
 
@@ -301,13 +317,14 @@ def local_bob_reference(nuclear_charges, coordinates, atomtypes, asize = {"O":3,
         descriptor[k].append(np.asarray([cm_mat[k,k,k]]))
 
     # A-bag
-    for i, (element1, size1) in enumerate(zip(atoms,nmax)):
-        pos1 = positions[element1]
-        for k in range(natoms):
-            pos = pos1[pos1 != k]
-            feature_vector = np.diag(cm_mat[k])[pos]
-            feature_vector = np.pad(feature_vector, (size1-feature_vector.size,0), "constant")
-            descriptor[k].append(feature_vector)
+    if variant == "classic":
+        for i, (element1, size1) in enumerate(zip(atoms,nmax)):
+            pos1 = positions[element1]
+            for k in range(natoms):
+                pos = pos1[pos1 != k]
+                feature_vector = np.diag(cm_mat[k])[pos]
+                feature_vector = np.pad(feature_vector, (size1-feature_vector.size,0), "constant")
+                descriptor[k].append(feature_vector)
 
     # XA bags
     for i, (element1, size1) in enumerate(zip(atoms,nmax)):
@@ -329,8 +346,11 @@ def local_bob_reference(nuclear_charges, coordinates, atomtypes, asize = {"O":3,
                 for k in range(natoms):
                     pos = pos1[pos1 != k]
 
-                    idx1, idx2 = np.triu_indices(pos.size,1)
-                    feature_vector = np.zeros((size1*(size1-1))//2)
+                    offset = 0
+                    if variant == "classic":
+                        offset = 1
+                    idx1, idx2 = np.triu_indices(pos.size,offset)
+                    feature_vector = np.zeros((size1*(size1+1-2*offset))//2)
                     feature_vector[:idx1.size] = cm_mat[k,pos[idx1],pos[idx2]].ravel()
 
                     descriptor[k].append(feature_vector)
