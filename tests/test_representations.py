@@ -191,8 +191,9 @@ def test_local_bob():
 
     path = test_dir = os.path.dirname(os.path.realpath(__file__))
     base = "qm9/dsgdb9nsd_"
+    #base = "qm7/"
     nlen = 6
-    nmol = 128000
+    nmol = 100
     mols = []
     for i in range(1,nmol):
         n = str(i)
@@ -218,7 +219,140 @@ def test_local_bob():
         # Generate atomic coulomb matrix representation, sorted by row-norm, using the Compound class
         bob = generate_local_bob(mol.nuclear_charges,
                 mol.coordinates, mol.atomtypes, asize = asize)
+        bob2 = local_bob_reference(mol.nuclear_charges, mol.coordinates, mol.atomtypes, asize)
+
+        for i in range(bob.shape[0]):
+            for j in range(bob.shape[1]):
+                #if (i == 0 and j in [3,4,5]):
+                #    print (bob[i,j], bob[i,j])
+                diff = bob[i,j] - bob2[i,j]
+                if abs(diff) > 1e-9:
+                    print(i+1,j+1,diff,bob[i,j],bob2[i,j])
+
+        assert(np.allclose(bob,bob2))
+
     print (time.time() - t)
+
+def local_bob_reference(nuclear_charges, coordinates, atomtypes, asize = {"O":3, "C":7, "N":3, "H":16, "S":1},
+        central_cutoff = 1e6, central_decay = -1, interaction_cutoff = 1e6, interaction_decay = -1, variant = "classic",
+        localization = 1):
+
+    if central_cutoff < 0:
+        central_cutoff = 1e6
+
+    if interaction_cutoff < 0 or interaction_cutoff > 2 * central_cutoff:
+        interaction_cutoff = 2 * central_cutoff
+
+    if central_decay < 0:
+        central_decay = 0
+    elif central_decay > central_cutoff:
+        central_decay = central_cutoff
+
+    if interaction_decay < 0:
+        interaction_decay = 0
+    elif interaction_decay > interaction_cutoff:
+        interaction_decay = interaction_cutoff
+
+    natoms = nuclear_charges.size
+    cm_mat = np.zeros((natoms, natoms, natoms))
+
+    for k in range(natoms):
+        for i in range(natoms):
+            for j in range(i, natoms):
+                if variant == "classic" and i == j:
+                    dik = np.sqrt(np.sum((coordinates[i] - coordinates[k])**2))
+                    if dik < central_cutoff:
+                        cm_mat[k,i,i] = 0.5 * nuclear_charges[i]**2.4
+                        if dik > central_cutoff - central_decay:
+                            cm_mat[k,i,i] *= (0.5 * (1 + np.cos(np.pi * (dik - central_cutoff + central_decay) / central_decay)))**2
+                elif i == j and j == k:
+                    dik = np.sqrt(np.sum((coordinates[i] - coordinates[k])**2))
+                    if dik < central_cutoff:
+                        cm_mat[k,i,i] = 0.5 * nuclear_charges[i]**2.4
+                        if dik > central_cutoff - central_decay:
+                            cm_mat[k,i,i] *= (0.5 * (1 + np.cos(np.pi * (dik - central_cutoff + central_decay) / central_decay)))**2
+                else:
+                    dij = np.sqrt(np.sum((coordinates[i] - coordinates[j])**2))
+                    if dij < interaction_cutoff:
+                        dik = np.sqrt(np.sum((coordinates[i] - coordinates[k])**2))
+                        djk = np.sqrt(np.sum((coordinates[j] - coordinates[k])**2))
+                        if dik < central_cutoff and djk < central_cutoff:
+                            cm_mat[k,i,j] = nuclear_charges[i] * nuclear_charges[j] / \
+                            (dij*(variant in ["classic","sncf2"]) + (dik+djk) * (variant in ["sncf1","sncf2"]))**localization
+
+                            if dij > interaction_cutoff - interaction_decay:
+                                cm_mat[k,i,j] *= 0.5 * (1 + np.cos(np.pi * (dij - interaction_cutoff + interaction_decay) / interaction_decay))
+                            if dik > central_cutoff - central_decay:
+                                cm_mat[k,i,j] *= 0.5 * (1 + np.cos(np.pi * (dik - central_cutoff + central_decay) / central_decay))
+                            if djk > central_cutoff - central_decay:
+                                cm_mat[k,i,j] *= 0.5 * (1 + np.cos(np.pi * (djk - central_cutoff + central_decay) / central_decay))
+
+                    cm_mat[k,j,i] = cm_mat[k,i,j]
+
+    atoms = sorted(asize, key=asize.get)
+    nmax = [asize[key] for key in atoms]
+    descriptor = [[] for _ in atomtypes]
+    positions = dict([(element, np.where(atomtypes == element)[0]) for element in atoms])
+
+    # X-bag
+    for k in range(natoms):
+        descriptor[k].append(np.asarray([cm_mat[k,k,k]]))
+
+    # A-bag
+    for i, (element1, size1) in enumerate(zip(atoms,nmax)):
+        pos1 = positions[element1]
+        for k in range(natoms):
+            pos = pos1[pos1 != k]
+            feature_vector = np.diag(cm_mat[k])[pos]
+            feature_vector = np.pad(feature_vector, (size1-feature_vector.size,0), "constant")
+            descriptor[k].append(feature_vector)
+
+    # XA bags
+    for i, (element1, size1) in enumerate(zip(atoms,nmax)):
+        pos1 = positions[element1]
+
+        for k in range(natoms):
+            pos = pos1[pos1 != k]
+            feature_vector = cm_mat[k,k,pos]
+            feature_vector = np.pad(feature_vector, (size1-feature_vector.size,0), "constant")
+            descriptor[k].append(feature_vector)
+
+    # AB bags
+    for i, (element1, size1) in enumerate(zip(atoms,nmax)):
+        pos1 = positions[element1]
+        for j, (element2, size2) in enumerate(zip(atoms,nmax)):
+            if i > j:
+                continue
+            if i == j:
+                for k in range(natoms):
+                    pos = pos1[pos1 != k]
+
+                    idx1, idx2 = np.triu_indices(pos.size,1)
+                    feature_vector = np.zeros((size1*(size1-1))//2)
+                    feature_vector[:idx1.size] = cm_mat[k,pos[idx1],pos[idx2]].ravel()
+
+                    descriptor[k].append(feature_vector)
+
+            else:
+                pos2 = positions[element2]
+
+                for k in range(natoms):
+                    pos1_no_k = pos1[pos1 != k]
+                    pos2_no_k = pos2[pos2 != k]
+                    bagsize = pos1_no_k.size * pos2_no_k.size
+                    feature_vector = np.zeros(size1 * size2)
+                    pos = np.ix_([k], pos1_no_k, pos2_no_k)
+                    feature_vector[:bagsize] = cm_mat[pos].ravel()
+                    descriptor[k].append(feature_vector)
+
+    representation = np.empty((natoms,np.concatenate(descriptor[0]).size))
+
+    for i in range(natoms):
+        for j in range(len(descriptor[i])):
+            descriptor[i][j][::-1].sort()
+        representation[i] = np.concatenate(descriptor[i])
+
+    return representation
 
 
 if __name__ == "__main__":
