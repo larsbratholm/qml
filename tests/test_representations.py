@@ -193,7 +193,7 @@ def test_local_bob():
     base = "qm9/dsgdb9nsd_"
     #base = "qm7/"
     nlen = 6
-    nmol = 100
+    nmol = 50
     mols = []
     for i in range(1,nmol):
         n = str(i)
@@ -218,8 +218,10 @@ def test_local_bob():
        # print (time.time() - t)
         # Generate atomic coulomb matrix representation, sorted by row-norm, using the Compound class
         bob = generate_local_bob(mol.nuclear_charges,
-                mol.coordinates, mol.atomtypes, asize = asize)
-        bob2 = local_bob_reference(mol.nuclear_charges, mol.coordinates, mol.atomtypes, asize)
+                mol.coordinates, mol.atomtypes, asize = asize, 
+                central_cutoff = 2.0, central_decay = 1.0, interaction_cutoff = 3.0, interaction_decay = 0.5)
+        bob2 = local_bob_reference(mol.nuclear_charges, mol.coordinates, mol.atomtypes, asize, 
+                central_cutoff = 2.0, central_decay = 1.0, interaction_cutoff = 3.0, interaction_decay = 0.5)
 
         for i in range(bob.shape[0]):
             for j in range(bob.shape[1]):

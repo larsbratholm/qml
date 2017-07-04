@@ -1034,8 +1034,6 @@ subroutine fgenerate_local_bob(atomic_charges, coordinates, nuclear_charges, id,
                         cent_decay_matrix(j,i) = cent_decay_matrix(j,i) * prefactor
 
                     endif
-                else
-                    cycle
                 endif
 
                 if (norm > int_cutoff) then
@@ -1048,7 +1046,7 @@ subroutine fgenerate_local_bob(atomic_charges, coordinates, nuclear_charges, id,
                             & (cos(pi * decay_dist / int_decay) + 1)
 
                         int_decay_matrix(i,j) = int_decay_matrix(i,j) * prefactor
-                        int_decay_matrix(j,i) = int_decay_matrix(j,i) * prefactor
+                        int_decay_matrix(j,i) = int_decay_matrix(i,j)
                     endif
                 endif
             enddo
@@ -1138,7 +1136,7 @@ subroutine fgenerate_local_bob(atomic_charges, coordinates, nuclear_charges, id,
 
                     norm = distance_matrix(l, k)
                     pair_norm = 0.5d0 * atomic_charges(l) ** 2.4d0 &
-                        & * cent_decay_matrix(k,i) ** 2
+                        & * cent_decay_matrix(k,l) ** 2
                     bag(i) = pair_norm
                 enddo
 
@@ -1221,6 +1219,7 @@ subroutine fgenerate_local_bob(atomic_charges, coordinates, nuclear_charges, id,
                             pair_norm = atomic_charges(l) * atomic_charges(m) / norm &
                                 & * cent_decay_matrix(k,l) * cent_decay_matrix(k, m) &
                                 & * int_decay_matrix(l,m)
+
 
                             bag(nbag) = pair_norm
                         enddo
