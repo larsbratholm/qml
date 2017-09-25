@@ -51,7 +51,7 @@ def get_energies(filename):
 
     return energies
 
-def test_krr_cmat():
+def krr_cmat():
 
     test_dir = os.path.dirname(os.path.realpath(__file__))
 

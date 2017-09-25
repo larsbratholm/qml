@@ -16,10 +16,10 @@ __url__ = "https://github.com/qmlcode/qml"
 FORTRAN = "f90"
 
 # GNU (default)
-COMPILER_FLAGS = ["-O3", "-fopenmp", "-m64", "-march=native", "-fPIC", 
+COMPILER_FLAGS = ["-fopenmp", "-m64", "-march=native", "-fPIC", "-Ofast", "-ffast-math", "-funroll-loops",
                     "-Wno-maybe-uninitialized", "-Wno-unused-function", "-Wno-cpp"]#, "-fcheck=all"]
-LINKER_FLAGS = ["-lgomp"]
-MATH_LINKER_FLAGS = ["-lblas", "-llapack"]
+#LINKER_FLAGS = ["-lgomp"]
+#MATH_LINKER_FLAGS = ["-lblas", "-llapack"]
 
 # For clang without OpenMP: (i.e. most Apple/mac system)
 if sys.platform == "darwin" and all(["gnu" not in arg for arg in sys.argv]):
@@ -36,8 +36,8 @@ if any(["intelem" in arg for arg in sys.argv]):
 
 
 # UNCOMMENT TO FORCE LINKING TO MKL with GNU compilers:
-# LINKER_FLAGS = ["-lgomp", " -lpthread", "-lm", "-ldl"]
-# MATH_LINKER_FLAGS = ["-L${MKLROOT}/lib/intel64", "-lmkl_rt"]
+LINKER_FLAGS = ["-lgomp", " -lpthread", "-lm", "-ldl"]
+MATH_LINKER_FLAGS = ["-L${MKLROOT}/lib/intel64", "-lmkl_rt"]
 
 
 ext_farad_kernels = Extension(name = 'farad_kernels',

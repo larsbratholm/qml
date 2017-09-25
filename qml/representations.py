@@ -338,7 +338,6 @@ def generate_local_bob(nuclear_charges, coordinates, atomtypes, asize = {"O":3, 
         return fgenerate_local_bob_sncf(nuclear_charges, coordinates, nuclear_charges, ids, nmax, nuclear_charges.size,
                 central_cutoff, central_decay, interaction_cutoff, interaction_decay, localization, alt, n)
 
-
 def get_slatm_mbtypes(nuclear_charges, pbc='000'):
     """
     Get the list of minimal types of many-body terms in a dataset. This resulting list
@@ -572,3 +571,38 @@ def generate_slatm(coordinates, nuclear_charges, mbtypes,
                     mbs = np.concatenate( (mbs, mbsi), axis=0 )
 
     return mbs
+
+def generate_global(nuclear_charges, coordinates, atomtypes, asize = {"O":3, "C":7, "N":3, "H":16, "S":1}):
+    n = 0
+    atoms = sorted(asize, key=asize.get)
+    nmax = [asize[key] for key in atoms]
+    charge_types = np.zeros(len(nmax), dtype=int)
+    for i, (key, value) in enumerate(zip(atoms,nmax)):
+        n += value * (1+value)
+        charge_types[i] = NUCLEAR_CHARGE[key]
+        for j in range(i):
+            v = nmax[j]
+            n += 2 * value * v
+    n /= 2
+
+    if np.allclose(nuclear_charges, nuclear_charges.astype(int)) == False:
+        print("Error in generate_global: Nuclear charges must have integer values")
+        raise SystemExit
+
+    if coordinates.shape[0] != nuclear_charges.size:
+        print("Error in generate_global: coordinates and nuclear_charges differ in size (%d and %d)" % (coordinates.shape[0], nuclear_charges.size))
+        raise SystemExit
+
+    if potential_types.size != 4 or np.allclose(potential_types, potential_types.astype(int)) == False or max(potential_types) > 9 or min(potantial_types) < 0:
+        print("Error in generate_global: potential_types must have size (4,) and have integer values between 0 and 9")
+        raise SystemExit
+
+    if type(sorting) != type(1) or sorting < 0 or sorting > 4:
+        print("Error in generate_global: sorting must have integer values between 0 and 4")
+        raise SystemExit
+
+    # TODO
+
+    return fgenerate_global(nuclear_charges.astype(int), coordinates, potential_types.astype(int), sorting, charge_types,
+        nsize, nasize, cutoff, decay, localization, weights_one, weights_two, weight_three, weight_four, 
+        nrep, representation)

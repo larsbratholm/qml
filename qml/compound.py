@@ -30,6 +30,7 @@ from .data import NUCLEAR_CHARGE
 from .representations import generate_coulomb_matrix
 from .representations import generate_atomic_coulomb_matrix
 from .representations import generate_bob
+from .representations import generate_local_bob
 from .representations import generate_eigenvalue_coulomb_matrix
 from .representations import generate_slatm
 
@@ -244,6 +245,13 @@ class Compound(object):
 
         self.representation = generate_bob(self.nuclear_charges, self.coordinates, 
                 self.atomtypes, asize = asize)
+
+    def generate_local_bob(self, asize = {"O":3, "C":7, "N":3, "H":16, "S":1}, variant = "classic", localization = 1,
+            central_cutoff = 1e6, central_decay = -1, interaction_cutoff = 1e6, interaction_decay = -1):
+
+        self.representation = generate_local_bob(self.nuclear_charges, self.coordinates,
+                self.atomtypes, asize = asize, central_cutoff = central_cutoff, central_decay = central_decay,
+                interaction_cutoff = interaction_cutoff, interaction_decay = interaction_decay, variant = variant, localization = localization)
 
     def generate_arad_representation(self, size = 23):
         """Generates the representation for the ARAD-kernel. Note that this representation is incompatible with generic ``qml.kernel.*`` kernels.

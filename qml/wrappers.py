@@ -23,19 +23,23 @@
 import numpy as np
 
 from .fkernels import fget_vector_kernels_gaussian
-from .fkernels import fget_vector_kernels_laplacian
+from .fkernels import fget_vector_kernels_laplacian, fget_vector_kernels_laplacian_simple, fget_vector_kernels_laplacian_simple_symmetric
 
 from .arad import get_local_kernels_arad
 from .arad import get_local_symmetric_kernels_arad
 
 
-def get_atomic_kernels_laplacian(mols1, mols2, sigmas):
+def get_atomic_kernels_laplacian(mols1, mols2, sigmas, method = "all"):
 
     n1 = np.array([mol.natoms for mol in mols1], dtype=np.int32)
     n2 = np.array([mol.natoms for mol in mols2], dtype=np.int32)
 
     max1 = np.max(n1)
     max2 = np.max(n2)
+
+    if method == "simple":
+        q1 = np.array([np.pad(mol.nuclear_charges, mode="constant", pad_width=[0,max1-n1[i]]) for i, mol in enumerate(mols1)], dtype=np.int32)
+        q2 = np.array([np.pad(mol.nuclear_charges, mode="constant", pad_width=[0,max2-n2[i]]) for i, mol in enumerate(mols2)], dtype=np.int32)
 
     nm1 = n1.size
     nm2 = n2.size
@@ -59,8 +63,17 @@ def get_atomic_kernels_laplacian(mols1, mols2, sigmas):
     sigmas = np.asarray(sigmas, dtype=np.float64)
     nsigmas = sigmas.size
 
-    return fget_vector_kernels_laplacian(x1, x2, n1, n2, sigmas, 
-        nm1, nm2, nsigmas)
+    if method == "all":
+        return fget_vector_kernels_laplacian(x1, x2, n1, n2, sigmas, 
+            nm1, nm2, nsigmas)
+    else:
+        if x1.size == x2.size and np.allclose(x1,x2):
+            print("xd")
+            return fget_vector_kernels_laplacian_simple_symmetric(x1, n1, q1, sigmas, 
+                nm1, nsigmas)
+        else:
+            return fget_vector_kernels_laplacian_simple(x1, x2, n1, n2, q1, q2, sigmas, 
+                nm1, nm2, nsigmas)
 
 
 def get_atomic_kernels_gaussian(mols1, mols2, sigmas):

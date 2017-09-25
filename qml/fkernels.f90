@@ -330,3 +330,157 @@ subroutine fsargan_kernel(a, na, b, nb, k, sigma, gammas, ng)
     deallocate(prefactor)
 
 end subroutine fsargan_kernel
+
+subroutine fget_vector_kernels_laplacian_simple(q1, q2, n1, n2, c1, c2, sigmas, &
+        & nm1, nm2, nsigmas, kernels)
+
+    implicit none
+
+    ! Descriptors for each molecule
+    double precision, dimension(:,:,:), intent(in) :: q1
+    double precision, dimension(:,:,:), intent(in) :: q2
+
+    ! List of numbers of atoms in each molecule
+    integer, dimension(:), intent(in) :: n1
+    integer, dimension(:), intent(in) :: n2
+
+    ! Nuclear charges for each molecule
+    integer, dimension(:,:), intent(in) :: c1
+    integer, dimension(:,:), intent(in) :: c2
+
+    ! Sigma in the Gaussian kernel
+    double precision, dimension(:), intent(in) :: sigmas
+
+    ! Number of molecules
+    integer, intent(in) :: nm1
+    integer, intent(in) :: nm2
+
+    ! Number of sigmas
+    integer, intent(in) :: nsigmas
+
+    ! -1.0 / sigma^2 for use in the kernel
+    double precision, dimension(nsigmas) :: inv_sigma
+
+    ! Resulting alpha vector
+    double precision, dimension(nsigmas,nm1,nm2), intent(out) :: kernels
+
+    ! Internal counters
+    integer :: i, j, k, ni, nj, ia, ja, charge1, charge2
+    double precision :: huge_double
+
+    ! Temporary variables necessary for parallelization
+    double precision, allocatable, dimension(:,:) :: atomic_distance
+
+    inv_sigma(:) = -1.0d0 / sigmas(:)
+
+    kernels(:,:,:) = 0.0d0
+
+    allocate(atomic_distance(maxval(n1), maxval(n2)))
+    huge_double = huge(atomic_distance(1,1))
+    atomic_distance(:,:) = 0.0d0
+
+    !$OMP PARALLEL DO PRIVATE(atomic_distance,ni,nj,charge1,charge2)
+    do j = 1, nm2
+        nj = n2(j)
+        do i = 1, nm1
+            ni = n1(i)
+
+            atomic_distance(:,:) = huge_double
+
+            do ja = 1, nj
+                charge1 = c2(j,ja)
+                do ia = 1, ni
+                    charge2 = c1(i,ia)
+                    if (charge1 == charge2) then
+                        atomic_distance(ia,ja) = sum(abs(q1(:,ia,i) - q2(:,ja,j)))
+                    endif
+
+                enddo
+            enddo
+
+            do k = 1, nsigmas
+                kernels(k, i, j) =  sum(exp(atomic_distance(:ni,:nj) * inv_sigma(k)))
+            enddo
+        enddo
+    enddo
+    !$OMP END PARALLEL DO
+
+    deallocate(atomic_distance)
+
+end subroutine fget_vector_kernels_laplacian_simple
+
+subroutine fget_vector_kernels_laplacian_simple_symmetric(q, n, c, sigmas, &
+        & nm, nsigmas, kernels)
+
+    implicit none
+
+    ! Descriptors for each molecule
+    double precision, dimension(:,:,:), intent(in) :: q
+
+    ! List of numbers of atoms in each molecule
+    integer, dimension(:), intent(in) :: n
+
+    ! Nuclear charges for each molecule
+    integer, dimension(:,:), intent(in) :: c
+
+    ! Sigma in the Gaussian kernel
+    double precision, dimension(:), intent(in) :: sigmas
+
+    ! Number of molecules
+    integer, intent(in) :: nm
+
+    ! Number of sigmas
+    integer, intent(in) :: nsigmas
+
+    ! -1.0 / sigma^2 for use in the kernel
+    double precision, dimension(nsigmas) :: inv_sigma
+
+    ! Resulting alpha vector
+    double precision, dimension(nsigmas,nm,nm), intent(out) :: kernels
+
+    ! Internal counters
+    integer :: i, j, k, ni, nj, ia, ja, charge1, charge2
+    double precision :: huge_double, norm
+
+    ! Temporary variables necessary for parallelization
+    double precision, allocatable, dimension(:,:) :: atomic_distance
+
+    inv_sigma(:) = -1.0d0 / sigmas(:)
+
+    kernels(:,:,:) = 0.0d0
+
+    allocate(atomic_distance(maxval(n), maxval(n)))
+    huge_double = huge(atomic_distance(1,1))
+
+    !$OMP PARALLEL DO PRIVATE(atomic_distance,ni,nj,charge1,charge2, norm)
+    do j = 1, nm
+        nj = n(j)
+        do i = 1, j
+            ni = n(i)
+
+            atomic_distance(:,:) = huge_double
+
+            do ja = 1, nj
+                charge1 = c(j,ja)
+                do ia = 1, ni
+                    charge2 = c(i,ia)
+                    if (charge1 == charge2) then
+                        norm = sum(abs(q(:,ia,i) - q(:,ja,j)))
+                        atomic_distance(ia,ja) = norm
+                    endif
+
+                enddo
+            enddo
+
+            do k = 1, nsigmas
+                norm =  sum(exp(atomic_distance(:ni,:nj) * inv_sigma(k)))
+                kernels(k, i, j) =  norm
+                kernels(k, j, i) =  norm
+            enddo
+        enddo
+    enddo
+    !$OMP END PARALLEL DO
+
+    deallocate(atomic_distance)
+
+end subroutine fget_vector_kernels_laplacian_simple_symmetric

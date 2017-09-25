@@ -173,6 +173,7 @@ def bob(mols, asize, path):
 
     X_test = np.asarray([mol.representation for mol in mols])
     X_ref = np.loadtxt(path + "/data/bob_representation.txt")
+
     assert np.allclose(X_test, X_ref), "Error in bag of bonds representation"
 
 def print_mol(mol):
@@ -378,5 +379,5 @@ def local_bob_reference(nuclear_charges, coordinates, atomtypes, asize = {"O":3,
 
 
 if __name__ == "__main__":
-    test_local_bob()
+    test_representations()
 
