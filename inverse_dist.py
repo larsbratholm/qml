@@ -1,7 +1,7 @@
 import tensorflow as tf
 
 
-def inverse_dist(X, n_samples, n_atoms):
+def dist_mat(X, n_samples, n_atoms):
     """
     This function takes in a tensor containing all the cartesian coordinates of the atoms in a trajectory. Each line is
     a different configuration. It returns the upper triangular part of the distance matrix.
@@ -32,9 +32,21 @@ def inverse_dist(X, n_samples, n_atoms):
 
     return upper_triangular
 
+def inv_dist(X, n_samples, n_atoms):
+    """
+    This function calculates the inverse distance matrix.
 
+    :X: tensor with shape (n_samples, n_features)
+    :n_samples: number of samples
+    :n_atoms: number of atoms = int(n_features/3)
+    :return: tensor of shape (n_samples, int(n_atoms * (n_atoms-1) * 0.5))
+    """
 
+    dist_matrix = dist_mat(X, n_samples=n_samples, n_atoms=n_atoms)
 
+    inv_dist_matrix = 1/dist_matrix
+
+    return inv_dist_matrix
 
 
 
