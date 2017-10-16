@@ -6,7 +6,7 @@ import os
 import ast
 import numpy as np
 
-def load_data(directory):
+def load_data(directory, n_samples=50):
 
     # Making a list of the files to look at
     list_of_files = []
@@ -21,7 +21,7 @@ def load_data(directory):
     forces = []
 
     for subdir in subdirs:
-        for file in files[:500]:
+        for file in files[:n_samples]:
             filename = subdir + file
             with open(filename) as f:
                 lines = f.readlines()
@@ -53,6 +53,4 @@ def load_data(directory):
     return traj_coord, ene, forces
 
 if __name__ == "__main__":
-    coord, ene, forces = load_data("/Users/walfits/Documents/aspirin/", "aspirin")
-
-    print("Hello")
+    coord, ene, forces = load_data("/Users/walfits/Documents/aspirin/")

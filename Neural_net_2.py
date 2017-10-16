@@ -48,10 +48,7 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
             self.hidden_layer_sizes = hidden_layer_sizes
             if any(l == 0 for l in self.hidden_layer_sizes):
                 raise ValueError("You have a hidden layer with 0 neurons in it.")
-        elif hl1 == None and hl2 == None and hl3 == None:
-            self.hidden_layer_sizes = hidden_layer_sizes
-            if any(l == 0 for l in self.hidden_layer_sizes):
-                raise ValueError("You have a hidden layer with 0 neurons in it.")
+
         else:
             self.hidden_layer_sizes = (hl1, hl2, hl3)
             if any(l == 0 for l in self.hidden_layer_sizes):
@@ -85,17 +82,11 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
         """
 
         # Check that X and y have correct shape
-        X, y = check_X_y(X, y)
+        # X, y = check_X_y(X, y)
 
         self.alreadyInitialised = True
-        
-        # X contains coordinates and forces. This splits them
-        n_coord = int(X.shape[1]/2)
-        dy = X[:,n_coord:]
-        X = X[:,:n_coord]
-      
+
         # Modification of the y data, because tensorflow wants a column vector, while scikit learn uses a row vector
-        y = np.reshape(y, (len(y), 1))
 
         self.n_coord = X.shape[1]
         self.n_samples = X.shape[0]
@@ -106,56 +97,47 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
 
         # Place holders for the data
         with tf.name_scope('Input'):
-            xyz_train = tf.placeholder(tf.float32, [None, self.n_coord], name="Cartesian_coord")
-            ene_train = tf.placeholder(tf.float32, [None, 1], name="Energy")
-            force_train = tf.placeholder(tf.float32, [None, 3 * self.n_atoms], name="Forces")
+            in_data = tf.placeholder(tf.float32, [None, self.n_coord], name="Cartesian_coord")
+            out_data = tf.placeholder(tf.float32, [None, 3 * self.n_atoms + 1], name="Energy")
 
         # Making the descriptor from the Cartesian coordinates
         with tf.name_scope('Descriptor'):
-            X_des = self.descriptors[descriptor](xyz_train, n_samples=self.batch_size, n_atoms=self.n_atoms)
+            X_des = self.descriptors[descriptor](in_data, n_samples=self.batch_size, n_atoms=self.n_atoms)
 
         self.n_feat = int(self.n_atoms * (self.n_atoms - 1) * 0.5)
 
         # Randomly initialisation of the weights and biases
 
         with tf.name_scope('weights'):
-            weights_ene, biases_ene = self.__generate_weights(n_out=1)
-            weights_force, biases_force = self.__generate_weights(n_out=(3*self.n_atoms))
+            weights, biases = self.__generate_weights(n_out=(1+3*self.n_atoms))
 
-            tf.summary.histogram("weights_ene_in", weights_ene[0])
+            tf.summary.histogram("weights_in", weights[0])
             for ii in range(len(self.hidden_layer_sizes) - 1):
-                tf.summary.histogram("weights_ene_hidden", weights_ene[ii + 1])
-            tf.summary.histogram("weights_ene_out", weights_ene[-1])
-
-            tf.summary.histogram("weights_force_in", weights_force[0])
-            for ii in range(len(self.hidden_layer_sizes) - 1):
-                tf.summary.histogram("weights_force_hidden", weights_force[ii + 1])
-            tf.summary.histogram("weights_force_out", weights_force[-1])
+                tf.summary.histogram("weights_hidden", weights[ii + 1])
+            tf.summary.histogram("weights_out", weights[-1])
 
 
         # Calculating the output of the neural net
-        with tf.name_scope('model_ene'):
-            ene_NN = self.modelNN(X_des, weights_ene, biases_ene)
-        with tf.name_scope('model_force'):
-            force_NN = self.modelNN(X_des, weights_force, biases_force)
+        with tf.name_scope('model_ene_force'):
+            out_NN = self.modelNN(X_des, weights, biases)
+
 
         # Obtaining the derivative of the neural net energy wrt cartesian coordinates
         with tf.name_scope('grad_ene'):
-            grad_ene = tf.gradients(ene_NN, xyz_train, name='dEne_dr')[0] * (-1)
+            ene_NN = tf.slice(out_NN,begin=[0,0], size=[-1,1], name='ene_NN')
+            grad_ene_NN = tf.gradients(ene_NN, in_data, name='dEne_dr')[0] * (-1)
 
         with tf.name_scope('cost_funct'):
             # Calculating the cost function
-            err_ene = tf.square(tf.subtract(ene_train, ene_NN), name='err2_ene')
-            err_force = tf.square(tf.subtract(force_train, force_NN), name='err2_force')
-            err_grad = tf.square(tf.subtract(force_train, grad_ene), name='err2_grad') # Potential problem
+            err_ene_force = tf.square(tf.subtract(out_NN, out_data), name='err2_ene_force')
+            err_grad = tf.square(tf.subtract(tf.slice(out_data ,begin=[0,1], size=[-1,-1]), grad_ene_NN), name='err2_grad')
 
-            cost_ene = tf.reduce_mean(err_ene, name='cost_ene')
-            cost_force = tf.reduce_mean(err_force, name='cost_force')
+            cost_ene_force = tf.reduce_mean(err_ene_force, name='cost_ene_force')
             cost_grad = tf.reduce_mean(err_grad, name='cost_grad')
 
-            reg_term = self.__reg_term(weights_ene, weights_force)
+            reg_term = self.__reg_term(weights)
 
-            cost = cost_ene + self.alpha_force*cost_force + self.alpha_grad*cost_grad + self.alpha_reg * reg_term
+            cost = cost_ene_force + self.alpha_grad*cost_grad + self.alpha_reg * reg_term
 
         # Training the network
         optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate_init).minimize(cost)
@@ -166,41 +148,34 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
 
         # Running the graph
         with tf.Session() as sess:
-           #summary_writer = tf.summary.FileWriter(logdir="/mnt/storage/home/sa16246/repositories/trainingNN/training_Aglaia/first_test/tensorboard",
-            #                                       graph=sess.graph)
-           sess.run(init)
+            summary_writer = tf.summary.FileWriter(logdir="/Users/walfits/Repositories/Aglaia/tensorboard",graph=sess.graph)
+            sess.run(init)
 
-           for iter in range(self.max_iter):
-               # This is the total number of batches in which the training set is divided
-               n_batches = int(self.n_samples / self.batch_size)
-               # This will be used to calculate the average cost per iteration
-               avg_cost = 0
-               # Learning over the batches of data
-               for i in range(n_batches):
-                   batch_x = X[i * self.batch_size:(i + 1) * self.batch_size, :]
-                   batch_y = y[i * self.batch_size:(i + 1) * self.batch_size, :]
-                   batch_dy = dy[i * self.batch_size:(i + 1) * self.batch_size, :]
-                   opt, c = sess.run([optimizer, cost], feed_dict={xyz_train: batch_x, ene_train: batch_y, force_train: batch_dy})
-                   avg_cost += c / n_batches
+            for iter in range(self.max_iter):
+                # This is the total number of batches in which the training set is divided
+                n_batches = int(self.n_samples / self.batch_size)
+                # This will be used to calculate the average cost per iteration
+                avg_cost = 0
+                # Learning over the batches of data
+                for i in range(n_batches):
+                    batch_x = X[i * self.batch_size:(i + 1) * self.batch_size, :]
+                    batch_y = y[i * self.batch_size:(i + 1) * self.batch_size, :]
+                    opt, c = sess.run([optimizer, cost], feed_dict={in_data: batch_x, out_data: batch_y})
+                    avg_cost += c / n_batches
+
+                summary = sess.run(merged_summary, feed_dict={in_data:X})
+                summary_writer.add_summary(summary, iter)
+
+                self.trainCost.append(avg_cost)
+
+            # Saving the weights for later re-use
+            self.all_weights = []
+            self.all_biases = []
+            for ii in range(len(weights)):
+                self.all_weights.append(sess.run(weights[ii]))
+                self.all_biases.append(sess.run(biases[ii]))
 
 
-            #   summary = sess.run(merged_summary, feed_dict={xyz_train:X})
-            #   summary_writer.add_summary(summary, iter)
-
-               self.trainCost.append(avg_cost)
-
-           # Saving the weights for later re-use
-           self.all_weights_ene = []
-           self.all_biases_ene = []
-           for ii in range(len(weights_ene)):
-               self.all_weights_ene.append(sess.run(weights_ene[ii]))
-               self.all_biases_ene.append(sess.run(biases_ene[ii]))
-
-           self.all_weights_force = []
-           self.all_biases_force = []
-           for ii in range(len(weights_force)):
-               self.all_weights_force.append(sess.run(weights_force[ii]))
-               self.all_biases_force.append(sess.run(biases_force[ii]))
 
     def predict(self, X, descriptor="inverse_dist"):
         """
@@ -215,8 +190,6 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
             check_array(X)
 
             n_samples = X.shape[0]
-            n_coord = int(X.shape[1]/2)
-            X = X[:,:n_coord]
 
             # MAking the placeholder for the data
             xyz_test = tf.placeholder(tf.float32, [None, self.n_coord], name="Cartesian_coord")
@@ -225,23 +198,18 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
             X_des = self.descriptors[descriptor](xyz_test, n_samples=n_samples, n_atoms=self.n_atoms)
 
             # Setting up the trained weights
-            weights_ene = []
-            biases_ene = []
+            weights = []
+            biases = []
 
-            for ii in range(len(self.all_weights_ene)):
-                weights_ene.append(tf.Variable(self.all_weights_ene[ii]))
-                biases_ene.append(tf.Variable(self.all_biases_ene[ii]))
+            for ii in range(len(self.all_weights)):
+                weights.append(tf.Variable(self.all_weights[ii]))
+                biases.append(tf.Variable(self.all_biases[ii]))
 
-            weights_force = []
-            biases_force = []
-
-            for ii in range(len(self.all_weights_force)):
-                weights_force.append(tf.Variable(self.all_weights_force[ii]))
-                biases_force.append(tf.Variable(self.all_biases_force[ii]))
 
             # Calculating the ouputs
-            ene_NN = self.modelNN(X_des, weights_ene, biases_ene)
-            force_NN = self.modelNN(X_des, weights_force, biases_force)
+            out_NN = self.modelNN(X_des, weights, biases)
+            ene_NN = tf.slice(out_NN,begin=[0,0], size=[-1,1], name='ene_NN')
+            force_NN = tf.slice(out_NN,begin=[0,1], size=[-1,-1], name='force_NN')
 
             init = tf.global_variables_initializer()
 
@@ -254,35 +222,6 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
             return ene_pred, force_pred
         else:
             raise Exception("The fit function has not been called yet, so the model has not been trained yet.")
-
-    def score(self, X, y, sample_weight=None):
-        """
-        Returns the mean accuracy on the given test data and labels. It calculates the R^2 value. It is used during the
-        training of the model.
-
-        :X: array of shape (n_samples, n_features)
-
-            This contains the input data with samples in the rows and features in the columns.
-
-        :y: array of shape (n_samples,)
-
-            This contains the target values for each sample in the X matrix.
-
-        :sample_weight: array of shape (n_samples,)
-
-            Sample weights (not sure what this is, but i need it for inheritance from the BaseEstimator)
-
-        :return: double
-            This is a score between -inf and 1 (best value is 1) that tells how good the correlation plot is.
-        """
-        n_coord = int(X.shape[1]/2)
-        dy = X[:,n_coord:]
-
-        y_pred, dy_pred = self.predict(X)
-        r2_ene = r2_score(y, y_pred)
-        r2_force = r2_score(dy, dy_pred)
-        r2 = (r2_ene + r2_force)/2
-        return r2
 
     def modelNN(self, X, weights, biases):
         """
@@ -338,7 +277,7 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
 
         return weights, biases
 
-    def __reg_term(self, weights_ene, weights_force):
+    def __reg_term(self, weights):
         """
         This function calculates the regularisation term to the cost function.
 
@@ -349,11 +288,8 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
 
         reg_term = tf.zeros(shape=1, name="regu_term")
 
-        for i in range(len(weights_ene)):
-            reg_term = reg_term + tf.reduce_sum(tf.square(weights_ene[i]))
-
-        for j in range(len(weights_force)):
-            reg_term = reg_term + tf.reduce_sum(tf.square(weights_force[j]))
+        for i in range(len(weights)):
+            reg_term = reg_term + tf.reduce_sum(tf.square(weights[i]))
 
         return reg_term
 
@@ -378,7 +314,7 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
 
         return batch_size
 
-    def score_new(self, X, dy, y, sample_weight=None):
+    def score_new(self, X, y, sample_weight=None):
         """
         Returns the mean accuracy on the given test data and labels. It calculates the R^2 value. It is used during the
         training of the model.
@@ -398,10 +334,11 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
         :return: double
             This is a score between -inf and 1 (best value is 1) that tells how good the correlation plot is.
         """
-
+        ene = y[:,0]
+        force = y[:, 1:]
         y_pred, dy_pred = self.predict(X)
-        r2_ene = r2_score(y, y_pred)
-        r2_force = r2_score(dy, dy_pred)
+        r2_ene = r2_score(ene, y_pred)
+        r2_force = r2_score(force, dy_pred)
         r2 = (r2_ene + r2_force)/2
         return r2
 
@@ -434,16 +371,19 @@ if __name__ == "__main__":
     ene = (ene-mean_ene)/std_ene
     forces = forces/std_ene
 
+    ene = np.reshape(ene,(ene.shape[0], 1))
+    ene_force = np.concatenate((ene, forces), axis=1)
+
     #Hartree
     # ene = ene * 0.0015936
     # forces = forces * 0.0015936
 
     estimator = MLPRegFlow()
-    estimator = MLPRegFlow(max_iter=5000, learning_rate_init=0.002, hidden_layer_sizes=(80,), batch_size=50,
+    estimator = MLPRegFlow(max_iter=5000, learning_rate_init=0.002, hidden_layer_sizes=(100,), batch_size=50,
                               alpha_reg=0.0, alpha_force=0.5, alpha_grad=1)
-    estimator.fit(coord_xyz, ene, forces)
+    estimator.fit(coord_xyz, ene_force)
     estimator.plot_cost()
 
     ene_pred, force_pred = estimator.predict(coord_xyz)
     estimator.correlation_plot(ene_pred, ene)
-    print(estimator.score_new(coord_xyz, forces, ene))
+    print(estimator.score_new(coord_xyz, ene_force))
