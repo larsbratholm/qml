@@ -6,6 +6,7 @@ import inverse_dist as inv
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
+from sklearn.metrics import r2_score
 
 class MLPRegFlow(BaseEstimator, ClassifierMixin):
 
@@ -118,10 +119,10 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
                 tf.summary.histogram("weights_ene_hidden", weights_ene[ii + 1])
             tf.summary.histogram("weights_ene_out", weights_ene[-1])
 
-            # tf.summary.histogram("weights_force_in", weights_force[0])
-            # for ii in range(len(self.hidden_layer_sizes) - 1):
-            #     tf.summary.histogram("weights_force_hidden", weights_force[ii + 1])
-            # tf.summary.histogram("weights_force_out", weights_force[-1])
+            tf.summary.histogram("weights_force_in", weights_force[0])
+            for ii in range(len(self.hidden_layer_sizes) - 1):
+                tf.summary.histogram("weights_force_hidden", weights_force[ii + 1])
+            tf.summary.histogram("weights_force_out", weights_force[-1])
 
 
         # Calculating the output of the neural net
@@ -132,13 +133,13 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
 
         # Obtaining the derivative of the neural net energy wrt cartesian coordinates
         with tf.name_scope('grad_ene'):
-            grad_ene = tf.gradients(ene_NN, xyz_train, name='dEne_dr')
+            grad_ene = tf.gradients(ene_NN, xyz_train, name='dEne_dr')[0] * (-1)
 
         with tf.name_scope('cost_funct'):
             # Calculating the cost function
             err_ene = tf.square(tf.subtract(ene_train, ene_NN), name='err2_ene')
             err_force = tf.square(tf.subtract(force_train, force_NN), name='err2_force')
-            err_grad = tf.square(tf.subtract(force_train, grad_ene[0]), name='err2_grad') # Potential problem
+            err_grad = tf.square(tf.subtract(force_train, grad_ene), name='err2_grad') # Potential problem
 
             cost_ene = tf.reduce_mean(err_ene, name='cost_ene')
             cost_force = tf.reduce_mean(err_force, name='cost_force')
@@ -174,11 +175,12 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
                     opt, c = sess.run([optimizer, cost], feed_dict={xyz_train: batch_x, ene_train: batch_y, force_train: batch_dy})
                     avg_cost += c / n_batches
 
-
                 summary = sess.run(merged_summary, feed_dict={xyz_train:X})
                 summary_writer.add_summary(summary, iter)
 
                 self.trainCost.append(avg_cost)
+
+            # print(sess.run(grad_ene, feed_dict={xyz_train: batch_x}))
 
             # Saving the weights for later re-use
             self.all_weights_ene = []
@@ -281,19 +283,19 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
         biases = []
 
         # Weights from input layer to first hidden layer
-        weights.append(tf.Variable(tf.truncated_normal([self.hidden_layer_sizes[0], self.n_feat], stddev=0.01),
+        weights.append(tf.Variable(tf.truncated_normal([self.hidden_layer_sizes[0], self.n_feat], stddev=0.1),
                                    name='weight_in'))
         biases.append(tf.Variable(tf.zeros([self.hidden_layer_sizes[0]]), name='bias_in'))
 
         # Weights from one hidden layer to the next
         for ii in range(len(self.hidden_layer_sizes) - 1):
             weights.append(tf.Variable(
-                tf.truncated_normal([self.hidden_layer_sizes[ii + 1], self.hidden_layer_sizes[ii]], stddev=0.01),
+                tf.truncated_normal([self.hidden_layer_sizes[ii + 1], self.hidden_layer_sizes[ii]], stddev=0.1),
                 name='weight_hidden'))
             biases.append(tf.Variable(tf.zeros([self.hidden_layer_sizes[ii + 1]]), name='bias_hidden'))
 
         # Weights from lat hidden layer to output layer
-        weights.append(tf.Variable(tf.truncated_normal([n_out, self.hidden_layer_sizes[-1]], stddev=0.01), name='weight_out'))
+        weights.append(tf.Variable(tf.truncated_normal([n_out, self.hidden_layer_sizes[-1]], stddev=0.1), name='weight_out'))
         biases.append(tf.Variable(tf.zeros([n_out]), name='bias_out'))
 
         return weights, biases
@@ -338,19 +340,72 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
 
         return batch_size
 
+    def score_new(self, X, dy, y, sample_weight=None):
+        """
+        Returns the mean accuracy on the given test data and labels. It calculates the R^2 value. It is used during the
+        training of the model.
+
+        :X: array of shape (n_samples, n_features)
+
+            This contains the input data with samples in the rows and features in the columns.
+
+        :y: array of shape (n_samples,)
+
+            This contains the target values for each sample in the X matrix.
+
+        :sample_weight: array of shape (n_samples,)
+
+            Sample weights (not sure what this is, but i need it for inheritance from the BaseEstimator)
+
+        :return: double
+            This is a score between -inf and 1 (best value is 1) that tells how good the correlation plot is.
+        """
+
+        y_pred, dy_pred = self.predict(X)
+        r2_ene = r2_score(y, y_pred)
+        r2_force = r2_score(dy, dy_pred)
+        r2 = (r2_ene + r2_force)/2
+        return r2
+
     def plot_cost(self):
         df = pd.DataFrame()
         df["Iterations"] = range(len(self.trainCost))
         df["Cost"] = self.trainCost
         lm = sns.lmplot('Iterations', 'Cost', data=df, scatter_kws={"s": 20, "alpha": 0.6}, line_kws={"alpha": 0.5}, fit_reg=False)
+        # lm.set(yscale="log")
         plt.show()
 
     def correlation_plot(self, y_nn, y_true):
         df = pd.DataFrame()
         df["NN_prediction"] = y_nn
         df["True_value"] = y_true
-        lm = sns.lmplot('True_value', 'NN_prediction', data=df, scatter_kws={"s": 20, "alpha": 0.6}, line_kws={"alpha": 0.5},
-                        fit_reg=False)
+        lm = sns.lmplot('True_value', 'NN_prediction', data=df, scatter_kws={"s": 20, "alpha": 0.6}, line_kws={"alpha": 0.5})
+        # lm.set(ylim=[-648.20*627.51, -648.15*627.51])
+        # lm.set(xlim=[-648.20*627.51, -648.15*627.51])
         plt.show()
 
 
+if __name__ == "__main__":
+    import extract
+
+    coord_xyz, ene, forces = extract.load_data("/Users/walfits/Documents/aspirin/", n_samples=50)
+
+    mean_ene = np.mean(ene)
+    std_ene = np.std(ene)
+
+    ene = (ene-mean_ene)/std_ene
+    forces = forces/std_ene
+
+    #Hartree
+    # ene = ene * 0.0015936
+    # forces = forces * 0.0015936
+
+    estimator = MLPRegFlow()
+    estimator = MLPRegFlow(max_iter=5000, learning_rate_init=0.002, hidden_layer_sizes=(80,), batch_size=50,
+                              alpha_reg=0.0, alpha_force=0.5, alpha_grad=1)
+    estimator.fit(coord_xyz, ene, forces)
+    estimator.plot_cost()
+
+    ene_pred, force_pred = estimator.predict(coord_xyz)
+    estimator.correlation_plot(ene_pred, ene)
+    print(estimator.score_new(coord_xyz, forces, ene))
