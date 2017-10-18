@@ -1,3 +1,12 @@
+"""
+This file contains a class of a neural network that fits both the energies and the forces at the same time. It uses
+an energy term, a force term *and* a gradient term in the cost function.
+
+The input to the fit function is the matrix of n_samples by n_coordinates (no atom labels). This is then transformed
+into a descriptor which is fed into the neural network. There is only 1 neural network which has an output of size
+n_atoms x3 + 1 (3 n_atoms forces, plus the energy).
+"""
+
 import numpy as np
 from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.utils.validation import check_X_y, check_array
@@ -11,11 +20,11 @@ from sklearn.metrics import r2_score
 class MLPRegFlow(BaseEstimator, ClassifierMixin):
 
 
-    def __init__(self, hidden_layer_sizes=(5,), alpha_reg=0.0001, alpha_grad=0.05, alpha_force=0.9, batch_size='auto', learning_rate_init=0.001,
+    def __init__(self, hidden_layer_sizes=(5,), alpha_reg=0.0001, alpha_grad=0.05, batch_size='auto', learning_rate_init=0.001,
                  max_iter=80, hl1=0, hl2=0, hl3=0):
         """
         Neural-network with multiple hidden layers to do regression.
-        This model optimises the squared error function using the Adam optimiser.
+
         :hidden_layer_sizes: Tuple, length = number of hidden layers, default (5,).
             The ith element represents the number of neurons in the ith
             hidden layer.
@@ -23,8 +32,6 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
             L2 penalty (regularization term) parameter.
         :alpha_grad: default 0.05
             Parameter that enables to tweak the importance of the gradient term in the cost function.
-        :alpha_force: default 0.9
-            Parameter that enables to tweak the importance of the force term in the cost function.
         :batch_size: int, default 'auto'.
             Size of minibatches for stochastic optimizers.
             If the solver is 'lbfgs', the classifier will not use minibatch.
@@ -33,12 +40,20 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
             The value of the learning rate in the numerical minimisation.
         :max_iter: int, default 200.
             Total number of iterations that will be carried out during the training process.
+        :hl1: int, default 0
+            Number of neurons in the first hidden layer. If this is different from zero, it over writes the values in
+            hidden_layer_sizes. It is useful for optimisation with Osprey.
+        :hl2: int, default 0
+            Number of neurons in the second hidden layer. If this is different from zero, it over writes the values in
+            hidden_layer_sizes. It is useful for optimisation with Osprey.
+        :hl3: int, default 0
+            Number of neurons in the third hidden layer. If this is different from zero, it over writes the values in
+            hidden_layer_sizes. It is useful for optimisation with Osprey.
         """
 
         # Initialising the parameters
         self.alpha_reg = alpha_reg
         self.alpha_grad = alpha_grad
-        self.alpha_force = alpha_force
         self.batch_size = batch_size
         self.learning_rate_init = learning_rate_init
         self.max_iter = max_iter
@@ -55,7 +70,7 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
                 raise ValueError("You have a hidden layer with 0 neurons in it.")
 
 
-        # Initialising parameters needed for the Tensorflow part
+        # Other useful parameters
         self.alreadyInitialised = False
         self.trainCost = []
         self.testCost = []
@@ -75,19 +90,24 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
 
             This contains the input data with samples in the rows and features in the columns.
 
-        :y: array of shape (n_samples,).
+        :y: array of shape (n_samples, n_outputs).
 
             This contains the target values for each sample in the X matrix.
+
+        :descriptor: string, default "inverse_dist"
+
+            This determines the choice of descriptor to be used as the input to the neural net. The current
+            possibilities are:
+            "inverse_dist"
 
         """
 
         # Check that X and y have correct shape
-        # X, y = check_X_y(X, y)
+        X, y = check_X_y(X, y, multi_output=True)
 
         self.alreadyInitialised = True
 
-        # Modification of the y data, because tensorflow wants a column vector, while scikit learn uses a row vector
-
+        # Useful quantities
         self.n_coord = X.shape[1]
         self.n_samples = X.shape[0]
         self.n_atoms = int(X.shape[1]/3)
@@ -95,22 +115,23 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
         # Check the value of the batch size
         self.batch_size = self.checkBatchSize()
 
-        # Place holders for the data
-        with tf.name_scope('Input'):
-            in_data = tf.placeholder(tf.float32, [None, self.n_coord], name="Cartesian_coord")
-            out_data = tf.placeholder(tf.float32, [None, 3 * self.n_atoms + 1], name="Energy")
+        # Place holders for the input/output data
+        with tf.name_scope('Data'):
+            in_data = tf.placeholder(tf.float32, [None, self.n_coord], name="Coordinates")
+            out_data = tf.placeholder(tf.float32, [None, self.n_coord + 1], name="Energy_forces")
 
         # Making the descriptor from the Cartesian coordinates
         with tf.name_scope('Descriptor'):
             X_des = self.descriptors[descriptor](in_data, n_samples=self.batch_size, n_atoms=self.n_atoms)
 
+        # Number of features in the descriptor
         self.n_feat = int(self.n_atoms * (self.n_atoms - 1) * 0.5)
 
         # Randomly initialisation of the weights and biases
-
         with tf.name_scope('weights'):
             weights, biases = self.__generate_weights(n_out=(1+3*self.n_atoms))
 
+            # Log weights for tensorboard
             tf.summary.histogram("weights_in", weights[0])
             for ii in range(len(self.hidden_layer_sizes) - 1):
                 tf.summary.histogram("weights_hidden", weights[ii + 1])
@@ -118,7 +139,7 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
 
 
         # Calculating the output of the neural net
-        with tf.name_scope('model_ene_force'):
+        with tf.name_scope('ene_forces_NN'):
             out_NN = self.modelNN(X_des, weights, biases)
 
 
@@ -127,10 +148,10 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
             ene_NN = tf.slice(out_NN,begin=[0,0], size=[-1,1], name='ene_NN')
             grad_ene_NN = tf.gradients(ene_NN, in_data, name='dEne_dr')[0] * (-1)
 
+        # Calculating the cost function
         with tf.name_scope('cost_funct'):
-            # Calculating the cost function
             err_ene_force = tf.square(tf.subtract(out_NN, out_data), name='err2_ene_force')
-            err_grad = tf.square(tf.subtract(tf.slice(out_data ,begin=[0,1], size=[-1,-1]), grad_ene_NN), name='err2_grad')
+            err_grad = tf.square(tf.subtract(tf.slice(out_data, begin=[0,1], size=[-1,-1]), grad_ene_NN), name='err2_grad')
 
             cost_ene_force = tf.reduce_mean(err_ene_force, name='cost_ene_force')
             cost_grad = tf.reduce_mean(err_grad, name='cost_grad')
@@ -175,14 +196,14 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
                 self.all_weights.append(sess.run(weights[ii]))
                 self.all_biases.append(sess.run(biases[ii]))
 
-
-
     def predict(self, X, descriptor="inverse_dist"):
         """
-        This function uses the X data and plugs it into the model and then returns the predicted y
+        This function uses the X data and plugs it into the model and then returns the predicted y.
+
         :X: array of shape (n_samples, n_features)
             This contains the input data with samples in the rows and features in the columns.
-        :return: array of size (n_samples,)
+
+        :return: array of size (n_samples, n_outputs)
             This contains the predictions for the target values corresponding to the samples contained in X.
         """
 
@@ -208,18 +229,14 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
 
             # Calculating the ouputs
             out_NN = self.modelNN(X_des, weights, biases)
-            ene_NN = tf.slice(out_NN,begin=[0,0], size=[-1,1], name='ene_NN')
-            force_NN = tf.slice(out_NN,begin=[0,1], size=[-1,-1], name='force_NN')
 
             init = tf.global_variables_initializer()
 
             with tf.Session() as sess:
                 sess.run(init)
-                ene_pred = sess.run(ene_NN, feed_dict={xyz_test: X})
-                force_pred = sess.run(force_NN, feed_dict={xyz_test: X})
-                ene_pred = np.reshape(ene_pred, (ene_pred.shape[0],))
+                ene_forces_NN = sess.run(out_NN, feed_dict={xyz_test: X})
 
-            return ene_pred, force_pred
+            return ene_forces_NN
         else:
             raise Exception("The fit function has not been called yet, so the model has not been trained yet.")
 
@@ -231,7 +248,7 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
         :X: tf.placeholder of shape (n_samples, n_features)
         :weights: list of tf.Variables of length len(hidden_layer_sizes) + 1
         :biases: list of tf.Variables of length len(hidden_layer_sizes) + 1
-        :return: tf.Variable of size (n_samples, 1)
+        :return: tf.Variable of size (n_samples, n_outputs)
         """
 
         # Calculating the activation of the first hidden layer
@@ -250,10 +267,11 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
 
     def __generate_weights(self, n_out):
         """
-        This function generates the weights and the biases. It does so by looking at the size of the hidden layers and
-        the number of features in the descriptor. The weights are initialised randomly.
+        This function generates the weights and the biases. It does so by looking at the size of the hidden layers,
+        the number of features in the descriptor and the number of outputs. The weights are initialised randomly.
 
-        :return: lists (of length n_hidden_layers + 1) of tensorflow variables
+        :n_out: int, number of outputs
+        :return: two lists (of length n_hidden_layers + 1) of tensorflow variables
         """
 
         weights = []
@@ -281,8 +299,7 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
         """
         This function calculates the regularisation term to the cost function.
 
-        :weights_ene: list of tensorflow tensors
-        :param weights_force: list of tensorflow tensors
+        :weights: list of tensorflow tensors
         :return: tensorflow scalar
         """
 
@@ -323,7 +340,7 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
 
             This contains the input data with samples in the rows and features in the columns.
 
-        :y: array of shape (n_samples,)
+        :y: array of shape (n_samples, n_outputs)
 
             This contains the target values for each sample in the X matrix.
 
@@ -343,6 +360,9 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
         return r2
 
     def plot_cost(self):
+        """
+        This function plots the value of the cost function as a function of the iterations. It is used in the fitting.
+        """
         df = pd.DataFrame()
         df["Iterations"] = range(len(self.trainCost))
         df["Cost"] = self.trainCost
@@ -351,6 +371,12 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
         plt.show()
 
     def correlation_plot(self, y_nn, y_true):
+        """
+        This function plots a correlation plot.
+
+        :y_nn: list of values predicted by the neural net
+        :y_true: list of gorund truth values
+        """
         df = pd.DataFrame()
         df["NN_prediction"] = y_nn
         df["True_value"] = y_true
@@ -359,31 +385,3 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
         # lm.set(xlim=[-648.20*627.51, -648.15*627.51])
         plt.show()
 
-
-if __name__ == "__main__":
-    import extract
-
-    coord_xyz, ene, forces = extract.load_data("/Users/walfits/Documents/aspirin/", n_samples=50)
-
-    mean_ene = np.mean(ene)
-    std_ene = np.std(ene)
-
-    ene = (ene-mean_ene)/std_ene
-    forces = forces/std_ene
-
-    ene = np.reshape(ene,(ene.shape[0], 1))
-    ene_force = np.concatenate((ene, forces), axis=1)
-
-    #Hartree
-    # ene = ene * 0.0015936
-    # forces = forces * 0.0015936
-
-    estimator = MLPRegFlow()
-    estimator = MLPRegFlow(max_iter=5000, learning_rate_init=0.002, hidden_layer_sizes=(100,), batch_size=50,
-                              alpha_reg=0.0, alpha_force=0.5, alpha_grad=1)
-    estimator.fit(coord_xyz, ene_force)
-    estimator.plot_cost()
-
-    ene_pred, force_pred = estimator.predict(coord_xyz)
-    estimator.correlation_plot(ene_pred, ene)
-    print(estimator.score_new(coord_xyz, ene_force))
