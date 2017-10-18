@@ -351,12 +351,9 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
         :return: double
             This is a score between -inf and 1 (best value is 1) that tells how good the correlation plot is.
         """
-        ene = y[:,0]
-        force = y[:, 1:]
-        y_pred, dy_pred = self.predict(X)
-        r2_ene = r2_score(ene, y_pred)
-        r2_force = r2_score(force, dy_pred)
-        r2 = (r2_ene + r2_force)/2
+
+        y_pred = self.predict(X)
+        r2 = r2_score(y, y_pred)
         return r2
 
     def plot_cost(self):
