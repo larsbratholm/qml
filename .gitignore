@@ -1,3 +1,4 @@
 tensorboard/
 .idea/
 /Examples/data.csv
+Examples/tmp_dir/
