@@ -16,12 +16,17 @@ import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 from sklearn.metrics import r2_score
+from tensorflow.python.framework import ops
+from tensorflow.python.training import saver as saver_lib
+import os
+from tensorflow.python.framework import graph_io
+from tensorflow.python.tools import freeze_graph
 
 class MLPRegFlow(BaseEstimator, ClassifierMixin):
 
 
     def __init__(self, hidden_layer_sizes=(5,), alpha_reg=0.0001, alpha_grad=0.05, batch_size='auto', learning_rate_init=0.001,
-                 max_iter=80, hl1=0, hl2=0, hl3=0):
+                 max_iter=80, hl1=0, hl2=0, hl3=0, descriptor="inverse_dist"):
         """
         Neural-network with multiple hidden layers to do regression.
 
@@ -49,6 +54,10 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
         :hl3: int, default 0
             Number of neurons in the third hidden layer. If this is different from zero, it over writes the values in
             hidden_layer_sizes. It is useful for optimisation with Osprey.
+        :descriptor: string, default "inverse_dist"
+            This determines the choice of descriptor to be used as the input to the neural net. The current
+            possibilities are:
+            "inverse_dist"
         """
 
         # Initialising the parameters
@@ -72,17 +81,19 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
 
         # Other useful parameters
         self.alreadyInitialised = False
+        self.loadedModel = False
         self.trainCost = []
         self.testCost = []
         self.isVisReady = False
 
         # Available descriptors
-        self.descriptors = {
+        self.available_descriptors = {
             "inverse_dist": inv.inv_dist
         }
+        self.descriptor = self.available_descriptors[descriptor]
 
 
-    def fit(self, X, y, descriptor="inverse_dist"):
+    def fit(self, X, y):
         """
         Fit the model to data matrix X and target y.
 
@@ -93,12 +104,6 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
         :y: array of shape (n_samples, n_outputs).
 
             This contains the target values for each sample in the X matrix.
-
-        :descriptor: string, default "inverse_dist"
-
-            This determines the choice of descriptor to be used as the input to the neural net. The current
-            possibilities are:
-            "inverse_dist"
 
         """
 
@@ -122,7 +127,7 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
 
         # Making the descriptor from the Cartesian coordinates
         with tf.name_scope('Descriptor'):
-            X_des = self.descriptors[descriptor](in_data, n_samples=self.batch_size, n_atoms=self.n_atoms)
+            X_des = self.descriptor(in_data, n_atoms=self.n_atoms)
 
         # Number of features in the descriptor
         self.n_feat = int(self.n_atoms * (self.n_atoms - 1) * 0.5)
@@ -139,9 +144,8 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
 
 
         # Calculating the output of the neural net
-        with tf.name_scope('ene_forces_NN'):
+        with tf.name_scope('model'):
             out_NN = self.modelNN(X_des, weights, biases)
-
 
         # Obtaining the derivative of the neural net energy wrt cartesian coordinates
         with tf.name_scope('grad_ene'):
@@ -196,7 +200,62 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
                 self.all_weights.append(sess.run(weights[ii]))
                 self.all_biases.append(sess.run(biases[ii]))
 
-    def predict(self, X, descriptor="inverse_dist"):
+    def save_NN(self, dir):
+
+        if self.alreadyInitialised == False:
+            raise Exception("The fit function has not been called yet, so the model has not been trained yet.")
+
+        # Making the placeholder for the data
+        xyz_test = tf.placeholder(tf.float32, [None, self.n_coord], name="Cartesian_coord")
+
+        # Making the descriptor from the Cartesian coordinates
+        X_des = self.descriptor(xyz_test, n_atoms=self.n_atoms)
+
+        # Setting up the trained weights
+        weights = []
+        biases = []
+
+        for ii in range(len(self.all_weights)):
+            weights.append(tf.Variable(self.all_weights[ii], name="weights_restore"))
+            biases.append(tf.Variable(self.all_biases[ii], name="biases_restore"))
+
+        # Calculating the ouputs
+        out_NN = self.modelNN(X_des, weights, biases)
+
+        init = tf.global_variables_initializer()
+
+        # Object needed to save the model
+        all_saver = tf.train.Saver()
+
+        with tf.Session() as sess:
+            sess.run(init)
+
+            # Saving the graph
+            all_saver.save(sess, dir+"/")
+
+    def load_NN(self, dir):
+
+        # Inserting the weights into the model
+        with tf.Session() as sess:
+            # Loading a saved graph
+            file = dir + "/.meta"
+            saver = tf.train.import_meta_graph(file)
+            saver.restore(sess, tf.train.latest_checkpoint(dir))
+
+            # The model is loaded in the default graph
+            graph = tf.get_default_graph()
+
+            # Loading the graph of out_NN
+            self.out_NN = graph.get_tensor_by_name("output_node_1:0")
+            self.in_data = graph.get_tensor_by_name("Cartesian_coord_1:0")
+
+
+            saver.restore(sess, tf.train.latest_checkpoint(dir+"/"))
+            sess.run(tf.global_variables_initializer())
+
+        self.loadedModel = True
+
+    def predict(self, X):
         """
         This function uses the X data and plugs it into the model and then returns the predicted y.
 
@@ -207,16 +266,15 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
             This contains the predictions for the target values corresponding to the samples contained in X.
         """
 
-        if self.alreadyInitialised:
-            check_array(X)
+        check_array(X)
 
-            n_samples = X.shape[0]
+        if self.alreadyInitialised:
 
             # MAking the placeholder for the data
             xyz_test = tf.placeholder(tf.float32, [None, self.n_coord], name="Cartesian_coord")
 
             # Making the descriptor from the Cartesian coordinates
-            X_des = self.descriptors[descriptor](xyz_test, n_samples=n_samples, n_atoms=self.n_atoms)
+            X_des = self.descriptor(xyz_test, n_atoms=self.n_atoms)
 
             # Setting up the trained weights
             weights = []
@@ -225,7 +283,6 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
             for ii in range(len(self.all_weights)):
                 weights.append(tf.Variable(self.all_weights[ii]))
                 biases.append(tf.Variable(self.all_biases[ii]))
-
 
             # Calculating the ouputs
             out_NN = self.modelNN(X_des, weights, biases)
@@ -237,6 +294,16 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
                 ene_forces_NN = sess.run(out_NN, feed_dict={xyz_test: X})
 
             return ene_forces_NN
+
+        elif self.loadedModel:
+            feed_dic = {self.in_data: X}
+
+            with tf.Session() as sess:
+                sess.run(tf.global_variables_initializer())
+                ene_forces_NN = sess.run(self.out_NN, feed_dict=feed_dic)
+
+            return ene_forces_NN
+
         else:
             raise Exception("The fit function has not been called yet, so the model has not been trained yet.")
 
@@ -261,7 +328,7 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
             h = tf.nn.sigmoid(z)
 
         # Calculating the output of the last layer
-        z = tf.add(tf.matmul(h, tf.transpose(weights[-1])), biases[-1])
+        z = tf.add(tf.matmul(h, tf.transpose(weights[-1])), biases[-1], name="output_node")
 
         return z
 
@@ -381,4 +448,17 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
         # lm.set(ylim=[-648.20*627.51, -648.15*627.51])
         # lm.set(xlim=[-648.20*627.51, -648.15*627.51])
         plt.show()
+
+
+if __name__ == "__main__":
+    import extract
+
+    coord_xyz, ene, forces = extract.load_data("/Users/walfits/Documents/aspirin/", n_samples=50)
+    ene = np.reshape(ene, (ene.shape[0], 1))
+    ene_force = np.concatenate((ene, forces), axis=1)
+
+    estimator = MLPRegFlow(max_iter=50)
+    estimator.fit(coord_xyz, ene_force)
+    estimator.save_NN()
+    estimator.load_NN("/Users/walfits/Repositories/Aglaia/tmp_dir/", coord_xyz)
 
