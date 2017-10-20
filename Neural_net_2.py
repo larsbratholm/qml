@@ -92,7 +92,6 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
         }
         self.descriptor = self.available_descriptors[descriptor]
 
-
     def fit(self, X, y):
         """
         Fit the model to data matrix X and target y.
@@ -448,17 +447,4 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
         # lm.set(ylim=[-648.20*627.51, -648.15*627.51])
         # lm.set(xlim=[-648.20*627.51, -648.15*627.51])
         plt.show()
-
-
-if __name__ == "__main__":
-    import extract
-
-    coord_xyz, ene, forces = extract.load_data("/Users/walfits/Documents/aspirin/", n_samples=50)
-    ene = np.reshape(ene, (ene.shape[0], 1))
-    ene_force = np.concatenate((ene, forces), axis=1)
-
-    estimator = MLPRegFlow(max_iter=50)
-    estimator.fit(coord_xyz, ene_force)
-    estimator.save_NN()
-    estimator.load_NN("/Users/walfits/Repositories/Aglaia/tmp_dir/", coord_xyz)
 
