@@ -48,7 +48,10 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
             self.hidden_layer_sizes = hidden_layer_sizes
             if any(l == 0 for l in self.hidden_layer_sizes):
                 raise ValueError("You have a hidden layer with 0 neurons in it.")
-
+        elif hl1 == None and hl2 == None and hl3 == None:
+            self.hidden_layer_sizes = hidden_layer_sizes
+            if any(l == 0 for l in self.hidden_layer_sizes):
+                raise ValueError("You have a hidden layer with 0 neurons in it.")
         else:
             self.hidden_layer_sizes = (hl1, hl2, hl3)
             if any(l == 0 for l in self.hidden_layer_sizes):
@@ -111,10 +114,10 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
         with tf.name_scope('weights'):
             weights, biases = self.__generate_weights(n_out=(1+3*self.n_atoms))
 
-            tf.summary.histogram("weights_in", weights[0])
-            for ii in range(len(self.hidden_layer_sizes) - 1):
-                tf.summary.histogram("weights_hidden", weights[ii + 1])
-            tf.summary.histogram("weights_out", weights[-1])
+            # tf.summary.histogram("weights_in", weights[0])
+            # for ii in range(len(self.hidden_layer_sizes) - 1):
+            #     tf.summary.histogram("weights_hidden", weights[ii + 1])
+            # tf.summary.histogram("weights_out", weights[-1])
 
 
         # Calculating the output of the neural net
@@ -144,11 +147,11 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
 
         # Initialisation of the variables
         init = tf.global_variables_initializer()
-        merged_summary = tf.summary.merge_all()
+        # merged_summary = tf.summary.merge_all()
 
         # Running the graph
         with tf.Session() as sess:
-            summary_writer = tf.summary.FileWriter(logdir="/Users/walfits/Repositories/Aglaia/tensorboard",graph=sess.graph)
+            # summary_writer = tf.summary.FileWriter(logdir="/Users/walfits/Repositories/Aglaia/tensorboard",graph=sess.graph)
             sess.run(init)
 
             for iter in range(self.max_iter):
@@ -163,8 +166,8 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
                     opt, c = sess.run([optimizer, cost], feed_dict={in_data: batch_x, out_data: batch_y})
                     avg_cost += c / n_batches
 
-                summary = sess.run(merged_summary, feed_dict={in_data:X})
-                summary_writer.add_summary(summary, iter)
+                # summary = sess.run(merged_summary, feed_dict={in_data:X})
+                # summary_writer.add_summary(summary, iter)
 
                 self.trainCost.append(avg_cost)
 
@@ -314,7 +317,7 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
 
         return batch_size
 
-    def score_new(self, X, y, sample_weight=None):
+    def score(self, X, y, sample_weight=None):
         """
         Returns the mean accuracy on the given test data and labels. It calculates the R^2 value. It is used during the
         training of the model.
