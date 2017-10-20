@@ -1,3 +1,11 @@
+"""
+This file contains a a class of a neural network that fits both the energies and the forces at the same time. It uses
+an energy term, a force term *and* a gradient term in the cost function.
+
+There are 2 neural networks working in parallel. One fits the energy, one the forces. They are related because the
+output of the energy network needs to match the output of the force network.
+"""
+
 import numpy as np
 from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.utils.validation import check_X_y, check_array
@@ -11,11 +19,12 @@ from sklearn.metrics import r2_score
 class MLPRegFlow(BaseEstimator, ClassifierMixin):
 
 
-    def __init__(self, hidden_layer_sizes=(5,), alpha_reg=0.0001, alpha_grad=0.05, alpha_force=0.9, batch_size='auto', learning_rate_init=0.001,
+    def __init__(self, hidden_layer_sizes=(5,), alpha_reg=0.0001, alpha_grad=0.05, alpha_force=0.9, batch_size='auto',
+                 learning_rate_init=0.001,
                  max_iter=80, hl1=0, hl2=0, hl3=0):
         """
         Neural-network with multiple hidden layers to do regression.
-        This model optimises the squared error function using the Adam optimiser.
+
         :hidden_layer_sizes: Tuple, length = number of hidden layers, default (5,).
             The ith element represents the number of neurons in the ith
             hidden layer.
@@ -81,6 +90,10 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
         :y: array of shape (n_samples,).
 
             This contains the target values for each sample in the X matrix.
+
+        :dy: array of shape (n_samples, n_features).
+
+            This contains the gradients of y with respect to X
 
         """
 
@@ -207,8 +220,9 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
         This function uses the X data and plugs it into the model and then returns the predicted y
         :X: array of shape (n_samples, n_features)
             This contains the input data with samples in the rows and features in the columns.
-        :return: array of size (n_samples,)
-            This contains the predictions for the target values corresponding to the samples contained in X.
+        :return: array of size (n_samples,) and an array of shape (n_samples, n_features)
+            This contains the predictions for the target values corresponding to the samples contained in X and their
+            gradient wrt X.
         """
 
         if self.alreadyInitialised:
@@ -314,6 +328,7 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
         This function generates the weights and the biases. It does so by looking at the size of the hidden layers and
         the number of features in the descriptor. The weights are initialised randomly.
 
+        :n_out: int, number of outputs from the neural net.
         :return: lists (of length n_hidden_layers + 1) of tensorflow variables
         """
 
