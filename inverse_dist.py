@@ -1,7 +1,7 @@
 import tensorflow as tf
 
 
-def dist_mat(X, n_samples, n_atoms):
+def dist_mat(X, n_atoms):
     """
     This function takes in a tensor containing all the cartesian coordinates of the atoms in a trajectory. Each line is
     a different configuration. It returns the upper triangular part of the distance squared matrix. (Note: couldnt use
@@ -16,7 +16,7 @@ def dist_mat(X, n_samples, n_atoms):
 
 
     # This part generates the inverse matrix
-    xyz_3d = tf.reshape(X, shape=(n_samples, n_atoms, 3))
+    xyz_3d = tf.reshape(X, shape=(tf.shape(X)[0], n_atoms, 3))
     expanded_a = tf.expand_dims(xyz_3d, 2)
     expanded_b = tf.expand_dims(xyz_3d, 1)
     diff2 = tf.squared_difference(expanded_a, expanded_b, name='square_diff')
@@ -30,11 +30,11 @@ def dist_mat(X, n_samples, n_atoms):
     mask = tf.cast(mask_a - mask_b, dtype=tf.bool, name='mask') # Transfoorm into bool
 
     upper_triangular_conc = tf.boolean_mask(diff2_sum, mask, name='descript_concat')
-    upper_triangular = tf.reshape(upper_triangular_conc, shape=(n_samples, int(n_atoms * (n_atoms-1) * 0.5)), name='descript')
+    upper_triangular = tf.reshape(upper_triangular_conc, shape=(tf.shape(X)[0], int(n_atoms * (n_atoms-1) * 0.5)), name='descript')
 
     return upper_triangular
 
-def inv_dist(X, n_samples, n_atoms):
+def inv_dist(X, n_atoms):
     """
     This function calculates the inverse distance squared matrix.
 
@@ -44,7 +44,7 @@ def inv_dist(X, n_samples, n_atoms):
     :return: tensor of shape (n_samples, int(n_atoms * (n_atoms-1) * 0.5))
     """
 
-    dist_matrix = dist_mat(X, n_samples=n_samples, n_atoms=n_atoms)
+    dist_matrix = dist_mat(X, n_atoms=n_atoms)
 
     inv_dist_matrix = 1/dist_matrix
 
