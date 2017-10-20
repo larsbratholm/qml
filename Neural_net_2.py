@@ -200,56 +200,69 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
                 self.all_biases.append(sess.run(biases[ii]))
 
     def save_NN(self, dir):
+        """
+        This function saves a .meta, .index, .data_0000-0001 and a check point file, which can be used to save the
+        trained model.
+
+        :dir: absolute or relative path of directory where to save the files
+        """
 
         if self.alreadyInitialised == False:
             raise Exception("The fit function has not been called yet, so the model has not been trained yet.")
 
-        # Making the placeholder for the data
-        xyz_test = tf.placeholder(tf.float32, [None, self.n_coord], name="Cartesian_coord")
+        # Creating a new graph
+        model_graph = tf.Graph()
 
-        # Making the descriptor from the Cartesian coordinates
-        X_des = self.descriptor(xyz_test, n_atoms=self.n_atoms)
+        with model_graph.as_default():
+            # Making the placeholder for the data
+            xyz_test = tf.placeholder(tf.float32, [None, self.n_coord], name="Cartesian_coord")
 
-        # Setting up the trained weights
-        weights = []
-        biases = []
+            # Making the descriptor from the Cartesian coordinates
+            X_des = self.descriptor(xyz_test, n_atoms=self.n_atoms)
 
-        for ii in range(len(self.all_weights)):
-            weights.append(tf.Variable(self.all_weights[ii], name="weights_restore"))
-            biases.append(tf.Variable(self.all_biases[ii], name="biases_restore"))
+            # Setting up the trained weights
+            weights = []
+            biases = []
 
-        # Calculating the ouputs
-        out_NN = self.modelNN(X_des, weights, biases)
+            for ii in range(len(self.all_weights)):
+                weights.append(tf.Variable(self.all_weights[ii], name="weights_restore"))
+                biases.append(tf.Variable(self.all_biases[ii], name="biases_restore"))
 
-        init = tf.global_variables_initializer()
+            # Calculating the ouputs
+            out_NN = self.modelNN(X_des, weights, biases)
 
-        # Object needed to save the model
-        all_saver = tf.train.Saver()
+            init = tf.global_variables_initializer()
 
-        with tf.Session() as sess:
-            sess.run(init)
+            # Object needed to save the model
+            all_saver = tf.train.Saver(save_relative_paths=True)
 
-            # Saving the graph
-            all_saver.save(sess, dir+"/")
+            with tf.Session() as sess:
+                sess.run(init)
+
+                # Saving the graph
+                all_saver.save(sess, dir)
 
     def load_NN(self, dir):
+        """
+        Function that loads a trained estimator.
+
+        :dir: directory where the .meta, .index, .data_0000-0001 and check point files have been saved.
+        """
 
         # Inserting the weights into the model
         with tf.Session() as sess:
             # Loading a saved graph
-            file = dir + "/.meta"
+            file = dir + ".meta"
             saver = tf.train.import_meta_graph(file)
-            saver.restore(sess, tf.train.latest_checkpoint(dir))
 
             # The model is loaded in the default graph
             graph = tf.get_default_graph()
 
             # Loading the graph of out_NN
-            self.out_NN = graph.get_tensor_by_name("output_node_1:0")
-            self.in_data = graph.get_tensor_by_name("Cartesian_coord_1:0")
+            self.out_NN = graph.get_tensor_by_name("output_node:0")
+            self.in_data = graph.get_tensor_by_name("Cartesian_coord:0")
 
-
-            saver.restore(sess, tf.train.latest_checkpoint(dir+"/"))
+            saver.restore(sess, dir)
             sess.run(tf.global_variables_initializer())
 
         self.loadedModel = True
