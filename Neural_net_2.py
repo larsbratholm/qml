@@ -136,10 +136,10 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
             weights, biases = self.__generate_weights(n_out=(1+3*self.n_atoms))
 
             # Log weights for tensorboard
-            tf.summary.histogram("weights_in", weights[0])
-            for ii in range(len(self.hidden_layer_sizes) - 1):
-                tf.summary.histogram("weights_hidden", weights[ii + 1])
-            tf.summary.histogram("weights_out", weights[-1])
+            # tf.summary.histogram("weights_in", weights[0])
+            # for ii in range(len(self.hidden_layer_sizes) - 1):
+            #     tf.summary.histogram("weights_hidden", weights[ii + 1])
+            # tf.summary.histogram("weights_out", weights[-1])
 
 
         # Calculating the output of the neural net
@@ -172,7 +172,7 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
 
         # Running the graph
         with tf.Session() as sess:
-            summary_writer = tf.summary.FileWriter(logdir="/Users/walfits/Repositories/Aglaia/tensorboard",graph=sess.graph)
+            # summary_writer = tf.summary.FileWriter(logdir="/Users/walfits/Repositories/Aglaia/tensorboard",graph=sess.graph)
             sess.run(init)
 
             for iter in range(self.max_iter):
@@ -187,8 +187,8 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
                     opt, c = sess.run([optimizer, cost], feed_dict={in_data: batch_x, out_data: batch_y})
                     avg_cost += c / n_batches
 
-                summary = sess.run(merged_summary, feed_dict={in_data:X})
-                summary_writer.add_summary(summary, iter)
+                # summary = sess.run(merged_summary, feed_dict={in_data:X})
+                # summary_writer.add_summary(summary, iter)
 
                 self.trainCost.append(avg_cost)
 
@@ -224,7 +224,7 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
         init = tf.global_variables_initializer()
 
         # Object needed to save the model
-        all_saver = tf.train.Saver()
+        all_saver = tf.train.Saver(save_relative_paths=True)
 
         with tf.Session() as sess:
             sess.run(init)
@@ -239,7 +239,8 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
             # Loading a saved graph
             file = dir + "/.meta"
             saver = tf.train.import_meta_graph(file)
-            saver.restore(sess, tf.train.latest_checkpoint(dir))
+            # saver.restore(sess, tf.train.latest_checkpoint(dir))
+            saver.restore(sess, dir)
 
             # The model is loaded in the default graph
             graph = tf.get_default_graph()
@@ -397,7 +398,7 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
 
         return batch_size
 
-    def score_new(self, X, y, sample_weight=None):
+    def score(self, X, y, sample_weight=None):
         """
         Returns the mean accuracy on the given test data and labels. It calculates the R^2 value. It is used during the
         training of the model.
