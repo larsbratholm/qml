@@ -137,10 +137,10 @@ class Test(unittest.TestCase):
         estimator1 = nn.MLPRegFlow(max_iter=50)
         estimator1.fit(X, y)
         expected_y = estimator1.predict(X)
-        estimator1.save_NN("/Users/walfits/Repositories/Aglaia/Examples/tmp_dir")
+        estimator1.save_NN("/Users/walfits/Repositories/Aglaia/Examples/Models/")
 
         estimator2 = nn.MLPRegFlow(max_iter=50)
-        estimator2.load_NN("/Users/walfits/Repositories/Aglaia/Examples/tmp_dir")
+        estimator2.load_NN("/Users/walfits/Repositories/Aglaia/Examples/Models/")
         actual_y = estimator2.predict(X)
 
         self.assertTrue(np.all(np.isclose(expected_y, actual_y)))
