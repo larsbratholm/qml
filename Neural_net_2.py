@@ -26,7 +26,7 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
 
 
     def __init__(self, hidden_layer_sizes=(5,), alpha_reg=0.0001, alpha_grad=0.05, batch_size='auto', learning_rate_init=0.001,
-                 max_iter=80, hl1=0, hl2=0, hl3=0, descriptor="inverse_dist"):
+                 max_iter=80, hl1=0, hl2=0, hl3=0, descriptor="inverse_dist", tensorboard=False):
         """
         Neural-network with multiple hidden layers to do regression.
 
@@ -58,6 +58,8 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
             This determines the choice of descriptor to be used as the input to the neural net. The current
             possibilities are:
             "inverse_dist"
+        :tensorboard: bool, default False
+            A flag that lets you decide whether to save things to tensorboard or not
         """
 
         # Initialising the parameters
@@ -72,7 +74,7 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
             self.hidden_layer_sizes = hidden_layer_sizes
             if any(l == 0 for l in self.hidden_layer_sizes):
                 raise ValueError("You have a hidden layer with 0 neurons in it.")
-        elif hl1 == None and hl2 == None and hl3 == None:
+        elif hl1 is None and hl2 is None and hl3 is None:
             self.hidden_layer_sizes = hidden_layer_sizes
             if any(l == 0 for l in self.hidden_layer_sizes):
                 raise ValueError("You have a hidden layer with 0 neurons in it.")
@@ -88,6 +90,13 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
         self.trainCost = []
         self.testCost = []
         self.isVisReady = False
+        self.tensorboard = tensorboard
+
+        # Creating tensorboard directory if tensorflow flag is on
+        if self.tensorboard:
+            self.board_dir = os.getcwd() + "/tensorboard"
+            if not os.path.exists(self.board_dir):
+                os.makedirs(self.board_dir)
 
         # Available descriptors
         self.available_descriptors = {
@@ -139,10 +148,11 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
             weights, biases = self.__generate_weights(n_out=(1+3*self.n_atoms))
             
             # Log weights for tensorboard
-            # tf.summary.histogram("weights_in", weights[0])
-            # for ii in range(len(self.hidden_layer_sizes) - 1):
-            #     tf.summary.histogram("weights_hidden", weights[ii + 1])
-            # tf.summary.histogram("weights_out", weights[-1])
+            if self.tensorboard:
+                tf.summary.histogram("weights_in", weights[0])
+                for ii in range(len(self.hidden_layer_sizes) - 1):
+                    tf.summary.histogram("weights_hidden", weights[ii + 1])
+                tf.summary.histogram("weights_out", weights[-1])
 
 
         # Calculating the output of the neural net
@@ -169,13 +179,22 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
         # Training the network
         optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate_init).minimize(cost)
 
+        if self.tensorboard:
+            cost_summary = tf.summary.scalar('cost', cost)
+
         # Initialisation of the variables
         init = tf.global_variables_initializer()
-        # merged_summary = tf.summary.merge_all()
+        if self.tensorboard:
+            merged_summary = tf.summary.merge_all()
+            options = tf.RunOptions()
+            options.output_partition_graphs = True
+            options.trace_level = tf.RunOptions.HARDWARE_TRACE
+            run_metadata = tf.RunMetadata()
 
         # Running the graph
         with tf.Session() as sess:
-            # summary_writer = tf.summary.FileWriter(logdir="/Users/walfits/Repositories/Aglaia/tensorboard",graph=sess.graph)
+            if self.tensorboard:
+                summary_writer = tf.summary.FileWriter(logdir=self.board_dir,graph=sess.graph)
             sess.run(init)
 
             for iter in range(self.max_iter):
@@ -190,8 +209,13 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
                     opt, c = sess.run([optimizer, cost], feed_dict={in_data: batch_x, out_data: batch_y})
                     avg_cost += c / n_batches
 
-                # summary = sess.run(merged_summary, feed_dict={in_data:X})
-                # summary_writer.add_summary(summary, iter)
+                    if self.tensorboard:
+                        if iter % self.max_iter == 0:
+                            summary = sess.run(merged_summary, feed_dict={in_data: batch_x, out_data: batch_y}, options=options, run_metadata=run_metadata)
+                        else:
+                            summary = sess.run(merged_summary, feed_dict={in_data: batch_x, out_data: batch_y})
+                        summary_writer.add_summary(summary, iter)
+                        summary_writer.add_run_metadata(run_metadata, 'iteration %d batch %d' % (iter, i))
 
                 self.trainCost.append(avg_cost)
 
@@ -201,6 +225,7 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
             for ii in range(len(weights)):
                 self.all_weights.append(sess.run(weights[ii]))
                 self.all_biases.append(sess.run(biases[ii]))
+
 
     def save_NN(self, dir):
         """
@@ -385,7 +410,7 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
         :return: tensorflow scalar
         """
 
-        reg_term = tf.zeros(shape=1, name="regu_term")
+        reg_term = tf.zeros([], name="regu_term")
 
         for i in range(len(weights)):
             reg_term = reg_term + tf.reduce_sum(tf.square(weights[i]))
