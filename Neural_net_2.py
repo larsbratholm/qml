@@ -102,7 +102,7 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
         self.available_descriptors = {
             "inverse_dist": inv.inv_dist
         }
-        self.descriptor = self.available_descriptors[descriptor]
+        self.descriptor = descriptor
 
     def fit(self, X, y):
         """
@@ -138,7 +138,7 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
 
         # Making the descriptor from the Cartesian coordinates
         with tf.name_scope('Descriptor'):
-            X_des = self.descriptor(in_data, n_atoms=self.n_atoms)
+            X_des = self.available_descriptors[self.descriptor](in_data, n_atoms=self.n_atoms)
 
         # Number of features in the descriptor
         self.n_feat = int(self.n_atoms * (self.n_atoms - 1) * 0.5)
@@ -226,7 +226,6 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
                 self.all_weights.append(sess.run(weights[ii]))
                 self.all_biases.append(sess.run(biases[ii]))
 
-
     def save_NN(self, dir):
         """
         This function saves a .meta, .index, .data_0000-0001 and a check point file, which can be used to save the
@@ -246,7 +245,7 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
             xyz_test = tf.placeholder(tf.float32, [None, self.n_coord], name="Cartesian_coord")
 
             # Making the descriptor from the Cartesian coordinates
-            X_des = self.descriptor(xyz_test, n_atoms=self.n_atoms)
+            X_des = self.available_descriptors[self.descriptor](xyz_test, n_atoms=self.n_atoms)
 
             # Setting up the trained weights
             weights = []
@@ -314,7 +313,7 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
             xyz_test = tf.placeholder(tf.float32, [None, self.n_coord], name="Cartesian_coord")
 
             # Making the descriptor from the Cartesian coordinates
-            X_des = self.descriptor(xyz_test, n_atoms=self.n_atoms)
+            X_des = self.available_descriptors[self.descriptor](xyz_test, n_atoms=self.n_atoms)
 
             # Setting up the trained weights
             weights = []
