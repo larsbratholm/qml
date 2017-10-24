@@ -26,7 +26,7 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
 
 
     def __init__(self, hidden_layer_sizes=(5,), alpha_reg=0.0001, alpha_grad=0.05, batch_size='auto', learning_rate_init=0.001,
-                 max_iter=80, hl1=0, hl2=0, hl3=0, descriptor="inverse_dist", tensorboard=False):
+                 max_iter=80, hl1=0, hl2=0, hl3=0, descriptor="inverse_dist", tensorboard=False, print_step=200):
         """
         Neural-network with multiple hidden layers to do regression.
 
@@ -60,6 +60,8 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
             "inverse_dist"
         :tensorboard: bool, default False
             A flag that lets you decide whether to save things to tensorboard or not
+        :print_step: int, default 200
+            Tells how many time to run the summaries to tensorboard.
         """
 
         # Initialising the parameters
@@ -91,6 +93,7 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
         self.testCost = []
         self.isVisReady = False
         self.tensorboard = tensorboard
+        self.print_step = print_step
 
         # Creating tensorboard directory if tensorflow flag is on
         if self.tensorboard:
@@ -188,7 +191,7 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
             merged_summary = tf.summary.merge_all()
             options = tf.RunOptions()
             options.output_partition_graphs = True
-            options.trace_level = tf.RunOptions.HARDWARE_TRACE
+            options.trace_level = tf.RunOptions.SOFTWARE_TRACE
             run_metadata = tf.RunMetadata()
 
         # Running the graph
@@ -210,12 +213,11 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
                     avg_cost += c / n_batches
 
                     if self.tensorboard:
-                        if iter % self.max_iter == 0:
+                        if iter % self.print_step == 0:
+                            # The options flag is needed to obtain profiling information
                             summary = sess.run(merged_summary, feed_dict={in_data: batch_x, out_data: batch_y}, options=options, run_metadata=run_metadata)
-                        else:
-                            summary = sess.run(merged_summary, feed_dict={in_data: batch_x, out_data: batch_y})
-                        summary_writer.add_summary(summary, iter)
-                        summary_writer.add_run_metadata(run_metadata, 'iteration %d batch %d' % (iter, i))
+                            summary_writer.add_summary(summary, iter)
+                            summary_writer.add_run_metadata(run_metadata, 'iteration %d batch %d' % (iter, i))
 
                 self.trainCost.append(avg_cost)
 
