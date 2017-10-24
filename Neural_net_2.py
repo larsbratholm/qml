@@ -469,6 +469,7 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
         df = pd.DataFrame()
         df["Iterations"] = range(len(self.trainCost))
         df["Cost"] = self.trainCost
+        sns.set()
         lm = sns.lmplot('Iterations', 'Cost', data=df, scatter_kws={"s": 20, "alpha": 0.6}, line_kws={"alpha": 0.5}, fit_reg=False)
         # lm.set(yscale="log")
         plt.show()
@@ -483,6 +484,7 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
         df = pd.DataFrame()
         df["NN_prediction"] = y_nn
         df["True_value"] = y_true
+        sns.set()
         lm = sns.lmplot('True_value', 'NN_prediction', data=df, scatter_kws={"s": 20, "alpha": 0.6}, line_kws={"alpha": 0.5})
         # lm.set(ylim=[-648.20*627.51, -648.15*627.51])
         # lm.set(xlim=[-648.20*627.51, -648.15*627.51])

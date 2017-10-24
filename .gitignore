@@ -4,3 +4,5 @@ tensorboard/
 __pycache__/
 Examples/tmp_dir/
 Examples/Models/
+Examples/Models/tensorboard/
+Examples/bc_tensorboard/
