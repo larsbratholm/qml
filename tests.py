@@ -145,6 +145,21 @@ class Test(unittest.TestCase):
 
         self.assertTrue(np.all(np.isclose(expected_y, actual_y)))
 
+    def test_gpu_access(self):
+        """This test checks whether the GPUs can be found and used. Should only be run on a machine that has GPUs."""
+        with tf.device('/gpu:0'):
+            a = tf.constant([1.0, 2.0, 3.0, 4.0, 5.0, 6.0], shape=[2, 3], name='a')
+            b = tf.constant([1.0, 2.0, 3.0, 4.0, 5.0, 6.0], shape=[3, 2], name='b')
+            c = tf.matmul(a, b)
+
+
+        with tf.Session() as sess:
+            actual_result = sess.run(c)
+
+        expected_result = np.array([[ 22.,  28.], [ 49.,  64.]])
+
+        self.assertTrue(np.all(np.isclose(expected_result, actual_result)))
+
 
 if __name__ == "__main__":
     unittest.main()
