@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 from sklearn.metrics import r2_score
 import seaborn as sns
 import pandas as pd
+import os
 
 class MLPRegFlow(BaseEstimator, ClassifierMixin):
     """
@@ -50,10 +51,18 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
         variable hidden_layer_sizes has to be constructed inside the estimator. If you want more than 3 hidden layers
         add hl4, hl5 ...
 
+    :tensorboard: bool, default False
+
+        A flag that lets you decide whether to save things to tensorboard or not
+
+    :print_step: int, default 200
+
+        Tells how many time to run the summaries to tensorboard.
+
     """
 
     def __init__(self, hidden_layer_sizes=(5,), alpha=0.0001, batch_size='auto', learning_rate_init=0.001,
-                 max_iter=80, hl1=0, hl2=0, hl3=0):
+                 max_iter=80, hl1=0, hl2=0, hl3=0, tensorboard=False, print_step = 200):
 
         # Initialising the parameters
         self.alpha = alpha
@@ -78,8 +87,10 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
         self.trainCost = []
         self.testCost = []
         self.isVisReady = False
+        self.tensorboard = tensorboard
+        self.print_step = print_step
 
-    def fit(self, X, y, *test):
+    def fit(self, X, y):
         """
         Fit the model to data matrix X and target y.
 
@@ -90,29 +101,20 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
         :y: array of shape (n_samples,).
 
             This contains the target values for each sample in the X matrix.
-
-        :test: list with 1st element an array of shape (n_samples, n_features) and 2nd element an array of shape (n_samples, )
-
-            This is a test set to visualise whether the model is overfitting.
-
         """
 
-        print("Starting the fitting process ... \n")
+        # Creating a tensorboard directory if logging to tensorboard
+        if self.tensorboard:
+            self.board_dir = os.getcwd() + "/tensorboard"
+            if not os.path.exists(self.board_dir):
+                os.makedirs(self.board_dir)
 
         # Check that X and y have correct shape
         X, y = check_X_y(X, y)
         # Modification of the y data, because tensorflow wants a column vector, while scikit learn uses a row vector
         y = np.reshape(y, (len(y), 1))
 
-        # Checking if a test set has been passed
-        if test:
-            if len(test) > 2:
-                raise TypeError("foo() expected 2 arguments, got %d" % (len(test)))
-            X_test = test[0]
-            y_test = test[1]
-            check_X_y(X_test, y_test)
-            y_test = np.reshape(y_test, (len(y_test), 1))
-
+        # Number of features and number of samples in the training set
         self.n_feat = X.shape[1]
         self.n_samples = X.shape[0]
 
@@ -120,30 +122,47 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
         self.batch_size = self.checkBatchSize()
 
         # Initial set up of the NN
-        X_train = tf.placeholder(tf.float32, [None, self.n_feat])
-        Y_train = tf.placeholder(tf.float32, [None, 1])
+        with tf.name_scope("data"):
+            X_train = tf.placeholder(tf.float32, [None, self.n_feat], name="Descriptor")
+            Y_train = tf.placeholder(tf.float32, [None, 1], name="Energies")
 
         # This part either randomly initialises the weights and biases or restarts training from wherever it was stopped
-        if self.alreadyInitialised == False:
+        with tf.name_scope("weights"):
             weights, biases = self.__generate_weights()
             self.alreadyInitialised = True
-        else:
-            weights = []
-            biases = []
 
-            for ii in range(len(self.all_weights)):
-                weights.append(tf.Variable(self.all_weights[ii]))
-                biases.append(tf.Variable(self.all_biases[ii]))
+            # Log weights for tensorboard
+            if self.tensorboard:
+                tf.summary.histogram("weights_in", weights[0])
+                for ii in range(len(self.hidden_layer_sizes) - 1):
+                    tf.summary.histogram("weights_hidden", weights[ii + 1])
+                tf.summary.histogram("weights_out", weights[-1])
 
-        model = self.modelNN(X_train, weights, biases)
-        cost = self.costReg(model, Y_train, weights, self.alpha)
+        with tf.name_scope("model"):
+            model = self.modelNN(X_train, weights, biases)
+
+        with tf.name_scope("cost_func"):
+            cost = self.costReg(model, Y_train, weights, self.alpha)
+
+        if self.tensorboard:
+            cost_summary = tf.summary.scalar('cost', cost)
+
         optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate_init).minimize(cost)
 
         # Initialisation of the variables
         init = tf.global_variables_initializer()
 
+        if self.tensorboard:
+            merged_summary = tf.summary.merge_all()
+            options = tf.RunOptions()
+            options.output_partition_graphs = True
+            options.trace_level = tf.RunOptions.SOFTWARE_TRACE
+            run_metadata = tf.RunMetadata()
+
         # Running the graph
         with tf.Session() as sess:
+            if self.tensorboard:
+                summary_writer = tf.summary.FileWriter(logdir=self.board_dir, graph=sess.graph)
             sess.run(init)
 
             for iter in range(self.max_iter):
@@ -157,12 +176,16 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
                     batch_y = y[i * self.batch_size:(i + 1) * self.batch_size, :]
                     opt, c = sess.run([optimizer, cost], feed_dict={X_train: batch_x, Y_train: batch_y})
                     avg_cost += c / n_batches
-                if test and iter % 50 == 0:
-                    optTest, cTest = sess.run([optimizer, cost], feed_dict={X_train: X_test, Y_train: y_test})
-                    self.testCost.append(cTest)
+
+                    if self.tensorboard:
+                        if iter % self.print_step == 0:
+                            # The options flag is needed to obtain profiling information
+                            summary = sess.run(merged_summary, feed_dict={X_train: batch_x, Y_train: batch_y},
+                                               options=options, run_metadata=run_metadata)
+                            summary_writer.add_summary(summary, iter)
+                            summary_writer.add_run_metadata(run_metadata, 'iteration %d batch %d' % (iter, i))
+
                 self.trainCost.append(avg_cost)
-                if iter % 500 == 0:
-                    print("Completed " + str(iter) + " iterations. \n")
 
             # Saving the weights for later re-use
             self.all_weights = []
@@ -252,12 +275,13 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
         cost = tf.reduce_mean(err, name="unreg_cost") # scalar
 
         # Calculating the regularisation term
-        reg_l2 = tf.Variable(tf.zeros([1]), name="reg_term")
-        for ii in range(len(weights)):
-            reg_l2 = tf.add(reg_l2, tf.nn.l2_loss(weights[ii]))
+        reg_term = tf.Variable(tf.zeros([]), name="regu_term")
+        for i in range(len(weights)):
+            reg_term = reg_term + tf.reduce_sum(tf.square(weights[i]))
+
 
         # Multiplying the regularisation term by the regularisation parameter
-        reg_l2 = tf.scalar_mul(regu, reg_l2)
+        reg_l2 = tf.scalar_mul(regu, reg_term)
 
         # Regularised cost
         cost_reg = tf.add(cost, reg_l2, name="reg_cost")
@@ -269,14 +293,14 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
         This function plots the cost versus the number of iterations for the training set and the test set in the
         same plot. The cost on the train set is calculated every 50 iterations.
         """
-        fig, ax = plt.subplots(figsize=(6, 6))
-        ax.plot(self.trainCost, label="Train set", color="b")
-        iterTest = range(0, self.max_iter, 50)
-        ax.plot(iterTest, self.testCost, label="Test set", color="red")
-        ax.set_xlabel('Number of iterations')
-        ax.set_ylabel('Cost Value')
-        ax.legend()
-        plt.yscale("log")
+
+        df = pd.DataFrame()
+        df["Iterations"] = range(len(self.trainCost))
+        df["Cost"] = self.trainCost
+        sns.set()
+        lm = sns.lmplot('Iterations', 'Cost', data=df, scatter_kws={"s": 20, "alpha": 0.6}, line_kws={"alpha": 0.5},
+                        fit_reg=False)
+        # lm.set(yscale="log")
         plt.show()
 
     def checkBatchSize(self):
@@ -324,12 +348,12 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
             This contains the predictions for the target values corresponding to the samples contained in X.
 
         """
-        print("Calculating the predictions. \n")
 
-        if self.checkIsFitted():
-            check_array(X)
+        check_array(X)
 
-            X_test = tf.placeholder(tf.float32, [None, self.n_feat])
+        if self.alreadyInitialised:
+
+            X_test = tf.placeholder(tf.float32, [None, self.n_feat], name="descriptor")
 
             weights = []
             biases = []
