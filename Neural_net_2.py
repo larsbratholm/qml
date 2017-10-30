@@ -1,103 +1,143 @@
-"""
-This file contains a class of a neural network that fits both the energies and the forces at the same time. It uses
-an energy term, a force term *and* a gradient term in the cost function.
 
-The input to the fit function is the matrix of n_samples by n_coordinates (no atom labels). This is then transformed
-into a descriptor which is fed into the neural network. There is only 1 neural network which has an output of size
-n_atoms x3 + 1 (3 n_atoms forces, plus the energy).
-"""
-
-import numpy as np
+from __future__ import print_function
+from __future__ import relative_imports
+#import numpy as np
 from sklearn.base import BaseEstimator, ClassifierMixin
-from sklearn.utils.validation import check_X_y, check_array
-import tensorflow as tf
-import inverse_dist as inv
-import pandas as pd
-import seaborn as sns
-import matplotlib.pyplot as plt
-from sklearn.metrics import r2_score
-from tensorflow.python.framework import ops
-from tensorflow.python.training import saver as saver_lib
-import os
-from tensorflow.python.framework import graph_io
-from tensorflow.python.tools import freeze_graph
+#from sklearn.utils.validation import check_X_y, check_array
+#import tensorflow as tf
+#import inverse_dist as inv
+#import pandas as pd
+#import seaborn as sns
+#import matplotlib.pyplot as plt
+#from sklearn.metrics import r2_score
+#from tensorflow.python.framework import ops
+#from tensorflow.python.training import saver as saver_lib
+#import os
+#from tensorflow.python.framework import graph_io
+#from tensorflow.python.tools import freeze_graph
+from .utils import is_positive, is_positive_integer, is_positive_integer_or_zero, is_bool
 
 class MLPRegFlow(BaseEstimator, ClassifierMixin):
 
+    """
+    Parent class for training neural networks on molecular or atomic properties via Tensorflow
+    """
 
-    def __init__(self, hidden_layer_sizes=(5,), alpha_reg=0.0001, alpha_grad=0.05, batch_size='auto', learning_rate_init=0.001,
-                 max_iter=80, hl1=0, hl2=0, hl3=0, descriptor="inverse_dist", tensorboard=False, print_step=200):
+    def __init__(self, hidden_layer_sizes=(5,), alpha_reg=0.0001, batch_size='auto', learning_rate=0.001,
+                 iterations=80, hl1=0, hl2=0, hl3=0, tensorboard=False, store_frequency=200):
         """
-        Neural-network with multiple hidden layers to do regression.
+        Neural-network with multiple hidden layers
 
-        :hidden_layer_sizes: Tuple, length = number of hidden layers, default (5,).
-            The ith element represents the number of neurons in the ith
+        :param hidden_layer_sizes: Number of hidden layers. The n'th element represents the number of neurons in the n'th
             hidden layer.
-        :alpha_reg: float, default 0.0001
-            L2 penalty (regularization term) parameter.
-        :alpha_grad: default 0.05
-            Parameter that enables to tweak the importance of the gradient term in the cost function.
-        :batch_size: int, default 'auto'.
-            Size of minibatches for stochastic optimizers.
-            If the solver is 'lbfgs', the classifier will not use minibatch.
-            When set to "auto", `batch_size=min(200, n_samples)`
-        :learning_rate_init: double, default 0.001.
-            The value of the learning rate in the numerical minimisation.
-        :max_iter: int, default 200.
-            Total number of iterations that will be carried out during the training process.
-        :hl1: int, default 0
-            Number of neurons in the first hidden layer. If this is different from zero, it over writes the values in
-            hidden_layer_sizes. It is useful for optimisation with Osprey.
-        :hl2: int, default 0
-            Number of neurons in the second hidden layer. If this is different from zero, it over writes the values in
-            hidden_layer_sizes. It is useful for optimisation with Osprey.
-        :hl3: int, default 0
-            Number of neurons in the third hidden layer. If this is different from zero, it over writes the values in
-            hidden_layer_sizes. It is useful for optimisation with Osprey.
-        :descriptor: string, default "inverse_dist"
-            This determines the choice of descriptor to be used as the input to the neural net. The current
-            possibilities are:
-            "inverse_dist"
-        :tensorboard: bool, default False
-            A flag that lets you decide whether to save things to tensorboard or not
-        :print_step: int, default 200
-            Tells how many time to run the summaries to tensorboard.
+        :type hidden_layer_size: Tuple of integers
+        :param alpha_reg: L2-regularisation parameter for the neural network weights
+        :type alpha_reg: float
+        :param batch_size: Size of minibatches for the ADAM optimizer. If set to 'auto' ``batch_size = min(200,n_samples)``
+        :type batch_size: integer
+        :param learning_rate: The learning rate in the numerical minimisation.
+        :type learning_rate: float
+        :param iterations: Total number of iterations that will be carried out during the training process.
+        :type iterations: integer
+        :param hl1: Number of neurons in the first hidden layer. If different from zero, ``hidden_layer_size`` is
+                    overwritten.
+        :type hl1: integer
+        :param hl2: Number of neurons in the second hidden layer. Ignored if ``hl1`` is different from zero.
+        :type hl2: integer
+        :param hl3: Number of neurons in the third hidden layer. Ignored if ``hl1`` or ``hl2`` is different from zero.
+        :type hl3: integer
+        :param tensorboard: Store summaries to tensorboard or not
+        :type tensorboard: boolean
+        :param store_frequency: How often to store summaries to tensorboard.
+        :type store_frequency: integer
         """
+
 
         # Initialising the parameters
-        self.alpha_reg = alpha_reg
-        self.alpha_grad = alpha_grad
-        self.batch_size = batch_size
-        self.learning_rate_init = learning_rate_init
-        self.max_iter = max_iter
 
-        # To make this work with Osprey
-        if hl1 == 0 and hl2 == 0 and hl3 == 0:
-            self.hidden_layer_sizes = hidden_layer_sizes
-            if any(l == 0 for l in self.hidden_layer_sizes):
-                raise ValueError("You have a hidden layer with 0 neurons in it.")
-        elif hl1 is None and hl2 is None and hl3 is None:
-            self.hidden_layer_sizes = hidden_layer_sizes
-            if any(l == 0 for l in self.hidden_layer_sizes):
-                raise ValueError("You have a hidden layer with 0 neurons in it.")
+        if hl1 in [0, None]:
+            self.hidden_layer_sizes = []
+            for i,n in enumerate(hidden_layer_sizes):
+                if not is_positive_integer_or_zero(i):
+                    raise ValueError("Hidden layer size must be a positive integer. Got %d" % i)
+
+                # accept the hidden_layer_sizes anyways if the remaining layer sizes are zero
+                if int(i) == 0:
+                    for j in hidden_layer_sizes[n+1:]:
+                        if j != 0:
+                            raise ValueError("Hidden layer size must be a positive integer. Got %d" % i)
+                    break
+                self.hidden_layer_sizes.append(int(i))
+
         else:
-            self.hidden_layer_sizes = (hl1, hl2, hl3)
-            if any(l == 0 for l in self.hidden_layer_sizes):
-                raise ValueError("You have a hidden layer with 0 neurons in it.")
+            if hl2 in [0, None]:
+                size = 1
+            elif hl3 in [0, None]:
+                size = 2
+            else:
+                size = 3
 
+            # checks on hl1
+            if not is_positive_integer(hl1):
+                raise ValueError("Hidden layer size must be a positive integer. Got %d" % hl1)
 
-        # Other useful parameters
-        self.alreadyInitialised = False
-        self.loadedModel = False
-        self.trainCost = []
-        self.testCost = []
-        self.isVisReady = False
+            # checks on hl2
+            if size >= 2:
+                if not is_positive_integer(hl2):
+                    raise ValueError("Hidden layer size must be a positive integer. Got %d" % hl2)
+
+            # checks on hl2
+            if size == 3:
+                if not is_positive_integer(hl3):
+                    raise ValueError("Hidden layer size must be a positive integer. Got %d" % hl3)
+
+            if size == 1:
+                self.hidden_layer_sizes = [int(hl1)]
+            elif size == 2:
+                self.hidden_layer_sizes = [int(hl1), int(hl2)]
+            elif size == 3:
+                self.hidden_layer_sizes = [int(hl1), int(hl2), int(hl3)]
+
+        if not in is_positive(alpha_reg):
+            raise ValueError("Expected positive float value for variable alpha_reg. Got %d" % alpha_reg)
+        self.alpha_reg = alpha_reg
+
+        if batch_size != "auto":
+            if not in is_positive_integer(batch_size)
+                raise ValueError("Expected batch_size to be a positive integer. Got %d" % batch_size)
+        self.batch_size = int(batch_size)
+
+        if not in is_positive(learning_rate):
+            raise ValueError("Expected positive float value for variable learning_rate. Got %d" % learning_rate)
+        self.learning_rate = learning_rate
+
+        if not in is_positive_integer(max_iter):
+            raise ValueError("Expected positive integer value for variable iterations. Got %d" % iterations)
+        self.iterations = iterations
+
+        if not is_bool(tensorboard):
+            raise ValueError("Expected boolean value for variable tensorboard. Got %d" % iterations)
         self.tensorboard = tensorboard
-        self.print_step = print_step
+
+        self.iterations = iterations
+        if tensorboard:
+            if not in is_positive_integer(store_frequency):
+                raise ValueError("Expected positive integer value for variable store_frequency. Got %d" % iterations)
+            if store_frequency < self.iterations:
+                print("Only storing final iteration for tensorboard")
+                self.store_frequency = self.iterations
+
+
+        # Placeholder variables
+        self.is_initialised = False
+        self.loaded_model = False
+        self.train_cost = []
+        self.test_cost = []
+        self.is_vis_ready = False
 
         # Creating tensorboard directory if tensorflow flag is on
         if self.tensorboard:
-            self.board_dir = os.getcwd() + "/tensorboard"
+            self.tensorboard_dir = os.getcwd() + "/tensorboard"
             if not os.path.exists(self.board_dir):
                 os.makedirs(self.board_dir)
 
@@ -492,3 +532,19 @@ class MLPRegFlow(BaseEstimator, ClassifierMixin):
         # lm.set(xlim=[-648.20*627.51, -648.15*627.51])
         plt.show()
 
+
+
+
+#    an energy term, a force term *and* a gradient term in the cost function.
+#    
+#    The input to the fit function is the matrix of n_samples by n_coordinates (no atom labels). This is then transformed
+#    into a descriptor which is fed into the neural network. There is only 1 neural network which has an output of size
+#    n_atoms x3 + 1 (3 n_atoms forces, plus the energy).
+#    """
+#
+#        :alpha_grad: default 0.05
+#            Parameter that enables to tweak the importance of the gradient term in the cost function.
+#        :descriptor: string, default "inverse_dist"
+#            This determines the choice of descriptor to be used as the input to the neural net. The current
+#            possibilities are:
+#            "inverse_dist"
