@@ -1,8 +1,6 @@
 """
 Main module where all the neural network magic happens
 """
-# Temporary fix until pip package
-
 
 from __future__ import print_function
 #from __future__ import absolute_import
@@ -11,7 +9,7 @@ import sys
 #sys.path.insert(0,os.path.join(os.path.dirname(os.path.realpath(__file__)), ".."))
 import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin
-#from sklearn.utils.validation import check_X_y, check_array
+from sklearn.utils.validation import check_X_y#, check_array
 import tensorflow as tf
 #import inverse_dist as inv
 #import matplotlib.pyplot as plt
@@ -22,8 +20,8 @@ import tensorflow as tf
 #from tensorflow.python.tools import freeze_graph
 
 #TODO relative imports
-from utils import is_positive, is_positive_integer, \
-        is_positive_integer_or_zero, is_bool, is_string, is_positive_or_zero
+from utils import is_positive, is_positive_integer, is_positive_integer_or_zero, \
+        is_bool, is_string, is_positive_or_zero, InputError
 
 class _NN(BaseEstimator, RegressorMixin):
 
@@ -32,7 +30,7 @@ class _NN(BaseEstimator, RegressorMixin):
     """
 
     def __init__(self, hidden_layer_sizes = [5], l1_reg = 0.0, l2_reg = 0.0001, batch_size = 'auto', learning_rate = 0.001,
-                 iterations = 80, tensorboard = False, store_frequency = 200, 
+                 iterations = 80, tensorboard = False, store_frequency = 200, tf_dtype = tf.float64,
                  tensorboard_subdir = os.getcwd() + '/tensorboard', **args):
         """
         :param hidden_layer_sizes: Number of hidden layers. The n'th element represents the number of neurons in the n'th
@@ -48,6 +46,9 @@ class _NN(BaseEstimator, RegressorMixin):
         :type learning_rate: float
         :param iterations: Total number of iterations that will be carried out during the training process.
         :type iterations: integer
+        :param tf_dtype: Accuracy to use for floating point operations in tensorflow. 64 and 'float64' is recognised as tf.float64
+            and similar for tf.float32.
+        :type tf_dtype: Tensorflow datatype
         :param tensorboard: Store summaries to tensorboard or not
         :type tensorboard: boolean
         :param store_frequency: How often to store summaries to tensorboard.
@@ -65,38 +66,45 @@ class _NN(BaseEstimator, RegressorMixin):
 
         # Initialising the parameters
         self.hidden_layer_sizes = hidden_layer_sizes
-        self._process_hidden_layer_sizes()
+        self.__process_hidden_layers()
 
-        if not is_positive(l1_reg):
-            raise ValueError("Expected positive float value for variable l1_reg. Got %s" % str(l1_reg))
+        if not is_positive_or_zero(l1_reg):
+            raise InputError("Expected positive float value for variable l1_reg. Got %s" % str(l1_reg))
         self.l1_reg = l1_reg
 
-        if not is_positive(l2_reg):
-            raise ValueError("Expected positive float value for variable l2_reg. Got %s" % str(l2_reg))
+        if not is_positive_or_zero(l2_reg):
+            raise InputError("Expected positive float value for variable l2_reg. Got %s" % str(l2_reg))
         self.l2_reg = l2_reg
 
         if batch_size != "auto":
             if not is_positive_integer(batch_size):
-                raise ValueError("Expected batch_size to be a positive integer. Got %s" % str(batch_size))
+                raise InputError("Expected batch_size to be a positive integer. Got %s" % str(batch_size))
             self.batch_size = int(batch_size)
         else:
             self.batch_size = batch_size
 
         if not is_positive(learning_rate):
-            raise ValueError("Expected positive float value for variable learning_rate. Got %s" % str(learning_rate))
+            raise InputError("Expected positive float value for variable learning_rate. Got %s" % str(learning_rate))
         self.learning_rate = float(learning_rate)
 
         if not is_positive_integer(iterations):
-            raise ValueError("Expected positive integer value for variable iterations. Got %s" % str(iterations))
+            raise InputError("Expected positive integer value for variable iterations. Got %s" % str(iterations))
         self.iterations = float(iterations)
 
+        if tf_dtype in ['64', 64, 'float64', tf.float64]:
+            self.tf_dtype = tf.float64
+        elif tf_dtype in ['32', 32, 'float32', tf.float32]:
+            self.tf_dtype = tf.float32
+        else:
+            raise 
+
         if not is_bool(tensorboard):
-            raise ValueError("Expected boolean value for variable tensorboard. Got %s" % str(tensorboard))
+            raise InputError("Expected boolean value for variable tensorboard. Got %s" % str(tensorboard))
         self.tensorboard = bool(tensorboard)
 
-        if tensorboard:
+        if self.tensorboard:
             if not is_positive_integer(store_frequency):
-                raise ValueError("Expected positive integer value for variable store_frequency. Got %s" % str(store_frequency))
+                raise InputError("Expected positive integer value for variable store_frequency. Got %s" % str(store_frequency))
             if store_frequency > self.iterations:
                 print("Only storing final iteration for tensorboard")
                 self.store_frequency = self.iterations
@@ -105,9 +113,10 @@ class _NN(BaseEstimator, RegressorMixin):
         # Creating tensorboard directory if tensorflow flag is on
         if self.tensorboard:
             if not is_string(self.tensorboard_subdir):
-                raise ValueError('Expected string value for variable tensorboard_subdir. Got %s' % str(self.tensorboard_subdir))
+                raise InputError('Expected string value for variable tensorboard_subdir. Got %s' % str(self.tensorboard_subdir))
             if not os.path.exists(self.tensorboard_subdir):
                 os.makedirs(self.tensorboard_subdir)
+
 
 
         # Placeholder variables
@@ -119,11 +128,17 @@ class _NN(BaseEstimator, RegressorMixin):
         #self.loaded_model = False
         #self.is_vis_ready = False
 
-    def _process_hidden_layers(self):
+    def __process_hidden_layers(self):
         hidden_layer_sizes = []
+        try:
+            self.hidden_layer_sizes[0]
+        except TypeError:
+            raise InputError("'hidden_layer_sizes' must be array-like")
+        except IndexError:
+            raise InputError("'hidden_layer_sizes' must be non-empty")
         for i,n in enumerate(self.hidden_layer_sizes):
             if not is_positive_integer_or_zero(n):
-                raise ValueError("Hidden layer size must be a positive integer. Got %s" % str(n))
+                raise InputError("Hidden layer size must be a positive integer. Got %s" % str(n))
 
             # Ignore layers of size zero
             if int(n) == 0:
@@ -131,7 +146,7 @@ class _NN(BaseEstimator, RegressorMixin):
             hidden_layer_sizes.append(int(n))
 
         if len(hidden_layer_sizes) == 0:
-            raise ValueError("Hidden layers must be non-zero. Got %s" % str(hidden_layer_sizes))
+            raise InputError("Hidden layers must be non-zero. Got %s" % str(hidden_layer_sizes))
         
         self.hidden_layer_sizes = hidden_layer_sizes
 
@@ -251,7 +266,7 @@ class _NN(BaseEstimator, RegressorMixin):
         elif is_string(filename):
             plt.save(filename)
         else:
-            raise TypeError("Wrong data type of variable 'filename'. Expected string")
+            raise InputError("Wrong data type of variable 'filename'. Expected string")
 
     def correlation_plot(self, y_nn, y_true, filename = ''):
         """
@@ -274,7 +289,7 @@ class _NN(BaseEstimator, RegressorMixin):
             raise ModuleNotFoundError("Plotting functions require the modules 'seaborn' and 'pandas'")
 
         if y_nn.shape != y_true.shape:
-            raise ValueError("Shape mismatch between predicted and true values. %s and %s" % (str(y_nn.shape), str(y_true.shape)))
+            raise InputError("Shape mismatch between predicted and true values. %s and %s" % (str(y_nn.shape), str(y_true.shape)))
 
         if y_nn.ndim == 1:
             df = pd.DataFrame()
@@ -287,7 +302,7 @@ class _NN(BaseEstimator, RegressorMixin):
             elif is_string(filename):
                 plt.save(filename)
             else:
-                raise TypeError("Wrong data type of variable 'filename'. Expected string")
+                raise InputError("Wrong data type of variable 'filename'. Expected string")
         else:
             for i in range(y_nn.ndim):
                 df = pd.DataFrame()
@@ -304,8 +319,21 @@ class _NN(BaseEstimator, RegressorMixin):
                         file_ = "/".join(tokens[:-1]) + "/" + file_
                     plt.save(file_)
                 else:
-                    raise TypeError("Wrong data type of variable 'filename'. Expected string")
+                    raise InputError("Wrong data type of variable 'filename'. Expected string")
 
+    def _set_batch_size(self):
+        """
+        This function is called at fit time to automatically set the batch size.
+        If it is a user set value, it checks whether it is a reasonable value.
+
+        :return: int
+
+        """
+        if self.batch_size == 'auto':
+            self.batch_size = min(100, self.n_samples)
+        elif self.batch_size > self.n_samples:
+            print("Warning: Got 'batch_size' larger than sample size. It is going to be clipped")
+            self.batch_size = max(self.batch_size, self.n_samples)
 
 # Molecular Representation Single Property
 class MRMP(_NN):
@@ -322,7 +350,7 @@ class MRMP(_NN):
         """
 
         super(MRMP,self).__init__(**args)
-
+        #_NN.__init__(**args)
 
     def fit(self, x, y):
         """
@@ -340,23 +368,23 @@ class MRMP(_NN):
     def _fit(self, x, y):
 
         # Check that X and y have correct shape
-        X, y = check_X_y(X, self.properties, multi_output=False)
+        x, y = check_X_y(x, y, multi_output = False, y_numeric = True, warn_on_dtype = True)
 
         # Flag that a model has been trained
-        self.model_exist = True
+        #self.model_exist = True
 
         # Useful quantities
-        self.n_coord = X.shape[1]
-        self.n_samples = X.shape[0]
-        self.n_atoms = int(X.shape[1]/3)
+        #self.n_coord = X.shape[1]
+        #self.n_samples = X.shape[0]
+        #self.n_atoms = int(X.shape[1]/3)
 
-        # Check the value of the batch size
-        self.batch_size = self.checkBatchSize()
+        # Set the batch size
+        self._set_batch_size()
 
-        # Place holders for the input/output data
+        # Placeholders for the input/output data
         with tf.name_scope('Data'):
-            in_data = tf.placeholder(tf.float32, [None, self.n_coord], name="Coordinates")
-            out_data = tf.placeholder(tf.float32, [None, self.n_coord + 1], name="Energy_forces")
+            tf_input = tf.placeholder(tf.float32, [None, self.n_coord], name="Coordinates")
+            tf_output= tf.placeholder(tf.float32, [None, self.n_coord + 1], name="Energy_forces")
 
         # Making the descriptor from the Cartesian coordinates
         with tf.name_scope('Descriptor'):
@@ -772,3 +800,6 @@ class MRMP(_NN):
 
 if __name__ == "__main__":
     lol = MRMP()
+    x = np.random.random((10,2))
+    y = np.random.random((10,))
+    lol.fit(x,y)

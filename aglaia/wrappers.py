@@ -2,8 +2,11 @@
 Helper classes for hyper parameter optimization with osprey
 """
 
+import numpy as np
+
 #TODO relative imports
 from aglaia import _NN, MRMP
+from utils import InputError
 
 
 class _OSPNN(_NN):
@@ -34,7 +37,7 @@ class _OSPNN(_NN):
         self.compounds = np.empty(0, dtype=object)
         self.properties = np.empty(0, dtype=float)
 
-    def _process_hidden_layers(self)
+    def _process_hidden_layers(self):
         if self._hl1 != 0:
             if self._hl2 in [0, None]:
                 size = 1
@@ -45,17 +48,17 @@ class _OSPNN(_NN):
 
             # checks on self._hl1
             if not is_positive_integer(self._hl1):
-                raise ValueError("Hidden layer size must be a positive integer. Got %s" % str(self._hl1))
+                raise InputError("Hidden layer size must be a positive integer. Got %s" % str(self._hl1))
 
             # checks on self._hl2
             if size >= 2:
                 if not is_positive_integer(self._hl2):
-                    raise ValueError("Hidden layer size must be a positive integer. Got %s" % str(self._hl2))
+                    raise InputError("Hidden layer size must be a positive integer. Got %s" % str(self._hl2))
 
             # checks on self._hl2
             if size == 3:
                 if not is_positive_integer(self._hl3):
-                    raise ValueError("Hidden layer size must be a positive integer. Got %s" % str(self._hl3))
+                    raise InputError("Hidden layer size must be a positive integer. Got %s" % str(self._hl3))
 
             if size == 1:
                 self.hidden_layer_sizes = [int(self._hl1)]
@@ -84,7 +87,7 @@ class _OSPNN(_NN):
             if self.properties.size == len(filenames):
                 pass
             else:
-                raise ValueError("Number of properties (%d) does not match number of compounds (%d)" 
+                raise InputError("Number of properties (%d) does not match number of compounds (%d)" 
                         % (self.properties.size, len(filenames)))
 
 
@@ -108,7 +111,7 @@ class _OSPNN(_NN):
         if self.compounds.size == 0:
             raise RuntimeError("QML compounds have not been generated")
         if not is_positive_integer(pad):
-            raise ValueError("Expected variable 'pad' to be a positive integer. Got %s" % str(pad))
+            raise InputError("Expected variable 'pad' to be a positive integer. Got %s" % str(pad))
 
         asize = {}
 
@@ -137,7 +140,7 @@ class _OSPNN(_NN):
         if self.compounds.size == 0:
             raise RuntimeError("QML compounds have not been generated")
         if not is_positive_integer(pad):
-            raise ValueError("Expected variable 'pad' to be a positive integer. Got %s" % str(pad))
+            raise InputError("Expected variable 'pad' to be a positive integer. Got %s" % str(pad))
 
         nmax = max(mol.natoms for mol in self.compounds)
 
@@ -145,7 +148,7 @@ class _OSPNN(_NN):
 
 
 # Molecular Representation Single Property
-class OSPMRMP(_NN, _OSPNN):
+class OSPMRMP(MRMP, _OSPNN):
     """
     Adds additional variables and functionality to the MRMP class that makes interfacing with
     Osprey for hyperparameter search easier.
@@ -169,7 +172,7 @@ class OSPMRMP(_NN, _OSPNN):
         super(OSPMRMP,self).__init__(**args)
 
         if representation.lower() not in ['sorted_coulomb_matrix', 'unsorted_coulomb_matrix', 'bag_of_bonds', 'slatm']:
-            raise ValueError("Unknown representation %s" % representation)
+            raise InputError("Unknown representation %s" % representation)
         self.representation = representation.lower()
 
     def set_properties(self, y):
@@ -186,7 +189,7 @@ class OSPMRMP(_NN, _OSPNN):
             if self.compounds.size == len(y):
                 pass
             else:
-                raise ValueError("Number of properties (%d) does not match number of compounds (%d)" 
+                raise InputError("Number of properties (%d) does not match number of compounds (%d)" 
                         % (len(y), self.compounds.size))
 
         self.properties = np.asarray(y, dtype = float)
@@ -202,25 +205,25 @@ class OSPMRMP(_NN, _OSPNN):
         """
 
         if self.properties.size == 0:
-            raise ValueError("Properties needs to be set in advance")
+            raise InputError("Properties needs to be set in advance")
         if self.compounds.size == 0:
-            raise ValueError("QML compounds needs to be created in advance")
+            raise InputError("QML compounds needs to be created in advance")
 
         if not is_positive_integer_or_zero(indices[0]):
-            raise ValueError("Expected input to be indices")
+            raise InputError("Expected input to be indices")
 
         try:
             idx = np.asarray(indices, dtype=int)
             if not np.array_equal(idx, indices):
-                raise ValueError
-        except ValueError:
-            raise ValueError("Expected input to be indices")
+                raise InputError
+        except InputError:
+            raise InputError("Expected input to be indices")
 
         if self.representation == 'unsorted_coulomb_matrix':
 
             nmax = self._get_msize()
             representation_size = (nmax*(nmax+1))/2
-            x = np.empty(idx.size, representation_size), dtype=float)
+            x = np.empty((idx.size, representation_size), dtype=float)
             for i, mol in enumerate(self.compounds[idx]):
                 mol.generate_coulomb_matrix(size = nmax, sorting = "unsorted")
                 x[i] = mol.representation
