@@ -3,7 +3,7 @@ def is_numeric(x):
     try:
         float(x)
         return True
-    except ValueError:
+    except (ValueError, TypeError):
         return False
 
 def is_positive(x):

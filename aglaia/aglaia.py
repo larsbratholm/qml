@@ -69,16 +69,18 @@ class _NN(BaseEstimator, RegressorMixin):
         self.__process_hidden_layers()
 
         if not is_positive_or_zero(l1_reg):
-            raise InputError("Expected positive float value for variable l1_reg. Got %s" % str(l1_reg))
+            raise InputError("Expected positive float value for variable 'l1_reg'. Got %s" % str(l1_reg))
         self.l1_reg = l1_reg
 
         if not is_positive_or_zero(l2_reg):
-            raise InputError("Expected positive float value for variable l2_reg. Got %s" % str(l2_reg))
+            raise InputError("Expected positive float value for variable 'l2_reg'. Got %s" % str(l2_reg))
         self.l2_reg = l2_reg
 
         if batch_size != "auto":
             if not is_positive_integer(batch_size):
-                raise InputError("Expected batch_size to be a positive integer. Got %s" % str(batch_size))
+                raise InputError("Expected 'batch_size' to be a positive integer. Got %s" % str(batch_size))
+            elif batch_size == 1:
+                raise InputError("batch_size must be larger than 1. Got %s" % str(batch_size))
             self.batch_size = int(batch_size)
         else:
             self.batch_size = batch_size
@@ -91,12 +93,14 @@ class _NN(BaseEstimator, RegressorMixin):
             raise InputError("Expected positive integer value for variable iterations. Got %s" % str(iterations))
         self.iterations = float(iterations)
 
+        # 2 == tf.float64 and 1 == tf.float32 for some reason
+        # np.float64 recognised as tf.float64 as well
         if tf_dtype in ['64', 64, 'float64', tf.float64]:
             self.tf_dtype = tf.float64
         elif tf_dtype in ['32', 32, 'float32', tf.float32]:
             self.tf_dtype = tf.float32
         else:
-            raise 
+            raise InputError("Unknown tensorflow data type. Got %s" % str(tf_dtype))
 
         if not is_bool(tensorboard):
             raise InputError("Expected boolean value for variable tensorboard. Got %s" % str(tensorboard))
@@ -128,6 +132,7 @@ class _NN(BaseEstimator, RegressorMixin):
         #self.loaded_model = False
         #self.is_vis_ready = False
 
+    #TODO test
     def __process_hidden_layers(self):
         hidden_layer_sizes = []
         try:
@@ -150,6 +155,7 @@ class _NN(BaseEstimator, RegressorMixin):
         
         self.hidden_layer_sizes = hidden_layer_sizes
 
+    #TODO test
     def _generate_weights(self, n_out):
         """
         Generates the weights and the biases, by looking at the size of the hidden layers,
@@ -185,6 +191,7 @@ class _NN(BaseEstimator, RegressorMixin):
 
         return weights, biases
 
+    #TODO test
     def _l2_reg(self, weights):
         """
         Creates the expression for L2-regularisation on the weights
@@ -201,6 +208,7 @@ class _NN(BaseEstimator, RegressorMixin):
 
         return reg_term
 
+    #TODO test
     def _l1_reg(self, weights):
         """
         Creates the expression for L1-regularisation on the weights
@@ -217,6 +225,7 @@ class _NN(BaseEstimator, RegressorMixin):
 
         return reg_term
 
+    #TODO test
     def _get_batch_size(self):
         """
         Determines the actual batch size. If set to auto, the batch size will be set to 200.
@@ -321,6 +330,7 @@ class _NN(BaseEstimator, RegressorMixin):
                 else:
                     raise InputError("Wrong data type of variable 'filename'. Expected string")
 
+    #TODO test
     def _set_batch_size(self):
         """
         This function is called at fit time to automatically set the batch size.
@@ -350,8 +360,8 @@ class MRMP(_NN):
         """
 
         super(MRMP,self).__init__(**args)
-        #_NN.__init__(**args)
 
+    #TODO test
     def fit(self, x, y):
         """
         Fit the neural network to molecular representations x and target y.
@@ -375,7 +385,7 @@ class MRMP(_NN):
 
         # Useful quantities
         #self.n_coord = X.shape[1]
-        #self.n_samples = X.shape[0]
+        self.n_samples = x.shape[0]
         #self.n_atoms = int(X.shape[1]/3)
 
         # Set the batch size
