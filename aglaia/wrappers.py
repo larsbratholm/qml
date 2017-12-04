@@ -161,9 +161,12 @@ class OSPMRMP(MRMP, _OSPNN):
     Osprey for hyperparameter search easier.
     """
 
+                #mol.generate_slatm(mbtypes, local = False, sigmas = [self.slatm_sigma1, self.slatm_sigma2],
+                #        dgrids = [self.slatm_dgrid1, self.slatm_dgrid2], rcut = self.slatm_rcut, alchemy = self.slatm_alchemy,
+                #        rpower = self.slatm_rpower)
     def __init__(self, representation = 'unsorted_coulomb_matrix', 
-            slatm_sigma1 = 0.05, slatm_sigma2 = 0.05, slatm_dgrids1 = 0.03, slatm_dgrids2 = 0.03, rpower = 6,
-            **args):
+            slatm_sigma1 = 0.05, slatm_sigma2 = 0.05, slatm_dgrid1 = 0.03, slatm_dgrid2 = 0.03, rcut = 4.8, rpower = 6,
+            slatm_alchemy = False, slatm_rpower = 6, **args):
         """
         A molecule's cartesian coordinates and chemical composition is transformed into a descriptor for the molecule,
         which is then used as input to a single or multi layered feedforward neural network with a single output.
@@ -179,10 +182,14 @@ class OSPMRMP(MRMP, _OSPNN):
         :type slatm_sigma1: float
         :param slatm_sigma2: Scale of the gaussian bins for the three-body term
         :type slatm_sigma2: float
-        :param slatm_dgrids1: Spacing between the gaussian bins for the two-body term
-        :type slatm_dgrids1: float
-        :param slatm_dgrids2: Spacing between the gaussian bins for the three-body term
-        :type slatm_dgrids2: float
+        :param slatm_dgrid1: Spacing between the gaussian bins for the two-body term
+        :type slatm_dgrid1: float
+        :param slatm_dgrid2: Spacing between the gaussian bins for the three-body term
+        :type slatm_dgrid2: float
+        :param rcut: Cutoff radius
+        :type rcut: float
+        :param rpower: exponent of the binning
+        :type rpower: integer
 
         """
 
@@ -271,16 +278,16 @@ class OSPMRMP(MRMP, _OSPNN):
             mbtypes = get_slatm_mbtypes([mol.nuclear_charges for mol in self.compounds])
             x = np.empty(idx.size, dtype=object)
             for i, mol in enumerate(self.compounds[idx]):
-                mol.generate_slatm(mbtypes)
+                mol.generate_slatm(mbtypes, local = False, sigmas = [self.slatm_sigma1, self.slatm_sigma2],
+                        dgrids = [self.slatm_dgrid1, self.slatm_dgrid2], rcut = self.slatm_rcut, alchemy = self.slatm_alchemy,
+                        rpower = self.slatm_rpower)
                 x[i] = mol.representation
             x = np.asarray(list(x), dtype=float)
-#     unit_cell=None, local=False, sigmas=[0.05,0.05], dgrids=[0.03,0.03],
-#     rcut=4.8, alchemy=False, pbc='000', rpower=6):
 
-        
+
         y = self.properties[idx]
-
         return
+
         return self._fit(x, y)
 
 if __name__ == "__main__":
