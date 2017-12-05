@@ -111,7 +111,6 @@ def learning_rate(C):
     catch("x")
     catch(None)
 
-
 def iterations(C):
     # Exceptions that are supposed to be caught
     def catch(s):
@@ -149,9 +148,13 @@ def tf_dtype(C):
     C(tf_dtype = 32)
     C(tf_dtype = "float32")
     C(tf_dtype = tf.float32)
+    C(tf_dtype = "16")
+    C(tf_dtype = 16)
+    C(tf_dtype = "float16")
+    C(tf_dtype = tf.float16)
 
     # This should be caught
-    catch(3)
+    catch(8)
     catch("x")
     catch(float)
     catch(None)

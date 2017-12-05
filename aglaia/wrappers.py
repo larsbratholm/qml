@@ -8,7 +8,8 @@ import numpy as np
 
 #TODO relative imports
 from aglaia import _NN, MRMP
-from utils import InputError, is_positive_integer, is_string, is_positive_integer_or_zero
+from utils import InputError, is_positive_integer, is_string, is_positive_integer_or_zero, \
+        is_non_zero_integer, is_bool, is_positive
 
 
 class _OSPNN(_NN):
@@ -30,47 +31,44 @@ class _OSPNN(_NN):
 
         super(_OSPNN, self).__init__(**args)
 
-        self.hl1 = hl1
-        self.hl2 = hl2
-        self.hl3 = hl3
-        self._process_hidden_layers()
+        self._set_hidden_layers_sizes(hl1, hl2, hl3)
 
         # Placeholder variables
         self.compounds = np.empty(0, dtype=object)
         self.properties = np.empty(0, dtype=float)
 
     # TODO test
-    def _process_hidden_layers(self):
-        if self.hl1 == 0:
-            raise InputError("hl1 must be larger than zero. Got %s" % str(self.hl1))
+    def _set_hidden_layers_sizes(self, hl1, hl2, hl3):
+        if hl1 == 0:
+            raise InputError("hl1 must be larger than zero. Got %s" % str(hl1))
 
-        if self.hl2 == 0:
+        if hl2 == 0:
             size = 1
-        elif self.hl3 == 0:
+        elif hl3 == 0:
             size = 2
         else:
             size = 3
 
-        # checks on self.hl1
-        if not is_positive_integer(self.hl1):
-            raise InputError("Hidden layer size must be a positive integer. Got %s" % str(self.hl1))
+        # checks on hl1
+        if not is_positive_integer(hl1):
+            raise InputError("Hidden layer size must be a positive integer. Got %s" % str(hl1))
 
-        # checks on self.hl2
+        # checks on hl2
         if size >= 2:
-            if not is_positive_integer(self.hl2):
-                raise InputError("Hidden layer size must be a positive integer. Got %s" % str(self.hl2))
+            if not is_positive_integer(hl2):
+                raise InputError("Hidden layer size must be a positive integer. Got %s" % str(hl2))
 
-        # checks on self.hl2
+        # checks on hl2
         if size == 3:
-            if not is_positive_integer(self.hl3):
-                raise InputError("Hidden layer size must be a positive integer. Got %s" % str(self.hl3))
+            if not is_positive_integer(hl3):
+                raise InputError("Hidden layer size must be a positive integer. Got %s" % str(hl3))
 
         if size == 1:
-            self.hidden_layer_sizes = [int(self.hl1)]
+            self.hidden_layer_sizes = np.asarray([hl1], dtype = int)
         elif size == 2:
-            self.hidden_layer_sizes = [int(self.hl1), int(self.hl2)]
+            self.hidden_layer_sizes = np.asarray([hl1, hl2], dtype = int)
         elif size == 3:
-            self.hidden_layer_sizes = [int(self.hl1), int(self.hl2), int(self.hl3)]
+            self.hidden_layer_sizes = np.asarray([hl1, hl2, hl3], dtype = int)
 
     #TODO test
     def generate_compounds(self, filenames):
@@ -154,6 +152,7 @@ class _OSPNN(_NN):
 
         return nmax + pad
 
+#TODO slatm exception tests
 # Molecular Representation Single Property
 class OSPMRMP(MRMP, _OSPNN):
     """
@@ -161,12 +160,9 @@ class OSPMRMP(MRMP, _OSPNN):
     Osprey for hyperparameter search easier.
     """
 
-                #mol.generate_slatm(mbtypes, local = False, sigmas = [self.slatm_sigma1, self.slatm_sigma2],
-                #        dgrids = [self.slatm_dgrid1, self.slatm_dgrid2], rcut = self.slatm_rcut, alchemy = self.slatm_alchemy,
-                #        rpower = self.slatm_rpower)
     def __init__(self, representation = 'unsorted_coulomb_matrix', 
-            slatm_sigma1 = 0.05, slatm_sigma2 = 0.05, slatm_dgrid1 = 0.03, slatm_dgrid2 = 0.03, rcut = 4.8, rpower = 6,
-            slatm_alchemy = False, slatm_rpower = 6, **args):
+            slatm_sigma1 = 0.05, slatm_sigma2 = 0.05, slatm_dgrid1 = 0.03, slatm_dgrid2 = 0.03, slatm_rcut = 4.8, slatm_rpower = 6,
+            slatm_alchemy = False, **args):
         """
         A molecule's cartesian coordinates and chemical composition is transformed into a descriptor for the molecule,
         which is then used as input to a single or multi layered feedforward neural network with a single output.
@@ -186,10 +182,12 @@ class OSPMRMP(MRMP, _OSPNN):
         :type slatm_dgrid1: float
         :param slatm_dgrid2: Spacing between the gaussian bins for the three-body term
         :type slatm_dgrid2: float
-        :param rcut: Cutoff radius
-        :type rcut: float
-        :param rpower: exponent of the binning
-        :type rpower: integer
+        :param slatm_rcut: Cutoff radius
+        :type slatm_rcut: float
+        :param slatm_rpower: exponent of the binning
+        :type slatm_rpower: integer
+        :param slatm_alchemy: Whether to use the alchemy version of slatm or not.
+        :type slatm_alchemy: bool
 
         """
 
@@ -200,6 +198,34 @@ class OSPMRMP(MRMP, _OSPNN):
         if representation.lower() not in ['sorted_coulomb_matrix', 'unsorted_coulomb_matrix', 'bag_of_bonds', 'slatm']:
             raise InputError("Unknown representation %s" % representation)
         self.representation = representation.lower()
+
+        if not is_positive(slatm_sigma1):
+            raise InputError("Expected positive float for variable 'slatm_sigma1'. Got %s." % str(slatm_sigma1))
+        self.slatm_sigma1 = float(slatm_sigma1)
+
+        if not is_positive(slatm_sigma2):
+            raise InputError("Expected positive float for variable 'slatm_sigma2'. Got %s." % str(slatm_sigma2))
+        self.slatm_sigma2 = float(slatm_sigma2)
+
+        if not is_positive(slatm_dgrid1):
+            raise InputError("Expected positive float for variable 'slatm_dgrid1'. Got %s." % str(slatm_dgrid1))
+        self.slatm_dgrid1 = float(slatm_dgrid1)
+
+        if not is_positive(slatm_dgrid2):
+            raise InputError("Expected positive float for variable 'slatm_dgrid2'. Got %s." % str(slatm_dgrid2))
+        self.slatm_dgrid2 = float(slatm_dgrid2)
+
+        if not is_positive(slatm_rcut):
+            raise InputError("Expected positive float for variable 'slatm_rcut'. Got %s." % str(slatm_rcut))
+        self.slatm_rcut = float(slatm_rcut)
+
+        if not is_non_zero_integer(slatm_rpower):
+            raise InputError("Expected non-zero integer for variable 'slatm_rpower'. Got %s." % str(slatm_rpower))
+        self.slatm_rpower = int(slatm_rpower)
+
+        if not is_bool(slatm_alchemy):
+            raise InputError("Expected boolean value for variable 'slatm_alchemy'. Got %s." % str(slatm_alchemy))
+        self.slatm_alchemy = bool(slatm_alchemy)
 
     # TODO test
     def set_properties(self, y):
@@ -286,7 +312,6 @@ class OSPMRMP(MRMP, _OSPNN):
 
 
         y = self.properties[idx]
-        return
 
         return self._fit(x, y)
 
@@ -294,11 +319,11 @@ if __name__ == "__main__":
     import time
     for rep in ["unsorted_coulomb_matrix", "sorted_coulomb_matrix", "bag_of_bonds", "slatm"]:
         x = OSPMRMP(representation=rep)
-        filenames = glob.glob("/home/lab/dev/qml/tests/qm7/*.xyz")[:100]
+        filenames = glob.glob("/home/lb17101/dev/qml/tests/qm7/*.xyz")[:100]
         y = np.array(range(len(filenames)), dtype=int)
         x.generate_compounds(filenames)
         x.set_properties(y)
         t = time.time()
         x.fit(y)
-        print(rep, t - time.time())
+        print(rep, time.time() - t)
 

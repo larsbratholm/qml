@@ -47,6 +47,12 @@ def is_negative_integer(x):
     else:
         return False
 
+def is_non_zero_integer(x):
+    if is_positive_integer(x) or is_negative_integer(x):
+        return True
+    else:
+        return False
+
 # Custom exception to raise when we intentinoally catch an error
 # This way we can test that the right error was raised in test cases
 class InputError(Exception):
