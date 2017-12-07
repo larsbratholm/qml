@@ -62,3 +62,10 @@ class InputError(Exception):
     #    self.loc = loc
     #def __str__(self):
     #    return repr(self.msg)
+
+def ceil(a, b):
+    """
+    Returns a/b rounded up to nearest integer.
+
+    """
+    return -(-a//b)

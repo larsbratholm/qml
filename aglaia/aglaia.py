@@ -8,12 +8,12 @@ import os
 import sys
 #sys.path.insert(0,os.path.join(os.path.dirname(os.path.realpath(__file__)), ".."))
 import numpy as np
-from sklearn.base import BaseEstimator, RegressorMixin
-from sklearn.utils.validation import check_X_y#, check_array
 import tensorflow as tf
+from sklearn.base import BaseEstimator, RegressorMixin
+from sklearn.utils.validation import check_X_y, check_array
+from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
+import matplotlib.pyplot as plt
 #import inverse_dist as inv
-#import matplotlib.pyplot as plt
-#from sklearn.metrics import r2_score
 #from tensorflow.python.framework import ops
 #from tensorflow.python.training import saver as saver_lib
 #from tensorflow.python.framework import graph_io
@@ -21,7 +21,7 @@ import tensorflow as tf
 
 #TODO relative imports
 from utils import is_positive, is_positive_integer, is_positive_integer_or_zero, \
-        is_bool, is_string, is_positive_or_zero, InputError
+        is_bool, is_string, is_positive_or_zero, InputError, ceil
 from tf_utils import TensorBoardLogger
 
 class _NN(BaseEstimator, RegressorMixin):
@@ -31,7 +31,7 @@ class _NN(BaseEstimator, RegressorMixin):
     """
 
     def __init__(self, hidden_layer_sizes = [5], l1_reg = 0.0, l2_reg = 0.0001, batch_size = 'auto', learning_rate = 0.001,
-                 iterations = 500, tensorboard = False, store_frequency = 200, tf_dtype = tf.float32,
+                 iterations = 500, tensorboard = False, store_frequency = 200, tf_dtype = tf.float32, scoring_function = 'mae',
                  activation_function = tf.sigmoid, tensorboard_subdir = os.getcwd() + '/tensorboard', **args):
         """
         :param hidden_layer_sizes: Number of hidden layers. The n'th element represents the number of neurons in the n'th
@@ -50,6 +50,8 @@ class _NN(BaseEstimator, RegressorMixin):
         :param tf_dtype: Accuracy to use for floating point operations in tensorflow. 64 and 'float64' is recognised as tf.float64
             and similar for tf.float32 and tf.float16.
         :type tf_dtype: Tensorflow datatype
+        :param scoring_function: Scoring function to use. Available choices are 'mae', 'rmse', 'r2'.
+        :type scoring_function: string
         :param activation_function: Activation function to use in the neural network. Currently 'sigmoid', 'tanh', 'elu', 'softplus',
             'softsign', 'relu', 'relu6', 'crelu' and 'relu_x' is supported.
         :type activation_function: Tensorflow datatype
@@ -76,6 +78,7 @@ class _NN(BaseEstimator, RegressorMixin):
         self._set_learning_rate(learning_rate)
         self._set_iterations(iterations)
         self._set_tf_dtype(tf_dtype)
+        self._set_scoring_function(scoring_function)
         self._set_tensorboard(tensorboard, store_frequency, tensorboard_subdir)
 
         if activation_function in ['sigmoid', tf.nn.sigmoid]:
@@ -99,18 +102,12 @@ class _NN(BaseEstimator, RegressorMixin):
         else:
             raise InputError("Unknown activation function. Got %s" % str(activation_function))
 
-
-        # Flag to tell if a fit has been made
-        self.fit_exist = False
-
-        # Flag to tell if weights have been initialised
-        self.initialised = False
-
         # Placeholder variables
         self.n_features = None
         self.n_samples = None
-        self.train_cost = []
-        self.test_cost = []
+        self.training_cost = []
+        self.session = None
+        #self.test_cost = []
         #self.loaded_model = False
         #self.is_vis_ready = False
 
@@ -142,7 +139,7 @@ class _NN(BaseEstimator, RegressorMixin):
     def _set_iterations(self, iterations):
         if not is_positive_integer(iterations):
             raise InputError("Expected positive integer value for variable iterations. Got %s" % str(iterations))
-        self.iterations = float(iterations)
+        self.iterations = int(iterations)
 
     def _set_tf_dtype(self, tf_dtype):
         # 2 == tf.float64 and 1 == tf.float32 for some reason
@@ -155,6 +152,15 @@ class _NN(BaseEstimator, RegressorMixin):
             self.tf_dtype = tf.float16
         else:
             raise InputError("Unknown tensorflow data type. Got %s" % str(tf_dtype))
+
+    # TODO test
+    def _set_scoring_function(self, scoring_function):
+        if not is_string(scoring_function):
+            raise InputError("Expected a string for variable 'scoring_function'. Got %s" % str(scoring_function))
+        if scoring_function.lower() not in ['mae', 'rmse', 'r2']:
+            raise InputError("Available scoring functions are 'mae', 'rmsd', 'r2'. Got %s" % str(scoring_function))
+
+        self.scoring_function = scoring_function
 
     #TODO test
     def _set_hidden_layers_sizes(self, hidden_layer_sizes):
@@ -204,7 +210,6 @@ class _NN(BaseEstimator, RegressorMixin):
             self.tensorboard_logger.set_store_frequency(store_frequency)
 
 
-    # TODO test
     def _init_weight(self, n1, n2, name):
         """
         Generate a tensor of weights of size (n1, n2)
@@ -216,18 +221,16 @@ class _NN(BaseEstimator, RegressorMixin):
 
         return w
 
-    # TODO test
     def _init_bias(self, n, name):
         """
         Generate a tensor of biases of size n.
 
         """
 
-        b = tf.Variable(tf.zeros([n]), name=name, dtype = self.tf_dtype)
+        b = tf.Variable(tf.zeros([n], dtype = self.tf_dtype), name=name, dtype = self.tf_dtype)
 
         return b
 
-    #TODO test
     def _generate_weights(self, n_out):
         """
         Generates the weights and the biases, by looking at the size of the hidden layers,
@@ -321,36 +324,44 @@ class _NN(BaseEstimator, RegressorMixin):
             h = self.activation_function(z)
 
         # Calculating the output of the last layer
-        z = tf.add(tf.matmul(h, tf.transpose(weights[-1])), biases[-1])
+        z = tf.add(tf.matmul(h, tf.transpose(weights[-1])), biases[-1], name = "output")
 
         return z
 
     #TODO test
     def _get_batch_size(self):
         """
-        Determines the actual batch size. If set to auto, the batch size will be set to 200.
+        Determines the actual batch size. If set to auto, the batch size will be set to 100.
         If the batch size is larger than the number of samples, it is truncated and a warning
         is printed.
+
+        Furthermore the returned batch size will be slightly modified from the user input if
+        the last batch would be tiny compared to the rest.
 
         :return: Batch size
         :rtype: integer
         """
 
         if self.batch_size == 'auto':
-            return min(100, self.n_samples)
+            batch_size = min(100, self.n_samples)
         else:
             if self.batch_size > self.n_samples:
                 print("Warning: batch_size larger than sample size. It is going to be clipped")
                 return min(self.nsamples, self.batch_size)
             else:
-                return self.batch_size
+                batch_size = self.batch_size
 
-    def plot_cost(self, test = True, filename = ''):
+        # see if the batch size can be modified slightly to make sure the last batch is similar in size
+        # to the rest of the batches
+        # This is always less that the requested batch size, so no memory issues should arise
+        better_batch_size = ceil(self.n_samples, ceil(self.n_samples, batch_size))
+
+        return better_batch_size
+
+    def plot_cost(self, filename = None):
         """
         Plots the value of the cost function as a function of the iterations.
 
-        :param test: Whether to plot the accuracy on a test set as well if it was given in the fit
-        :type test: boolean
         :param filename: File to save the plot to. If '' the plot is shown instead of saved.
         :type filename: string
         """
@@ -363,14 +374,12 @@ class _NN(BaseEstimator, RegressorMixin):
 
         sns.set()
         df = pd.DataFrame()
-        df["Iterations"] = range(len(self.train_cost))
-        df["Training cost"] = self.train_cost
-        sns.lmplot('Iterations', 'Training cost', data=df, scatter_kws={"s": 20, "alpha": 0.6}, line_kws={"alpha": 0.5}, fit_reg=False)
-        if test:
-            df["Testing cost"] = self.test_cost
-            sns.lmplot('Iterations', 'Testing cost', data=df, scatter_kws={"s": 20, "alpha": 0.6}, line_kws={"alpha": 0.5}, fit_reg=False)
+        df["Iterations"] = range(len(self.training_cost))
+        df["Training cost"] = self.training_cost
+        f = sns.lmplot('Iterations', 'Training cost', data=df, scatter_kws={"s": 20, "alpha": 0.6}, line_kws={"alpha": 0.5}, fit_reg=False)
+        f.set(yscale = "log")
 
-        if filename == '':
+        if filename == None:
             plt.show()
         elif is_string(filename):
             plt.save(filename)
@@ -430,22 +439,40 @@ class _NN(BaseEstimator, RegressorMixin):
                 else:
                     raise InputError("Wrong data type of variable 'filename'. Expected string")
 
-    #TODO test
-    def _get_batch_size(self):
+    # TODO test
+    def score(self, *args):
+        if self.scoring_function == 'mae':
+            return self._score_mae(*args)
+        if self.scoring_function == 'rmse':
+            return self._score_rmse(*args)
+        if self.scoring_function == 'r2':
+            return self._score_r2(*args)
+
+    # TODO test
+    def predict(self, x):
         """
-        This function is called at fit time to automatically get the batch size.
-        If it is a user set value, it checks whether it is a reasonable value.
+        Use the trained network to make predictions on the data x.
 
-        :return: int
+        :param x: The input data of shape (n_samples, n_features)
+        :type x: array
+
+        :return: Predictions for the target values corresponding to the samples contained in x.
+        :rtype: array
 
         """
-        if self.batch_size == 'auto':
-            batch_size = min(100, self.n_samples)
-        elif self.batch_size > self.n_samples:
-            print("Warning: Got 'batch_size' larger than sample size. It is going to be clipped")
-            batch_size = max(self.batch_size, self.n_samples)
 
-        return batch_size
+        if self.session == None:
+            raise InputError("Model needs to be fit before predictions can be made.")
+
+        check_array(x, warn_on_dtype = True)
+
+        graph = tf.get_default_graph()
+
+        with graph.as_default():
+            tf_x = graph.get_tensor_by_name("Data/Descriptors:0")
+            model = graph.get_tensor_by_name("Model/output:0")
+            y_pred = self.session.run(model, feed_dict = {tf_x : x})
+            return y_pred
 
 # Molecular Representation Single Property
 class MRMP(_NN):
@@ -485,9 +512,6 @@ class MRMP(_NN):
         # reshape to tensorflow friendly shape
         y = np.atleast_2d(y).T
 
-        # Flag that a model has been trained
-        self.fit_exist = True
-
         # Useful quantities
         self.n_features = x.shape[1]
         self.n_samples = x.shape[0]
@@ -507,10 +531,8 @@ class MRMP(_NN):
 
             # Log weights for tensorboard
             if self.tensorboard:
-                tf.summary.histogram("weights_in", weights[0])
-                for i in range(self.hidden_layer_sizes.size - 1):
-                    tf.summary.histogram("weights_hidden_%d" % i, weights[i + 1])
-                tf.summary.histogram("weights_out", weights[-1])
+                self.tensorboard_logger.write_weight_histogram(weights)
+
 
         with tf.name_scope("Model"):
             y_pred = self.model(tf_x, weights, biases)
@@ -532,42 +554,106 @@ class MRMP(_NN):
             self.tensorboard_logger.initialise()
 
         # This is the total number of batches in which the training set is divided
-        n_batches = self.n_samples // self.batch_size
+        n_batches = ceil(self.n_samples, batch_size)
+
+        self.session = tf.Session()
 
         # Running the graph
-        with tf.Session() as sess:
-            if self.tensorboard:
-                self.tensorboard_logger.set_summary_writer(sess)
+        if self.tensorboard:
+            self.tensorboard_logger.set_summary_writer(sess)
 
-            sess.run(init)
+        self.session.run(init)
 
-            for i in range(self.max_iter):
-                # This will be used to calculate the average cost per iteration
-                avg_cost = 0
-                # Learning over the batches of data
-                for i in range(n_batches):
-                    batch_x = X[i * self.batch_size:(i + 1) * self.batch_size, :]
-                    batch_y = y[i * self.batch_size:(i + 1) * self.batch_size, :]
-                    opt, c = sess.run([optimizer, cost], feed_dict={X_train: batch_x, Y_train: batch_y})
-                    avg_cost += c / n_batches
+        indices = np.arange(0,self.n_samples, 1)
 
-                    if self.tensorboard:
-                        if iter % self.print_step == 0:
-                            # The options flag is needed to obtain profiling information
-                            summary = sess.run(merged_summary, feed_dict={X_train: batch_x, Y_train: batch_y},
-                                               options=options, run_metadata=run_metadata)
-                            summary_writer.add_summary(summary, iter)
-                            summary_writer.add_run_metadata(run_metadata, 'iteration %d batch %d' % (iter, i))
+        for i in range(self.iterations):
+            # This will be used to calculate the average cost per iteration
+            avg_cost = 0
+            # Learning over the batches of data
+            for j in range(n_batches):
+                batch_x = x[indices][j * batch_size:(j+1) * batch_size]
+                batch_y = y[indices][j * batch_size:(j+1) * batch_size]
+                feed_dict = {tf_x: batch_x, tf_y: batch_y}
+                opt, c = self.session.run([optimizer, cost], feed_dict=feed_dict)
+                avg_cost += c * batch_x.shape[0] / x.shape[0]
 
-                self.trainCost.append(avg_cost)
-#
-#            # Saving the weights for later re-use
-#            self.all_weights = []
-#            self.all_biases = []
-#            for ii in range(len(weights)):
-#                self.all_weights.append(sess.run(weights[ii]))
-#                self.all_biases.append(sess.run(biases[ii]))
+                if self.tensorboard:
+                    if i % self.tensorboard_logger.store_frequency == 0:
+                        self.tensorboard_logger.write_summary(self.session, feed_dict, i, j)
 
+            self.training_cost.append(avg_cost)
+
+            # Shuffle the dataset at each iteration
+            np.random.shuffle(indices)
+
+    # TODO test
+    def _score_r2(self, x, y, sample_weight=None):
+        """
+        Calculate the coefficient of determination (R^2).
+        Larger values corresponds to a better prediction.
+
+        :param x: The input data.
+        :type x: array of shape (n_samples, n_features)
+        :param y: The target values for each sample in x.
+        :type y: array of shape (n_samples,)
+
+        :param sample_weight: Weights of the samples. None indicates that that each sample has the same weight.
+        :type sample_weight: array of shape (n_samples,)
+
+        :return: R^2
+        :rtype: float
+
+        """
+
+        y_pred = self.predict(x)
+        r2 = r2_score(y, y_pred, sample_weight = sample_weight)
+        return r2
+
+    # TODO test
+    def _score_mae(self, x, y, sample_weight=None):
+        """
+        Calculate the mean absolute error.
+        Smaller values corresponds to a better prediction.
+
+        :param x: The input data.
+        :type x: array of shape (n_samples, n_features)
+        :param y: The target values for each sample in x.
+        :type y: array of shape (n_samples,)
+
+        :param sample_weight: Weights of the samples. None indicates that that each sample has the same weight.
+        :type sample_weight: array of shape (n_samples,)
+
+        :return: Mean absolute error
+        :rtype: float
+
+        """
+
+        y_pred = self.predict(x)
+        mae = mean_absolute_error(y, y_pred, sample_weight = sample_weight)
+        return mae
+
+    # TODO test
+    def _score_rmse(self, x, y, sample_weight=None):
+        """
+        Calculate the root mean squared error.
+        Smaller values corresponds to a better prediction.
+
+        :param x: The input data.
+        :type x: array of shape (n_samples, n_features)
+        :param y: The target values for each sample in x.
+        :type y: array of shape (n_samples,)
+
+        :param sample_weight: Weights of the samples. None indicates that that each sample has the same weight.
+        :type sample_weight: array of shape (n_samples,)
+
+        :return: Mean absolute error
+        :rtype: float
+
+        """
+
+        y_pred = self.predict(x)
+        rmse = np.sqrt(mean_squared_error(y, y_pred, sample_weight = sample_weight))
+        return rmse
 
     def cost(self, y_pred, y, weights):
         """
@@ -596,7 +682,29 @@ class MRMP(_NN):
         return cost
 
 if __name__ == "__main__":
-    lol = MRMP(tensorboard = True)
-    x = np.random.random((1000,2))
-    y = np.random.random((1000,))
-    lol.fit(x,y)
+    # Simple example of fitting a quadratic function
+    estimator = MRMP(hidden_layer_sizes=(5, 5, 5), learning_rate=0.01, iterations=5000, l2_reg = 0, tf_dtype = 32, scoring_function="rmse")
+    x = np.arange(-2.0, 2.0, 0.05)
+    X = np.reshape(x, (len(x), 1))
+    y = np.reshape(X ** 3, (len(x),))
+
+    estimator.fit(X, y)
+    y_pred = estimator.predict(X)
+
+    #  Visualisation of predictions
+    fig2, ax2 = plt.subplots(figsize=(6,6))
+    ax2.scatter(x, y, label="original", marker="o", c="r")
+    ax2.scatter(x, y_pred, label="predictions", marker="o", c='b')
+    ax2.set_xlabel('x')
+    ax2.set_ylabel('y')
+    ax2.legend()
+
+    # Correlation plot
+    fig3, ax3 = plt.subplots(figsize=(6,6))
+    ax3.scatter(y, y_pred, marker="o", c="r")
+    ax3.set_xlabel('original y')
+    ax3.set_ylabel('prediction y')
+    plt.show()
+
+    # Cost plot
+    estimator.plot_cost()

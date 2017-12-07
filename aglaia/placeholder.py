@@ -468,71 +468,6 @@ def plotWeights(self):
     # sns.plt.savefig("weights_l1.png", transparent=False, dpi=600)
     # sns.plt.show()
 
-def predict(self, X):
-    """
-    This function uses the X data and plugs it into the model and then returns the predicted y
-
-    :X: array of shape (n_samples, n_features)
-
-        This contains the input data with samples in the rows and features in the columns.
-
-    :return: array of size (n_samples,)
-
-        This contains the predictions for the target values corresponding to the samples contained in X.
-
-    """
-
-    check_array(X)
-
-    if self.alreadyInitialised:
-
-        X_test = tf.placeholder(tf.float32, [None, self.n_feat], name="descriptor")
-
-        weights = []
-        biases = []
-
-        for ii in range(len(self.all_weights)):
-            weights.append(tf.Variable(self.all_weights[ii]))
-            biases.append(tf.Variable(self.all_biases[ii]))
-
-        model = self.modelNN(X_test, weights, biases)
-
-        init = tf.global_variables_initializer()
-
-        with tf.Session() as sess:
-            sess.run(init)
-            predictions = sess.run(model, feed_dict={X_test: X})
-            predictions = np.reshape(predictions,(predictions.shape[0],))
-
-        return predictions
-    else:
-        raise Exception("The fit function has not been called yet, so the model has not been trained yet.")
-
-def score(self, X, y, sample_weight=None):
-    """
-    Returns the mean accuracy on the given test data and labels. It calculates the R^2 value. It is used during the
-    training of the model.
-
-    :X: array of shape (n_samples, n_features)
-
-        This contains the input data with samples in the rows and features in the columns.
-
-    :y: array of shape (n_samples,)
-
-        This contains the target values for each sample in the X matrix.
-
-    :sample_weight: array of shape (n_samples,)
-
-        Sample weights (not sure what this is, but i need it for inheritance from the BaseEstimator)
-
-    :return: double
-        This is a score between -inf and 1 (best value is 1) that tells how good the correlation plot is.
-    """
-
-    y_pred = self.predict(X)
-    r2 = r2_score(y, y_pred)
-    return r2
-
 def scoreFull(self, X, y):
     """
     This scores the predictions more thouroughly than the function 'score'. It calculates the r2, the root mean
@@ -627,7 +562,7 @@ def errorDistribution(self, X, y):
     plt.show()
 
 
-#fit forces
+#   fit forces
         ## Placeholders for the input/output data
         #with tf.name_scope('Data'):
         #    tf_input = tf.placeholder(tf.float32, [None, self.n_coord], name="Coordinates")
@@ -779,6 +714,7 @@ def errorDistribution(self, X, y):
 #
 #                # Saving the graph
 #                all_saver.save(sess, dir)
+
 #    def load_NN(self, dir):
 #        """
 #        Function that loads a trained estimator.
@@ -804,59 +740,6 @@ def errorDistribution(self, X, y):
 #
 #        self.loadedModel = True
 
-#    def predict(self, X):
-#        """
-#        This function uses the X data and plugs it into the model and then returns the predicted y.
-#
-#        :X: array of shape (n_samples, n_features)
-#            This contains the input data with samples in the rows and features in the columns.
-#
-#        :return: array of size (n_samples, n_outputs)
-#            This contains the predictions for the target values corresponding to the samples contained in X.
-#        """
-#
-#        check_array(X)
-#
-#        if self.alreadyInitialised:
-#
-#            # MAking the placeholder for the data
-#            xyz_test = tf.placeholder(tf.float32, [None, self.n_coord], name="Cartesian_coord")
-#
-#            # Making the descriptor from the Cartesian coordinates
-#            X_des = self.available_descriptors[self.descriptor](xyz_test, n_atoms=self.n_atoms)
-#
-#            # Setting up the trained weights
-#            weights = []
-#            biases = []
-#
-#            for ii in range(len(self.all_weights)):
-#                weights.append(tf.Variable(self.all_weights[ii]))
-#                biases.append(tf.Variable(self.all_biases[ii]))
-#
-#            # Calculating the ouputs
-#            out_NN = self.modelNN(X_des, weights, biases)
-#
-#            init = tf.global_variables_initializer()
-#
-#            with tf.Session() as sess:
-#                sess.run(init)
-#                ene_forces_NN = sess.run(out_NN, feed_dict={xyz_test: X})
-#
-#            return ene_forces_NN
-#
-#        elif self.loadedModel:
-#            feed_dic = {self.in_data: X}
-#
-#            with tf.Session() as sess:
-#                sess.run(tf.global_variables_initializer())
-#                ene_forces_NN = sess.run(self.out_NN, feed_dict=feed_dic)
-#
-#            return ene_forces_NN
-#
-#        else:
-#            raise Exception("The fit function has not been called yet, so the model has not been trained yet.")
-
-# def fit_and_predict
 
 #    def modelNN(self, X, weights, biases):
 #        """
@@ -882,34 +765,9 @@ def errorDistribution(self, X, y):
 #
 #        return z
 
-#    def score(self, X, y, sample_weight=None):
-#        """
-#        Returns the pearson correlation coefficient . It calculates the R^2 value. It is used during the
-#        training of the model.
-#
-#        :X: array of shape (n_samples, n_features)
-#
-#            This contains the input data with samples in the rows and features in the columns.
-#
-#        :y: array of shape (n_samples, n_outputs)
-#
-#            This contains the target values for each sample in the X matrix.
-#
-#        :sample_weight: array of shape (n_samples,)
-#
-#            Sample weights (not sure what this is, but i need it for inheritance from the BaseEstimator)
-#
-#        :return: double
-#            This is a score between -inf and 1 (best value is 1) that tells how good the correlation plot is.
-#        """
-#
-#        y_pred = self.predict(X)
-#        r2 = r2_score(y, y_pred)
-#        return r2
-
 #    def fit(self, X, y):
 #        """
-#        Fit the  to data matrix X and target y.
+#        Fit the to data matrix X and target y.
 #
 #        :X: array of shape (n_samples, n_features).
 #
@@ -1021,12 +879,6 @@ def errorDistribution(self, X, y):
 #
 #                self.trainCost.append(avg_cost)
 #
-#            # Saving the weights for later re-use
-#            self.all_weights = []
-#            self.all_biases = []
-#            for ii in range(len(weights)):
-#                self.all_weights.append(sess.run(weights[ii]))
-#                self.all_biases.append(sess.run(biases[ii]))
 
 #class _FFNN(_MLPRegFlow):
 #    """
