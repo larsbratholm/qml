@@ -9,7 +9,7 @@ import sys
 #sys.path.insert(0,os.path.join(os.path.dirname(os.path.realpath(__file__)), ".."))
 import numpy as np
 import tensorflow as tf
-from sklearn.base import BaseEstimator, RegressorMixin
+#from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.utils.validation import check_X_y, check_array
 from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
 import matplotlib.pyplot as plt
@@ -20,11 +20,11 @@ import matplotlib.pyplot as plt
 #from tensorflow.python.tools import freeze_graph
 
 #TODO relative imports
-from utils import is_positive, is_positive_integer, is_positive_integer_or_zero, \
+from .utils import is_positive, is_positive_integer, is_positive_integer_or_zero, \
         is_bool, is_string, is_positive_or_zero, InputError, ceil
-from tf_utils import TensorBoardLogger
+from .tf_utils import TensorBoardLogger
 
-class _NN(BaseEstimator, RegressorMixin):
+class _NN(object):
 
     """
     Parent class for training multi-layered neural networks on molecular or atomic properties via Tensorflow
@@ -32,7 +32,7 @@ class _NN(BaseEstimator, RegressorMixin):
 
     def __init__(self, hidden_layer_sizes = [5], l1_reg = 0.0, l2_reg = 0.0001, batch_size = 'auto', learning_rate = 0.001,
                  iterations = 500, tensorboard = False, store_frequency = 200, tf_dtype = tf.float32, scoring_function = 'mae',
-                 activation_function = tf.sigmoid, tensorboard_subdir = os.getcwd() + '/tensorboard', **args):
+                 activation_function = tf.sigmoid, tensorboard_subdir = os.getcwd() + '/tensorboard', **kwargs):
         """
         :param hidden_layer_sizes: Number of hidden layers. The n'th element represents the number of neurons in the n'th
             hidden layer.
@@ -63,10 +63,12 @@ class _NN(BaseEstimator, RegressorMixin):
         :type tensorboard_subdir: string
         """
 
+        super(_NN,self).__init__()
+
         # Catch unrecognised passed variables
-        if len(args) > 0:
+        if len(kwargs) > 0:
             msg = "Warning: unrecognised input variable(s): "
-            msg += ", ".join([str(x for x in args.keys())])
+            msg += ", ".join([str(x for x in kwargs.keys())])
             print(msg)
 
 
@@ -440,13 +442,13 @@ class _NN(BaseEstimator, RegressorMixin):
                     raise InputError("Wrong data type of variable 'filename'. Expected string")
 
     # TODO test
-    def score(self, *args):
+    def score(self, *kwargs):
         if self.scoring_function == 'mae':
-            return self._score_mae(*args)
+            return self._score_mae(*kwargs)
         if self.scoring_function == 'rmse':
-            return self._score_rmse(*args)
+            return self._score_rmse(*kwargs)
         if self.scoring_function == 'r2':
-            return self._score_r2(*args)
+            return self._score_r2(*kwargs)
 
     # TODO test
     def predict(self, x):
@@ -480,7 +482,7 @@ class MRMP(_NN):
     Neural network for predicting single properties, such as energies, using molecular representations.
     """
 
-    def __init__(self, **args):
+    def __init__(self, **kwargs):
         """
         Molecular descriptors is used as input to a single or multi layered feed-forward neural network with a single output.
         This class inherits from the _NN class and all inputs not unique to the MRMP class is passed to the _NN
@@ -488,7 +490,7 @@ class MRMP(_NN):
 
         """
 
-        super(MRMP,self).__init__(**args)
+        super(MRMP,self).__init__(**kwargs)
 
     #TODO test
     def fit(self, x, y):
@@ -505,6 +507,7 @@ class MRMP(_NN):
         return self._fit(x, y)
 
     def _fit(self, x, y):
+        print(self.dict)
 
         # Check that X and y have correct shape
         x, y = check_X_y(x, y, multi_output = False, y_numeric = True, warn_on_dtype = True)

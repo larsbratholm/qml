@@ -4,21 +4,24 @@ Helper classes for hyper parameter optimization with osprey
 
 import glob
 import itertools
+from inspect import signature
 import numpy as np
+from sklearn.base import BaseEstimator
 
 #TODO relative imports
-from aglaia import _NN, MRMP
-from utils import InputError, is_positive_integer, is_string, is_positive_integer_or_zero, \
+from .aglaia import _NN, MRMP
+from .utils import InputError, is_positive_integer, is_string, is_positive_integer_or_zero, \
         is_non_zero_integer, is_bool, is_positive
 
 
-class _OSPNN(_NN):
+class _OSPNN(BaseEstimator, _NN):
     """
     Adds additional variables and functionality to the _NN class that makes interfacing with
     Osprey for hyperparameter search easier
     """
 
-    def __init__(self, hl1 = 5, hl2 = 0, hl3 = 0, **args):
+    def __init__(self, hl1 = 5, hl2 = 0, hl3 = 0,
+            compounds = None, properties = None, nuclear_charges = None, coordinates = None, **kwargs):
         """
         :param hl1: Number of neurons in the first hidden layer. If different from zero, ``hidden_layer_sizes`` is
                     overwritten.
@@ -29,16 +32,59 @@ class _OSPNN(_NN):
         :type hl3: integer
         """
 
-        super(_OSPNN, self).__init__(**args)
+        super(_OSPNN, self).__init__(**kwargs)
 
-        self._set_hidden_layers_sizes(hl1, hl2, hl3)
+        self._set_hl(hl1, hl2, hl3)
 
         # Placeholder variables
         self.compounds = np.empty(0, dtype=object)
         self.properties = np.empty(0, dtype=float)
 
+        if type(compounds) != type(None):
+            self.compounds = compounds
+        if type(properties) != type(None):
+            self.properties = properties
+        print(hl1,hl2,hl3,compounds,properties,nuclear_charges,coordinates)
+
+    def get_params(self, deep = True):
+        """
+        Hack that overrides the get_params routine of BaseEstimator.
+        self.get_params() returns the input parameters of __init__. However it doesn't
+        handle inheritance well, as we would like to include the input parameters to
+        __init__ of all the parents as well.
+
+        """
+        params = BaseEstimator.get_params(self)
+        parent_init = super(_OSPNN, self).__init__
+
+        # Taken from scikit-learns BaseEstimator class
+        parent_init_signature = signature(parent_init)
+        for p in (p for p in parent_init_signature.parameters.values() 
+                if p.name != 'self' and p.kind != p.VAR_KEYWORD):
+            if p.name in params:
+                print("lol", p)
+                quit()
+            params[p.name] = p.default
+
+        return params
+
+    def set_params(self, **params):
+        """
+        Hack that overrides the set_params routine of BaseEstimator.
+
+        """
+        for key, value in params.items():
+            key, delim, sub_key = key.partition('__')
+
+            if delim:
+                nested_params[key][sub_key] = value
+            else:
+                setattr(self, key, value)
+        return self
+
+
     # TODO test
-    def _set_hidden_layers_sizes(self, hl1, hl2, hl3):
+    def _set_hl(self, hl1, hl2, hl3):
         if hl1 == 0:
             raise InputError("hl1 must be larger than zero. Got %s" % str(hl1))
 
@@ -98,6 +144,7 @@ class _OSPNN(_NN):
         self.compounds = np.empty(len(filenames), dtype=object)
         for i, filename in enumerate(filenames):
             self.compounds[i] = Compound(filename)
+
 
     # TODO test
     def _get_asize(self, pad = 0):
@@ -162,7 +209,7 @@ class OSPMRMP(MRMP, _OSPNN):
 
     def __init__(self, representation = 'unsorted_coulomb_matrix', 
             slatm_sigma1 = 0.05, slatm_sigma2 = 0.05, slatm_dgrid1 = 0.03, slatm_dgrid2 = 0.03, slatm_rcut = 4.8, slatm_rpower = 6,
-            slatm_alchemy = False, **args):
+            slatm_alchemy = False, **kwargs):
         """
         A molecule's cartesian coordinates and chemical composition is transformed into a descriptor for the molecule,
         which is then used as input to a single or multi layered feedforward neural network with a single output.
@@ -191,7 +238,8 @@ class OSPMRMP(MRMP, _OSPNN):
 
         """
 
-        super(OSPMRMP,self).__init__(**args)
+        super(OSPMRMP,self).__init__(**kwargs)
+
 
         if not is_string(representation):
             raise InputError("Expected string for variable 'representation'. Got %s" % str(representation))
@@ -248,15 +296,18 @@ class OSPMRMP(MRMP, _OSPNN):
         self.properties = np.asarray(y, dtype = float)
 
     # TODO test
-    def fit(self, indices):
+    def fit(self, indices, y = None):
         """
         Fit the neural network to a set of molecular descriptors and targets. It is assumed that QML compounds and
         properties have been set in advance and which indices to use is given.
 
+        :param y: Dummy for osprey
+        :type y: None
         :param indices: Which indices of the pregenerated QML compounds and properties to use.
         :type indices: integer array
 
         """
+        print(self.properties.size, self.compounds.size, self.hidden_layer_sizes)
 
         if self.properties.size == 0:
             raise InputError("Properties needs to be set in advance")
