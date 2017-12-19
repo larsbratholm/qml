@@ -1468,6 +1468,81 @@ def TFVdwPolyLRWithEle(R, Zs, eles, c6, R_vdw, R_cut, Radpair_E1E2, prec=tf.floa
     E_vdw = tf.sparse_reduce_sum(sp_atomoutputs, axis=1)
     return E_vdw
 
+def PolynomialRangeSepCoulomb(R,Qs,Radpair,SRRc,LRRc,dx):
+    """
+    A tensorflow linear scaling implementation of a short-range and long range cutoff
+    coulomb kernel. The cutoff functions are polynomials subject to the constraint
+    that 1/r is brought to 0 twice-differentiably at SR and LR+dx cutoffs.
+
+    The SR cutoff polynomial is 4th order, and the LR is fifth.
+
+    Args:
+        R: a nmol X maxnatom X 3 tensor of coordinates.
+        Qs : nmol X maxnatom X 1 tensor of atomic charges.
+        Radpair: None zero pairs X 3 tensor (mol, i, j)
+        SRRc: Distance where SR polynomial ends.
+        LRRc: Distance where LR polynomial begins.
+        dx: Small interval after which the kernel is zero.
+    Returns
+        A #Mols X MaxNAtoms X MaxNAtoms matrix of LJ kernel contributions.
+    """
+    inp_shp = tf.shape(R)
+    nmol = inp_shp[0]
+    natom = inp_shp[1]
+    natom2 = natom*natom
+    infinitesimal = 0.000000000000000000000000001
+    nnz = tf.shape(Radpair)[0]
+    Rij = DifferenceVectorsLinear(R, Radpair)
+    Ds = tf.sqrt(tf.reduce_sum(Rij*Rij,axis=1)+infinitesimal)
+    twooversqrtpi = tf.constant(1.1283791671,dtype=tf.float64)
+    Qii = tf.slice(Radpair,[0,0],[-1,2])
+    Qji = tf.concat([tf.slice(Radpair,[0,0],[-1,1]),tf.slice(Radpair,[0,2],[-1,1])], axis=-1)
+    Qi = tf.gather_nd(Qs,Qii)
+    Qj = tf.gather_nd(Qs,Qji)
+    Qij = Qi*Qj
+    D2 = Ds*Ds
+    D3 = D2*Ds
+    D4 = D3*Ds
+    D5 = D4*Ds
+
+    asr = -5./(3.*tf.pow(SRRc,4.0))
+    dsr = 5./(3.*SRRc)
+    csr = 1./(tf.pow(SRRc,5.0))
+
+    x0 = LRRc
+    x02 = x0*x0
+    x03 = x02*x0
+    x04 = x03*x0
+    x05 = x04*x0
+
+    dx2 = dx*dx
+    dx3 = dx2*dx
+    dx4 = dx3*dx
+    dx5 = dx4*dx
+
+    alr = -((3.*(dx4+2.*dx3*x0-4.*dx2*x02+10.*dx*x03+20.*x04))/(dx5*x03))
+    blr = -((-dx5-9*dx4*x0+8.*dx2*x03-60.0*dx*x04-60.0*x05)/(dx5*x03))
+    clr = (3.*(dx3-dx2*x0+10.*x03))/(dx5*x03)
+    dlr = -((3.*(dx5+3.*dx4*x0-2.*dx3*x02+dx2*x03+15.*dx*x04+10.*x05))/(dx5*x02))
+    elr = (3.*(dx5+dx4*x0-dx3*x02+dx2*x03+4.*dx*x04+2.*x05))/(dx5*x0)
+    flr = -((dx2-3.*dx*x0+6.*x02)/(dx5*x03))
+
+    CK = (Qij/Ds)
+    SRK = Qij*(asr*D3+csr*D4+dsr)
+    LRK = Qij*(alr*D3 + blr*D2 + dlr*Ds + clr*D4 + elr + flr*D5)
+    ZK = tf.zeros_like(Ds)
+
+    K0 = tf.where(tf.less_equal(Ds,SRRc),SRK,CK)
+    K1 = tf.where(tf.greater_equal(Ds,LRRc),LRK,K0)
+    K = tf.where(tf.greater_equal(Ds,LRRc+dx),ZK,K1)
+
+    range_index = tf.range(tf.cast(nnz, tf.int64), dtype=tf.int64)
+    mol_index = tf.cast(tf.reshape(tf.slice(Radpair,[0,0],[-1,1]),[nnz]), dtype=tf.int64)
+    sparse_index = tf.stack([mol_index, range_index], axis=1)
+    sp_atomoutputs = tf.SparseTensor(sparse_index, K, dense_shape=[tf.cast(nmol, tf.int64), tf.cast(nnz, tf.int64)])
+    # Now use the sparse reduce sum trick to scatter this into mols.
+    return tf.sparse_reduce_sum(sp_atomoutputs, axis=1)
+
 def TFCoulombErfLR(R, Qs, R_cut,  Radpair, prec=tf.float64):
     """
     Tensorflow implementation of long range cutoff sparse-Erf
@@ -1682,6 +1757,61 @@ def TFSymRSet_Linear_WithEle(R, Zs, eles_, SFPs_, eta, R_cut, RadpairEle, prec=t
 #    #to_reduce2 = tf.sparse_to_dense(ind2, tf.convert_to_tensor([nmol, natom, nelep, natom2, nsym]), Gm)
     #to_reduce_sparse = tf.SparseTensor(ind2,[nmol, natom, nelep, natom2, nzeta, neta, ntheta, nr])
     return tf.reduce_sum(to_reduce2, axis=3)
+
+def TFSymRSet_Linear_WithEle_Release(R, Zs, eles_, SFPs_, eta, R_cut, RadpairEle, mil_j, prec=tf.float64):
+    """
+    A tensorflow implementation of the angular AN1 symmetry function for a single input molecule.
+    Here j,k are all other atoms, but implicitly the output
+    is separated across elements as well. eleps_ is a list of element pairs
+    G = 2**(1-zeta) \sum_{j,k \neq i} (Angular triple) (radial triple) f_c(R_{ij}) f_c(R_{ik})
+    a-la MolEmb.cpp. Also depends on PARAMS for zeta, eta, theta_s r_s
+    This version appends the element type (by its index in eles_) in RadpairEle, and it is sorted by m,i,l,j
+
+    Args:
+        R: a nmol X maxnatom X 3 tensor of coordinates.
+        Zs : nmol X maxnatom X 1 tensor of atomic numbers.
+        eles_: a nelepairs X 1 tensor of elements present in the data.
+        SFP: A symmetry function parameter tensor having the number of elements
+        as the SF output. 2 X neta  X nRs.
+        R_cut: Radial Cutoff
+        RadpairEle: None zero pairs X 4 tensor (mol, i, j, l)
+        prec: a precision.
+    Returns:
+        Digested Mol. In the shape nmol X maxnatom X nelepairs X nZeta X nEta X nThetas X nRs
+    """
+    inp_shp = tf.shape(R)
+    nmol = inp_shp[0]
+    natom = inp_shp[1]
+    natom2 = natom*natom
+    nele = tf.shape(eles_)[0]
+    pshape = tf.shape(SFPs_)
+    nr = pshape[1]
+    nsym = nr
+    infinitesimal = 0.000000000000000000000000001
+    nnz = tf.shape(RadpairEle)[0]
+    #Rtmp = tf.concat([tf.slice(Radpair,[0,0],[nnz,1]), tf.slice(Radpair,[0,2],[nnz,1])], axis=-1)
+    #Rreverse = tf.concat([Rtmp, tf.slice(Radpair,[0,1],[nnz,1])], axis=-1)
+    #Rboth = tf.concat([Radpair, Rreverse], axis=0)
+    Rij = DifferenceVectorsLinear(R, tf.slice(RadpairEle,[0, 0],[nnz, 3]))
+    RijRij2 = tf.sqrt(tf.reduce_sum(Rij*Rij,axis=1)+infinitesimal)
+    #GoodInds2 = tf.concat([Radpair, ElemIndex], axis=-1)
+
+    rtmp = tf.cast(tf.reshape(SFPs_[0],[1,nr]),prec) # ijk X zeta X eta ....
+    tet = tf.tile(tf.reshape(RijRij2,[nnz,1]),[1,nr]) - rtmp
+    fac1 = tf.exp(-eta*tet*tet)
+    # And finally the last two factors
+    fac2 = 0.5*(tf.cos(3.14159265359*RijRij2/R_cut)+1.0)
+    fac2t = tf.tile(tf.reshape(fac2,[nnz,1]),[1,nr])
+    ## assemble the full symmetry function for all triples.
+    Gm = tf.reshape(fac1*fac2t,[nnz*nr]) # nnz X nzeta X neta X ntheta X nr
+    Gm2 = tf.reshape(Gm, [nnz, nr])
+    ## Finally scatter out the symmetry functions where they belong.
+    j_max = tf.reduce_max(tf.slice(mil_j, [0,3], [nnz, 1])) + 1
+    to_reduce2 = tf.scatter_nd(mil_j, Gm2, tf.cast([nmol, tf.cast(natom, tf.int32), nele, tf.cast(j_max, tf.int32), nsym], dtype=tf.int64))
+    #mil_j = tf.concat([tf.slice(RadpairEle,[0,0],[nnz,2]),tf.slice(RadpairEle,[0,3],[nnz,1]),tf.slice(RadpairEle,[0,2],[nnz,1])],axis=-1)
+    #to_reduce2 = tf.scatter_nd(mil_j, Gm2, tf.cast([nmol,natom,nele,natom,nsym], dtype=tf.int64))
+    return tf.reduce_sum(to_reduce2, axis=3)
+
 
 def TFSymRSet_Linear_WithElePeriodic(R, Zs, eles_, SFPs_, eta, R_cut, RadpairEle, mil_j, nreal, prec=tf.float64):
     """
@@ -2138,6 +2268,49 @@ def TFSymSet_Scattered_Linear_WithEle(R, Zs, eles_, SFPsR_, Rr_cut,  eleps_, SFP
         IndexList.append(tf.concat([mol_index, atom_index], axis = -1))
     return SymList, IndexList
 
+def TFSymSet_Scattered_Linear_WithEle_Release(R, Zs, eles_, SFPsR_, Rr_cut,  eleps_, SFPsA_, zeta, eta, Ra_cut, RadpEle, AngtEle, mil_j, mil_jk):
+    """
+    A tensorflow implementation of the AN1 symmetry function for a set of molecule.
+    Args:
+        R: a nmol X maxnatom X 3 tensor of coordinates.
+        Zs : nmol X maxnatom X 1 tensor of atomic numbers.
+        eles_: a neles X 1 tensor of elements present in the data.
+        SFPsR_: A symmetry function parameter of radius part
+        Rr_cut: Radial Cutoff of radius part
+        eleps_: a nelepairs X 2 X 12tensor of elements pairs present in the data.
+        SFPsA_: A symmetry function parameter of angular part
+        RA_cut: Radial Cutoff of angular part
+    Returns:
+        Digested Mol. In the shape nmol X maxnatom X (Dimension of radius part + Dimension of angular part)
+    """
+    inp_shp = tf.shape(R)
+    nmol = inp_shp[0]
+    natom = inp_shp[1]
+    nele = tf.shape(eles_)[0]
+    nelep = tf.shape(eleps_)[0]
+    GMR = tf.reshape(TFSymRSet_Linear_WithEle_Release(R, Zs, eles_, SFPsR_, eta, Rr_cut, RadpEle, mil_j),[nmol, natom,-1], name="FinishGMR")
+    GMA = tf.reshape(TFSymASet_Linear_WithEle(R, Zs, eleps_, SFPsA_, zeta,  eta, Ra_cut,  AngtEle, mil_jk),[nmol, natom,-1], name="FinishGMA")
+    #return GMR, R_index, GMA, A_index
+    #GMR = tf.reshape(TFSymRSet_Linear_WithEle(R, Zs, eles_, SFPsR_, eta, Rr_cut, RadpEle),[nmol, natom,-1], name="FinishGMR")
+    #GMA = tf.reshape(TFSymASet_Linear_WithEle(R, Zs, eleps_, SFPsA_, zeta,  eta, Ra_cut,  AngtEle), [nmol, natom,-1], name="FinishGMA")
+    GM = tf.concat([GMR, GMA], axis=2, name="ConcatRadAng")
+    #GM = tf.identity(GMA)
+    num_ele, num_dim = eles_.get_shape().as_list()
+    MaskAll = tf.equal(tf.reshape(Zs,[nmol,natom,1]),tf.reshape(eles_,[1,1,nele]), name="FormEleMask")
+    ToMask1 = AllSinglesSet(tf.cast(tf.tile(tf.reshape(tf.range(natom),[1,natom]),[nmol,1]),dtype=tf.int64), prec=tf.int64)
+    v = tf.cast(tf.reshape(tf.range(nmol*natom), [nmol, natom, 1]), dtype=tf.int64, name="FormIndices")
+    ToMask = tf.concat([ToMask1, v], axis = -1)
+    IndexList = []
+    SymList= []
+    GatherList = []
+    for e in range(num_ele):
+        GatherList.append(tf.boolean_mask(ToMask,tf.reshape(tf.slice(MaskAll,[0,0,e],[nmol,natom,1]),[nmol, natom])))
+        NAtomOfEle=tf.shape(GatherList[-1])[0]
+        SymList.append(tf.gather_nd(GM, tf.slice(GatherList[-1],[0,0],[NAtomOfEle,2])))
+        mol_index = tf.reshape(tf.slice(GatherList[-1],[0,0],[NAtomOfEle,1]),[NAtomOfEle, 1])
+        atom_index = tf.reshape(tf.slice(GatherList[-1],[0,2],[NAtomOfEle,1]),[NAtomOfEle, 1])
+        IndexList.append(tf.concat([mol_index, atom_index], axis = -1))
+    return SymList, IndexList
 
 def TFSymSet_Scattered_Linear_WithEle_UsingList(R, Zs, eles_, SFPsR_, Rr_cut,  eleps_, SFPsA_, zeta, eta, Ra_cut, RadpEle, AngtEle, mil_jk):
     """
@@ -2459,10 +2632,10 @@ def tf_gaussians_cutoff(distance_tensor, Zs, gaussian_params):
     gaussian_embed = tf.where(tf.greater(exponent, -25.0), tf.exp(exponent), tf.zeros_like(exponent))
     gaussian_embed *= tf.expand_dims(tf.where(tf.not_equal(distance_tensor, 0), tf.ones_like(distance_tensor),
                         tf.zeros_like(distance_tensor)), axis=-1)
-    xi = (distance_tensor - 4.5) / (5.5 - 4.5)
+    xi = (distance_tensor - 5.5) / (6.5 - 5.5)
     cutoff_factor = 1 - 3 * tf.square(xi) + 2 * tf.pow(xi, 3.0)
-    cutoff_factor = tf.where(tf.greater(distance_tensor, 5.5), tf.zeros_like(cutoff_factor), cutoff_factor)
-    cutoff_factor = tf.where(tf.less(distance_tensor, 4.5), tf.ones_like(cutoff_factor), cutoff_factor)
+    cutoff_factor = tf.where(tf.greater(distance_tensor, 6.5), tf.zeros_like(cutoff_factor), cutoff_factor)
+    cutoff_factor = tf.where(tf.less(distance_tensor, 5.5), tf.ones_like(cutoff_factor), cutoff_factor)
     return gaussian_embed * tf.expand_dims(cutoff_factor, axis=-1)
 
 def tf_spherical_harmonics_0(inverse_distance_tensor):
@@ -3050,7 +3223,7 @@ def tf_symmetry_function_angular_grid(xyzs, Zs, angular_cutoff, angular_rs, thet
                         * tf.expand_dims(exponential_factor, axis=-2), [tf.shape(triples_indices)[0], tf.shape(theta_s)[0] * tf.shape(angular_rs)[0]])
     return angular_embedding, triples_indices, triples_elements, sorted_triples_element_pairs
 
-def tf_coulomb_damp_shifted_force(R, Qs, R_cut, Radpair, alpha, elu_a, elu_shift):
+def tf_coulomb_dsf_elu(xyzs, charges, Radpair, elu_width, dsf_alpha, cutoff_dist):
     """
     A tensorflow linear scaling implementation of the Damped Shifted Electrostatic Force with short range cutoff with elu function (const at short range).
     http://aip.scitation.org.proxy.library.nd.edu/doi/pdf/10.1063/1.2206581
@@ -3066,43 +3239,41 @@ def tf_coulomb_damp_shifted_force(R, Qs, R_cut, Radpair, alpha, elu_a, elu_shift
     Returns
         Energy of  Mols
     """
-    alpha = alpha/BOHRPERA
-    R_lrcut = PARAMS["EECutoffOff"]*BOHRPERA
-    inp_shp = tf.shape(R)
-    nmol = inp_shp[0]
-    natom = inp_shp[1]
-    natom2 = natom*natom
-    infinitesimal = 0.000000000000000000000000001
-    nnz = tf.shape(Radpair)[0]
-    Rij = DifferenceVectorsLinear(R, Radpair)
-    RijRij2 = tf.sqrt(tf.reduce_sum(Rij*Rij, axis=1)+infinitesimal)
+    xyzs *= BOHRPERA
+    elu_width *= BOHRPERA
+    dsf_alpha /= BOHRPERA
+    cutoff_dist *= BOHRPERA
+    inp_shp = tf.shape(xyzs)
+    num_mol = tf.cast(tf.shape(xyzs)[0], dtype=tf.int64)
+    num_pairs = tf.cast(tf.shape(Radpair)[0], tf.int64)
+    elu_shift, elu_alpha = tf_dsf_potential(elu_width, cutoff_dist, dsf_alpha, return_grad=True)
 
-    SR_sub = tf.where(tf.greater(RijRij2, R_cut), elu_a*(RijRij2-R_cut)+elu_shift, elu_a*(tf.exp(RijRij2-R_cut)-1.0)+elu_shift)
+    Rij = DifferenceVectorsLinear(xyzs + 1e-16, Radpair)
+    RijRij2 = tf.norm(Rij, axis=1)
+    qij = tf.gather_nd(charges, Radpair[:,:2]) * tf.gather_nd(charges, Radpair[:,::2])
 
-    twooversqrtpi = tf.constant(1.1283791671, dtype=data_precision)
-    Qii = tf.slice(Radpair,[0,0],[-1,2])
-    Qji = tf.concat([tf.slice(Radpair,[0,0],[-1,1]),tf.slice(Radpair,[0,2],[-1,1])], axis=-1)
-    Qi = tf.gather_nd(Qs,Qii)
-    Qj = tf.gather_nd(Qs,Qji)
-    # Gather desired LJ parameters.
-    Qij = Qi*Qj
-    # This is Dan's Equation (18)
-    XX = alpha*R_lrcut
-    ZZ = tf.erfc(XX)/R_lrcut
-    YY = twooversqrtpi*alpha*tf.exp(-XX*XX)/R_lrcut
-    LR = Qij*(tf.erfc(alpha*RijRij2)/RijRij2 - ZZ + (RijRij2-R_lrcut)*(ZZ/R_lrcut+YY))
-    LR= tf.where(tf.is_nan(LR), tf.zeros_like(LR), LR)
-    LR = tf.where(tf.greater(RijRij2,R_lrcut), tf.zeros_like(LR), LR)
+    coulomb_potential = qij * tf.where(tf.greater(RijRij2, elu_width), tf_dsf_potential(RijRij2, cutoff_dist, dsf_alpha),
+                        elu_alpha * (tf.exp(RijRij2 - elu_width) - 1.0) + elu_shift)
 
-    SR = Qij*SR_sub
-
-    K = tf.where(tf.greater(RijRij2, R_cut), LR, SR)
-    range_index = tf.range(nnz)
-    mol_index = tf.reshape(tf.slice(Radpair,[0,0],[-1,1]),[nnz])
+    range_index = tf.range(num_pairs, dtype=tf.int64)
+    mol_index = tf.cast(Radpair[:,0], dtype=tf.int64)
     sparse_index = tf.cast(tf.stack([mol_index, range_index], axis=1), tf.int64)
-    sp_atomoutputs = tf.SparseTensor(sparse_index, K, dense_shape=[tf.cast(nmol, tf.int64), tf.cast(nnz, tf.int64)])
-    # Now use the sparse reduce sum trick to scatter this into mols.
+    sp_atomoutputs = tf.SparseTensor(sparse_index, coulomb_potential, [num_mol, num_pairs])
     return tf.sparse_reduce_sum(sp_atomoutputs, axis=1)
+
+def tf_dsf_potential(dists, cutoff_dist, dsf_alpha, return_grad=False):
+    dsf_potential = tf.erfc(dsf_alpha * dists) / dists - tf.erfc(dsf_alpha * cutoff_dist) / cutoff_dist \
+                    + (dists - cutoff_dist) * (tf.erfc(dsf_alpha * cutoff_dist) / tf.square(cutoff_dist) \
+                    + 2.0 * dsf_alpha * tf.exp(-tf.square(dsf_alpha * cutoff_dist)) / (tf.sqrt(np.pi) * cutoff_dist))
+    dsf_potential = tf.where(tf.greater(dists, cutoff_dist), tf.zeros_like(dsf_potential), dsf_potential)
+    if return_grad:
+        dsf_gradient = -(tf.erfc(dsf_alpha * dists) / tf.square(dists) - tf.erfc(dsf_alpha * cutoff_dist) / tf.square(cutoff_dist) \
+                         + 2.0 * dsf_alpha / tf.sqrt(np.pi) * (tf.exp(-tf.square(dsf_alpha * dists)) / dists \
+                        - tf.exp(-tf.square(dsf_alpha * cutoff_dist)) / tf.sqrt(np.pi)))
+        return dsf_potential, dsf_gradient
+    else:
+        return dsf_potential
+
 
 class ANISym:
     def __init__(self, mset_):
