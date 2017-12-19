@@ -44,7 +44,6 @@ class _OSPNN(BaseEstimator, _NN):
             self.compounds = compounds
         if type(properties) != type(None):
             self.properties = properties
-        print(hl1,hl2,hl3,compounds,properties,nuclear_charges,coordinates)
 
     def get_params(self, deep = True):
         """
@@ -62,8 +61,7 @@ class _OSPNN(BaseEstimator, _NN):
         for p in (p for p in parent_init_signature.parameters.values() 
                 if p.name != 'self' and p.kind != p.VAR_KEYWORD):
             if p.name in params:
-                print("lol", p)
-                quit()
+                return InputError('This should never happen')
             params[p.name] = p.default
 
         return params
@@ -80,6 +78,9 @@ class _OSPNN(BaseEstimator, _NN):
                 nested_params[key][sub_key] = value
             else:
                 setattr(self, key, value)
+
+        # recreate hidden_layers_sizes
+        self._set_hl(self.hl1, self.hl2, self.hl3)
         return self
 
 
@@ -199,6 +200,12 @@ class _OSPNN(BaseEstimator, _NN):
 
         return nmax + pad
 
+    def score(self, indices):
+        idx = np.asarray(indices, dtype=int)
+        y = self.properties[idx]
+        return self._score(idx, y)
+
+
 #TODO slatm exception tests
 # Molecular Representation Single Property
 class OSPMRMP(MRMP, _OSPNN):
@@ -209,7 +216,7 @@ class OSPMRMP(MRMP, _OSPNN):
 
     def __init__(self, representation = 'unsorted_coulomb_matrix', 
             slatm_sigma1 = 0.05, slatm_sigma2 = 0.05, slatm_dgrid1 = 0.03, slatm_dgrid2 = 0.03, slatm_rcut = 4.8, slatm_rpower = 6,
-            slatm_alchemy = False, **kwargs):
+            slatm_alchemy = False, compounds = None, properties = None, **kwargs):
         """
         A molecule's cartesian coordinates and chemical composition is transformed into a descriptor for the molecule,
         which is then used as input to a single or multi layered feedforward neural network with a single output.
@@ -238,7 +245,7 @@ class OSPMRMP(MRMP, _OSPNN):
 
         """
 
-        super(OSPMRMP,self).__init__(**kwargs)
+        super(OSPMRMP,self).__init__(compounds = compounds, properties = properties, **kwargs)
 
 
         if not is_string(representation):
@@ -295,23 +302,11 @@ class OSPMRMP(MRMP, _OSPNN):
 
         self.properties = np.asarray(y, dtype = float)
 
-    # TODO test
-    def fit(self, indices, y = None):
-        """
-        Fit the neural network to a set of molecular descriptors and targets. It is assumed that QML compounds and
-        properties have been set in advance and which indices to use is given.
-
-        :param y: Dummy for osprey
-        :type y: None
-        :param indices: Which indices of the pregenerated QML compounds and properties to use.
-        :type indices: integer array
-
-        """
-        print(self.properties.size, self.compounds.size, self.hidden_layer_sizes)
+    def get_representation(self, indices):
 
         if self.properties.size == 0:
             raise InputError("Properties needs to be set in advance")
-        if self.compounds.size == 0:
+        if len(self.compounds) == 0:
             raise InputError("QML compounds needs to be created in advance")
 
         if not is_positive_integer_or_zero(indices[0]):
@@ -321,8 +316,11 @@ class OSPMRMP(MRMP, _OSPNN):
             idx = np.asarray(indices, dtype=int)
             if not np.array_equal(idx, indices):
                 raise InputError
+            # convert to 1d
+            idx = idx.ravel()
         except InputError:
             raise InputError("Expected input to be indices")
+
 
         if self.representation == 'unsorted_coulomb_matrix':
 
@@ -361,10 +359,31 @@ class OSPMRMP(MRMP, _OSPNN):
                 x[i] = mol.representation
             x = np.asarray(list(x), dtype=float)
 
+        return x
 
+    # TODO test
+    def fit(self, indices, y = None):
+        """
+        Fit the neural network to a set of molecular descriptors and targets. It is assumed that QML compounds and
+        properties have been set in advance and which indices to use is given.
+
+        :param y: Dummy for osprey
+        :type y: None
+        :param indices: Which indices of the pregenerated QML compounds and properties to use.
+        :type indices: integer array
+
+        """
+
+        x = self.get_representation(indices)
+
+        idx = np.asarray(indices, dtype = int).ravel()
         y = self.properties[idx]
 
         return self._fit(x, y)
+
+    def predict(self, indices):
+        x = self.get_representation(indices)
+        return self._predict(x)
 
 if __name__ == "__main__":
     import time

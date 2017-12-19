@@ -441,17 +441,23 @@ class _NN(object):
                 else:
                     raise InputError("Wrong data type of variable 'filename'. Expected string")
 
-    # TODO test
-    def score(self, *kwargs):
-        if self.scoring_function == 'mae':
-            return self._score_mae(*kwargs)
-        if self.scoring_function == 'rmse':
-            return self._score_rmse(*kwargs)
-        if self.scoring_function == 'r2':
-            return self._score_r2(*kwargs)
+    def score(self, *args):
+        return self._score(*args)
 
     # TODO test
+    def _score(self, *args):
+        if self.scoring_function == 'mae':
+            return self._score_mae(*args)
+        if self.scoring_function == 'rmse':
+            return self._score_rmse(*args)
+        if self.scoring_function == 'r2':
+            return self._score_r2(*args)
+
     def predict(self, x):
+        return self._predict(x)
+
+    # TODO test
+    def _predict(self, x):
         """
         Use the trained network to make predictions on the data x.
 
@@ -507,7 +513,6 @@ class MRMP(_NN):
         return self._fit(x, y)
 
     def _fit(self, x, y):
-        print(self.dict)
 
         # Check that X and y have correct shape
         x, y = check_X_y(x, y, multi_output = False, y_numeric = True, warn_on_dtype = True)
