@@ -20,9 +20,14 @@ import matplotlib.pyplot as plt
 #from tensorflow.python.tools import freeze_graph
 
 #TODO relative imports
-from .utils import is_positive, is_positive_integer, is_positive_integer_or_zero, \
+# from .utils import is_positive, is_positive_integer, is_positive_integer_or_zero, \
+#         is_bool, is_string, is_positive_or_zero, InputError, ceil
+# from .tf_utils import TensorBoardLogger
+
+from utils import is_positive, is_positive_integer, is_positive_integer_or_zero, \
         is_bool, is_string, is_positive_or_zero, InputError, ceil
-from .tf_utils import TensorBoardLogger
+from tf_utils import TensorBoardLogger
+
 
 class _NN(object):
 
@@ -32,7 +37,10 @@ class _NN(object):
 
     def __init__(self, hidden_layer_sizes = [5], l1_reg = 0.0, l2_reg = 0.0001, batch_size = 'auto', learning_rate = 0.001,
                  iterations = 500, tensorboard = False, store_frequency = 200, tf_dtype = tf.float32, scoring_function = 'mae',
-                 activation_function = tf.sigmoid, tensorboard_subdir = os.getcwd() + '/tensorboard', **kwargs):
+                 activation_function = tf.sigmoid, optimiser=tf.train.AdamOptimizer, beta1=0.9, beta2=0.999, epsilon=1e-08,
+                 rho=0.95, initial_accumulator_value=0.1, initial_gradient_squared_accumulator_value=0.1,
+                 l1_regularization_strength=0.0,l2_regularization_strength=0.0,
+                 tensorboard_subdir = os.getcwd() + '/tensorboard', **kwargs):
         """
         :param hidden_layer_sizes: Number of hidden layers. The n'th element represents the number of neurons in the n'th
             hidden layer.
@@ -103,6 +111,27 @@ class _NN(object):
             self.activation_function = tf.nn.relu_x
         else:
             raise InputError("Unknown activation function. Got %s" % str(activation_function))
+
+        # Setting the optimiser
+        self.AdagradDA = False
+        if optimiser == tf.train.AdamOptimizer:
+            self.optimiser = tf.train.AdamOptimizer(learning_rate=self.learning_rate, beta1=beta1, beta2=beta2,
+                                                    epsilon=epsilon)
+        elif optimiser == tf.train.AdadeltaOptimizer:
+            self.optimiser = tf.train.AdadeltaOptimizer(learning_rate=self.learning_rate, rho=rho, epsilon=epsilon)
+        elif optimiser == tf.train.AdagradOptimizer:
+            self.optimiser = tf.train.AdagradOptimizer(learning_rate=self.learning_rate,
+                                                       initial_accumulator_value=initial_accumulator_value)
+        elif optimiser == tf.train.AdagradDAOptimizer:
+            self.global_step = tf.placeholder(dtype=tf.int64)
+            self.optimiser = tf.train.AdagradDAOptimizer(learning_rate=self.learning_rate, global_step=self.global_step,
+                                                         initial_gradient_squared_accumulator_value=initial_gradient_squared_accumulator_value,
+                                                         l1_regularization_strength=l1_regularization_strength,
+                                                         l2_regularization_strength=l2_regularization_strength)
+            self.AdagradDA = True
+        elif optimiser == tf.train.GradientDescentOptimizer:
+            self.optimiser = tf.train.GradientDescentOptimizer(learning_rate=learning_rate)
+
 
         # Placeholder variables
         self.n_features = None
@@ -552,7 +581,8 @@ class MRMP(_NN):
         if self.tensorboard:
             cost_summary = tf.summary.scalar('cost', cost)
 
-        optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(cost)
+        # optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(cost)
+        optimisation_op = self.optimiser.minimize(cost)
 
         # Initialisation of the variables
         init = tf.global_variables_initializer()
@@ -581,8 +611,12 @@ class MRMP(_NN):
             for j in range(n_batches):
                 batch_x = x[indices][j * batch_size:(j+1) * batch_size]
                 batch_y = y[indices][j * batch_size:(j+1) * batch_size]
-                feed_dict = {tf_x: batch_x, tf_y: batch_y}
-                opt, c = self.session.run([optimizer, cost], feed_dict=feed_dict)
+                if self.AdagradDA:
+                    feed_dict = {tf_x: batch_x, tf_y: batch_y, self.global_step:i}
+                    opt, c = self.session.run([optimisation_op, cost], feed_dict=feed_dict)
+                else:
+                    feed_dict = {tf_x: batch_x, tf_y: batch_y}
+                    opt, c = self.session.run([optimisation_op, cost], feed_dict=feed_dict)
                 avg_cost += c * batch_x.shape[0] / x.shape[0]
 
                 if self.tensorboard:
