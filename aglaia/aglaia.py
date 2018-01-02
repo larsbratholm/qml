@@ -20,13 +20,13 @@ import matplotlib.pyplot as plt
 #from tensorflow.python.tools import freeze_graph
 
 #TODO relative imports
-# from .utils import is_positive, is_positive_integer, is_positive_integer_or_zero, \
-#         is_bool, is_string, is_positive_or_zero, InputError, ceil
-# from .tf_utils import TensorBoardLogger
-
-from utils import is_positive, is_positive_integer, is_positive_integer_or_zero, \
+from .utils import is_positive, is_positive_integer, is_positive_integer_or_zero, \
         is_bool, is_string, is_positive_or_zero, InputError, ceil
-from tf_utils import TensorBoardLogger
+from .tf_utils import TensorBoardLogger
+
+# from utils import is_positive, is_positive_integer, is_positive_integer_or_zero, \
+#         is_bool, is_string, is_positive_or_zero, InputError, ceil
+# from tf_utils import TensorBoardLogger
 
 
 class _NN(object):
@@ -583,7 +583,6 @@ class MRMP(_NN):
 
         # optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(cost)
         optimisation_op = self.optimiser.minimize(cost)
-
         # Initialisation of the variables
         init = tf.global_variables_initializer()
         #self.initialised = True
@@ -671,7 +670,8 @@ class MRMP(_NN):
         """
 
         y_pred = self.predict(x)
-        mae = mean_absolute_error(y, y_pred, sample_weight = sample_weight)
+        mae = (-1.0)*mean_absolute_error(y, y_pred, sample_weight = sample_weight)
+        print("Warning! The mae is multiplied by -1 so that it can be minimised in Osprey!")
         return mae
 
     # TODO test

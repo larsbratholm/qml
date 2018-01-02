@@ -13,6 +13,9 @@ from .aglaia import _NN, MRMP
 from .utils import InputError, is_positive_integer, is_string, is_positive_integer_or_zero, \
         is_non_zero_integer, is_bool, is_positive
 
+# from aglaia import _NN, MRMP
+# from utils import InputError, is_positive_integer, is_string, is_positive_integer_or_zero, \
+#         is_non_zero_integer, is_bool, is_positive
 
 class _OSPNN(BaseEstimator, _NN):
     """
@@ -53,6 +56,7 @@ class _OSPNN(BaseEstimator, _NN):
         __init__ of all the parents as well.
 
         """
+
         params = BaseEstimator.get_params(self)
         parent_init = super(_OSPNN, self).__init__
 
@@ -117,6 +121,10 @@ class _OSPNN(BaseEstimator, _NN):
         elif size == 3:
             self.hidden_layer_sizes = np.asarray([hl1, hl2, hl3], dtype = int)
 
+        self.hl1 = hl1
+        self.hl2 = hl2
+        self.hl3 = hl3
+
     #TODO test
     def generate_compounds(self, filenames):
         """
@@ -125,7 +133,6 @@ class _OSPNN(BaseEstimator, _NN):
         :param filenames: path of xyz-files
         :type filenames: list
         """
-
         try:
             from qml import Compound
         except ModuleNotFoundError:
@@ -145,7 +152,6 @@ class _OSPNN(BaseEstimator, _NN):
         self.compounds = np.empty(len(filenames), dtype=object)
         for i, filename in enumerate(filenames):
             self.compounds[i] = Compound(filename)
-
 
     # TODO test
     def _get_asize(self, pad = 0):
@@ -246,7 +252,6 @@ class OSPMRMP(MRMP, _OSPNN):
         """
 
         super(OSPMRMP,self).__init__(compounds = compounds, properties = properties, **kwargs)
-
 
         if not is_string(representation):
             raise InputError("Expected string for variable 'representation'. Got %s" % str(representation))
@@ -373,7 +378,6 @@ class OSPMRMP(MRMP, _OSPNN):
         :type indices: integer array
 
         """
-
         x = self.get_representation(indices)
 
         idx = np.asarray(indices, dtype = int).ravel()
