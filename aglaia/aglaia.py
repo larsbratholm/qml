@@ -114,24 +114,26 @@ class _NN(object):
 
         # Setting the optimiser
         self.AdagradDA = False
-        if optimiser == tf.train.AdamOptimizer:
+
+        if optimiser in ['AdamOptimizer', tf.train.AdamOptimizer]:
             self.optimiser = tf.train.AdamOptimizer(learning_rate=self.learning_rate, beta1=beta1, beta2=beta2,
                                                     epsilon=epsilon)
-        elif optimiser == tf.train.AdadeltaOptimizer:
+        elif optimiser in ['AdadeltaOptimizer', tf.train.AdadeltaOptimizer]:
             self.optimiser = tf.train.AdadeltaOptimizer(learning_rate=self.learning_rate, rho=rho, epsilon=epsilon)
-        elif optimiser == tf.train.AdagradOptimizer:
+        elif optimiser in ['AdagradOptimizer', tf.train.AdagradOptimizer]:
             self.optimiser = tf.train.AdagradOptimizer(learning_rate=self.learning_rate,
                                                        initial_accumulator_value=initial_accumulator_value)
-        elif optimiser == tf.train.AdagradDAOptimizer:
+        elif optimiser in ['AdagradDAOptimizer', tf.train.AdagradDAOptimizer]:
             self.global_step = tf.placeholder(dtype=tf.int64)
             self.optimiser = tf.train.AdagradDAOptimizer(learning_rate=self.learning_rate, global_step=self.global_step,
                                                          initial_gradient_squared_accumulator_value=initial_gradient_squared_accumulator_value,
                                                          l1_regularization_strength=l1_regularization_strength,
                                                          l2_regularization_strength=l2_regularization_strength)
             self.AdagradDA = True
-        elif optimiser == tf.train.GradientDescentOptimizer:
+        elif optimiser in ['GradientDescentOptimizer', tf.train.GradientDescentOptimizer]:
             self.optimiser = tf.train.GradientDescentOptimizer(learning_rate=learning_rate)
-
+        else:
+            raise InputError("Unknown optimiser. Got %s" % str(optimiser))
 
         # Placeholder variables
         self.n_features = None
@@ -413,7 +415,7 @@ class _NN(object):
         if filename == None:
             plt.show()
         elif is_string(filename):
-            plt.save(filename)
+            plt.savefig(filename)
         else:
             raise InputError("Wrong data type of variable 'filename'. Expected string")
 
