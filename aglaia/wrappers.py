@@ -60,14 +60,10 @@ class _OSPNN(BaseEstimator, _NN):
         # This gets the params of OSPMRMP and puts them in a dictionary 'params'
         params = BaseEstimator.get_params(self)
 
-        # Taken from scikit-learns BaseEstimator class
+        # This gets the parameters from _NN
         grandparent_init = super(_OSPNN, self).__init__
         grandparent_init_signature = signature(grandparent_init)
 
-        parent_init = _OSPNN.__init__
-        parent_init_signature = signature(parent_init)
-
-        # This gets the parameters from _NN
         parameters_nn = (p for p in grandparent_init_signature.parameters.values()
                          if p.name != 'self' and p.kind != p.VAR_KEYWORD)
 
@@ -81,6 +77,9 @@ class _OSPNN(BaseEstimator, _NN):
                 params[p.name] = p.default
 
         # Adding the parameters from _OSPNN, but leaving kwargs out
+        parent_init = _OSPNN.__init__
+        parent_init_signature = signature(parent_init)
+
         parameters_ospnn = []
         for p in parent_init_signature.parameters.values():
             if p.name != 'self' and p.kind != p.VAR_KEYWORD:
