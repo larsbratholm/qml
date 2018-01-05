@@ -114,24 +114,22 @@ class _NN(object):
 
         # Setting the optimiser
         self.AdagradDA = False
-        if optimiser == tf.train.AdamOptimizer:
-            self.optimiser = tf.train.AdamOptimizer(learning_rate=self.learning_rate, beta1=beta1, beta2=beta2,
-                                                    epsilon=epsilon)
-        elif optimiser == tf.train.AdadeltaOptimizer:
-            self.optimiser = tf.train.AdadeltaOptimizer(learning_rate=self.learning_rate, rho=rho, epsilon=epsilon)
-        elif optimiser == tf.train.AdagradOptimizer:
-            self.optimiser = tf.train.AdagradOptimizer(learning_rate=self.learning_rate,
-                                                       initial_accumulator_value=initial_accumulator_value)
-        elif optimiser == tf.train.AdagradDAOptimizer:
-            self.global_step = tf.placeholder(dtype=tf.int64)
-            self.optimiser = tf.train.AdagradDAOptimizer(learning_rate=self.learning_rate, global_step=self.global_step,
-                                                         initial_gradient_squared_accumulator_value=initial_gradient_squared_accumulator_value,
-                                                         l1_regularization_strength=l1_regularization_strength,
-                                                         l2_regularization_strength=l2_regularization_strength)
-            self.AdagradDA = True
-        elif optimiser == tf.train.GradientDescentOptimizer:
-            self.optimiser = tf.train.GradientDescentOptimizer(learning_rate=learning_rate)
+        self._set_optimiser_param(beta1, beta2, epsilon, rho, initial_accumulator_value,
+                                  initial_gradient_squared_accumulator_value, l1_regularization_strength,
+                                  l2_regularization_strength)
 
+        if optimiser in ['AdamOptimizer', tf.train.AdamOptimizer]:
+            self.optimiser = tf.train.AdamOptimizer
+        elif optimiser in ['AdadeltaOptimizer', tf.train.AdadeltaOptimizer]:
+            self.optimiser = tf.train.AdadeltaOptimizer
+        elif optimiser in ['AdagradOptimizer', tf.train.AdagradOptimizer]:
+            self.optimiser = tf.train.AdagradOptimizer
+        elif optimiser in ['AdagradDAOptimizer', tf.train.AdagradDAOptimizer]:
+            self.optimiser = tf.train.AdagradDAOptimizer
+        elif optimiser in ['GradientDescentOptimizer', tf.train.GradientDescentOptimizer]:
+            self.optimiser = tf.train.GradientDescentOptimizer
+        else:
+            raise InputError("Unknown optimiser. Got %s" % str(optimiser))
 
         # Placeholder variables
         self.n_features = None
@@ -183,6 +181,76 @@ class _NN(object):
             self.tf_dtype = tf.float16
         else:
             raise InputError("Unknown tensorflow data type. Got %s" % str(tf_dtype))
+
+    def _set_optimiser_param(self, beta1, beta2, epsilon, rho, initial_accumulator_value, initial_gradient_squared_accumulator_value,
+                             l1_regularization_strength, l2_regularization_strength):
+        """
+        This function sets all the parameters that are required by all the optimiser functions. In the end, only the parameters
+        for the optimiser chosen will be used.
+
+        :param beta1:
+        :param beta2:
+        :param epsilon:
+        :param rho:
+        :param initial_accumulator_value:
+        :param initial_gradient_squared_accumulator_value:
+        :param l1_regularization_strength:
+        :param l2_regularization_strength:
+        :return: None
+        """
+        if not is_positive(beta1) and not is_positive(beta2):
+            raise InputError("Expected positive float values for variable beta1 and beta2. Got %s and %s." % (str(beta1),str(beta2)))
+        self.beta1 = float(beta1)
+        self.beta2 = float(beta2)
+
+        if not is_positive(epsilon):
+            raise InputError("Expected positive float value for variable epsilon. Got %s" % str(epsilon))
+        self.epsilon = float(epsilon)
+
+        if not is_positive(rho):
+            raise InputError("Expected positive float value for variable rho. Got %s" % str(rho))
+        self.epsilon = float(rho)
+
+        if not is_positive(initial_accumulator_value) and not is_positive(initial_gradient_squared_accumulator_value):
+            raise InputError("Expected positive float value for accumulator values. Got %s and %s" %
+                             (str(initial_accumulator_value), str(initial_gradient_squared_accumulator_value)))
+        self.initial_accumulator_value = float(initial_accumulator_value)
+        self.initial_gradient_squared_accumulator_value = float(initial_gradient_squared_accumulator_value)
+
+        if not is_positive_or_zero(l1_regularization_strength) and not is_positive_or_zero(l2_regularization_strength):
+            raise InputError("Expected positive or zero float value for regularisation variables. Got %s and %s" %
+                             (str(l1_regularization_strength), str(l2_regularization_strength)))
+        self.l1_regularization_strength = float(l1_regularization_strength)
+        self.l2_regularization_strength = float(l2_regularization_strength)
+
+    def _set_optimiser(self):
+        """
+        This function generates the object optimiser.
+
+        :return: optimiser_obj: an object of the tensorflow optimiser class
+        """
+        self.AdagradDA = False
+        if self.optimiser in ['AdamOptimizer', tf.train.AdamOptimizer]:
+            optimiser_obj = tf.train.AdamOptimizer(learning_rate=self.learning_rate, beta1=self.beta1, beta2=self.beta2,
+                                                    epsilon=self.epsilon)
+        elif self.optimiser in ['AdadeltaOptimizer', tf.train.AdadeltaOptimizer]:
+             optimiser_obj = tf.train.AdadeltaOptimizer(learning_rate=self.learning_rate, rho=self.rho, epsilon=self.epsilon)
+        elif self.optimiser in ['AdagradOptimizer', tf.train.AdagradOptimizer]:
+             optimiser_obj = tf.train.AdagradOptimizer(learning_rate=self.learning_rate,
+                                                       initial_accumulator_value=self.initial_accumulator_value)
+        elif self.optimiser in ['AdagradDAOptimizer', tf.train.AdagradDAOptimizer]:
+            self.global_step = tf.placeholder(dtype=tf.int64)
+            optimiser_obj = tf.train.AdagradDAOptimizer(learning_rate=self.learning_rate, global_step=self.global_step,
+                                                         initial_gradient_squared_accumulator_value=self.initial_gradient_squared_accumulator_value,
+                                                         l1_regularization_strength=self.l1_regularization_strength,
+                                                         l2_regularization_strength=self.l2_regularization_strength)
+            self.AdagradDA = True
+        elif self.optimiser in ['GradientDescentOptimizer', tf.train.GradientDescentOptimizer]:
+            optimiser_obj = tf.train.GradientDescentOptimizer(learning_rate=self.learning_rate)
+        else:
+            raise InputError("Unknown optimiser class. Got %s" % str(self.optimiser))
+
+        return optimiser_obj
 
     # TODO test
     def _set_scoring_function(self, scoring_function):
@@ -378,7 +446,7 @@ class _NN(object):
         else:
             if self.batch_size > self.n_samples:
                 print("Warning: batch_size larger than sample size. It is going to be clipped")
-                return min(self.nsamples, self.batch_size)
+                return min(self.n_samples, self.batch_size)
             else:
                 batch_size = self.batch_size
 
@@ -413,7 +481,7 @@ class _NN(object):
         if filename == None:
             plt.show()
         elif is_string(filename):
-            plt.save(filename)
+            plt.savefig(filename)
         else:
             raise InputError("Wrong data type of variable 'filename'. Expected string")
 
@@ -570,10 +638,8 @@ class MRMP(_NN):
             if self.tensorboard:
                 self.tensorboard_logger.write_weight_histogram(weights)
 
-
         with tf.name_scope("Model"):
             y_pred = self.model(tf_x, weights, biases)
-
 
         with tf.name_scope("Cost_func"):
             cost = self.cost(y_pred, tf_y, weights)
@@ -582,7 +648,8 @@ class MRMP(_NN):
             cost_summary = tf.summary.scalar('cost', cost)
 
         # optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(cost)
-        optimisation_op = self.optimiser.minimize(cost)
+        optimiser = self._set_optimiser()
+        optimisation_op = optimiser.minimize(cost)
         # Initialisation of the variables
         init = tf.global_variables_initializer()
         #self.initialised = True
