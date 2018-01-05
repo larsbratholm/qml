@@ -54,20 +54,24 @@ class _OSPNN(BaseEstimator, _NN):
         handle inheritance well, as we would like to include the input parameters to
         __init__ of all the parents as well.
 
+        :returns: params - dictionary of parameters and their user-set value
+
         """
-
+        # This gets the params of OSPMRMP and puts them in a dictionary 'params'
         params = BaseEstimator.get_params(self)
-        parent_init = super(_OSPNN, self).__init__
-
 
         # Taken from scikit-learns BaseEstimator class
-        parent_init_signature = signature(parent_init)
-        # NEED to add to this signature the params from _OSPNN as they are missing (hl1!!)
-        parameters = (p for p in parent_init_signature.parameters.values()
-                      if p.name != 'self' and p.kind != p.VAR_KEYWORD)
+        grandparent_init = super(_OSPNN, self).__init__
+        grandparent_init_signature = signature(grandparent_init)
 
-        # Adding the parameters from the parent class
-        for p in parameters:
+        parent_init = _OSPNN.__init__
+        parent_init_signature = signature(parent_init)
+
+        # This gets the parameters from _NN
+        parameters_nn = (p for p in grandparent_init_signature.parameters.values()
+                         if p.name != 'self' and p.kind != p.VAR_KEYWORD)
+
+        for p in parameters_nn:
             if p.name in params:
                 return InputError('This should never happen')
 
@@ -75,8 +79,25 @@ class _OSPNN(BaseEstimator, _NN):
                 params[p.name] = getattr(self, p.name)
             else:
                 params[p.name] = p.default
-        params['hl1'] = self.hl1
 
+        # Adding the parameters from _OSPNN, but leaving kwargs out
+        parameters_ospnn = []
+        for p in parent_init_signature.parameters.values():
+            if p.name != 'self' and p.kind != p.VAR_KEYWORD:
+                if p.name not in params:
+                    parameters_ospnn.append(p)
+
+        for p in parameters_ospnn:
+            if p.name in params:
+                return InputError('This should never happen')
+
+            if p.name == 'kwargs':
+                continue
+
+            if hasattr(self, p.name):
+                params[p.name] = getattr(self, p.name)
+            else:
+                params[p.name] = p.default
 
         return params
 
