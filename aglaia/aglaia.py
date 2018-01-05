@@ -119,15 +119,15 @@ class _NN(object):
                                   l2_regularization_strength)
 
         if optimiser in ['AdamOptimizer', tf.train.AdamOptimizer]:
-            self.optimiser_class = tf.train.AdamOptimizer
+            self.optimiser = tf.train.AdamOptimizer
         elif optimiser in ['AdadeltaOptimizer', tf.train.AdadeltaOptimizer]:
-            self.optimiser_class = tf.train.AdadeltaOptimizer
+            self.optimiser = tf.train.AdadeltaOptimizer
         elif optimiser in ['AdagradOptimizer', tf.train.AdagradOptimizer]:
-            self.optimiser_class = tf.train.AdagradOptimizer
+            self.optimiser = tf.train.AdagradOptimizer
         elif optimiser in ['AdagradDAOptimizer', tf.train.AdagradDAOptimizer]:
-            self.optimiser_class = tf.train.AdagradDAOptimizer
+            self.optimiser = tf.train.AdagradDAOptimizer
         elif optimiser in ['GradientDescentOptimizer', tf.train.GradientDescentOptimizer]:
-            self.optimiser_class = tf.train.GradientDescentOptimizer
+            self.optimiser = tf.train.GradientDescentOptimizer
         else:
             raise InputError("Unknown optimiser. Got %s" % str(optimiser))
 
@@ -230,25 +230,25 @@ class _NN(object):
         :return: optimiser_obj: an object of the tensorflow optimiser class
         """
         self.AdagradDA = False
-        if self.optimiser_class in ['AdamOptimizer', tf.train.AdamOptimizer]:
+        if self.optimiser in ['AdamOptimizer', tf.train.AdamOptimizer]:
             optimiser_obj = tf.train.AdamOptimizer(learning_rate=self.learning_rate, beta1=self.beta1, beta2=self.beta2,
                                                     epsilon=self.epsilon)
-        elif self.optimiser_class in ['AdadeltaOptimizer', tf.train.AdadeltaOptimizer]:
+        elif self.optimiser in ['AdadeltaOptimizer', tf.train.AdadeltaOptimizer]:
              optimiser_obj = tf.train.AdadeltaOptimizer(learning_rate=self.learning_rate, rho=self.rho, epsilon=self.epsilon)
-        elif self.optimiser_class in ['AdagradOptimizer', tf.train.AdagradOptimizer]:
+        elif self.optimiser in ['AdagradOptimizer', tf.train.AdagradOptimizer]:
              optimiser_obj = tf.train.AdagradOptimizer(learning_rate=self.learning_rate,
                                                        initial_accumulator_value=self.initial_accumulator_value)
-        elif self.optimiser_class in ['AdagradDAOptimizer', tf.train.AdagradDAOptimizer]:
+        elif self.optimiser in ['AdagradDAOptimizer', tf.train.AdagradDAOptimizer]:
             self.global_step = tf.placeholder(dtype=tf.int64)
             optimiser_obj = tf.train.AdagradDAOptimizer(learning_rate=self.learning_rate, global_step=self.global_step,
                                                          initial_gradient_squared_accumulator_value=self.initial_gradient_squared_accumulator_value,
                                                          l1_regularization_strength=self.l1_regularization_strength,
                                                          l2_regularization_strength=self.l2_regularization_strength)
             self.AdagradDA = True
-        elif self.optimiser_class in ['GradientDescentOptimizer', tf.train.GradientDescentOptimizer]:
+        elif self.optimiser in ['GradientDescentOptimizer', tf.train.GradientDescentOptimizer]:
             optimiser_obj = tf.train.GradientDescentOptimizer(learning_rate=self.learning_rate)
         else:
-            raise InputError("Unknown optimiser class. Got %s" % str(self.optimiser_class))
+            raise InputError("Unknown optimiser class. Got %s" % str(self.optimiser))
 
         return optimiser_obj
 
@@ -446,7 +446,7 @@ class _NN(object):
         else:
             if self.batch_size > self.n_samples:
                 print("Warning: batch_size larger than sample size. It is going to be clipped")
-                return min(self.nsamples, self.batch_size)
+                return min(self.n_samples, self.batch_size)
             else:
                 batch_size = self.batch_size
 
