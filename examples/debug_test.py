@@ -18,13 +18,9 @@ print(estimator.slatm_sigma1)
 estimator.get_params()
 
 dolly = clone(estimator)
-# print("\n The slatm after cloning is:")
-# print(dolly.slatm_sigma1)
-# print("\n The iterations after cloning are:")
-# print(dolly.iterations)
+print("\n The slatm after cloning is:")
+print(dolly.slatm_sigma1)
+print("\n The iterations after cloning are:")
+print(dolly.iterations)
 
-# klass = estimator.__class__
-# new_obj_params = estimator.get_params(deep=False)
-# new_obj = klass(**new_obj_params)
-# print(new_obj)
 
