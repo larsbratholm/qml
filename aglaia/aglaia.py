@@ -225,16 +225,14 @@ class _NN(object):
 
         return optimiser_obj
 
-    # TODO test
     def _set_scoring_function(self, scoring_function):
         if not is_string(scoring_function):
             raise InputError("Expected a string for variable 'scoring_function'. Got %s" % str(scoring_function))
         if scoring_function.lower() not in ['mae', 'rmse', 'r2']:
-            raise InputError("Available scoring functions are 'mae', 'rmsd', 'r2'. Got %s" % str(scoring_function))
+            raise InputError("Available scoring functions are 'mae', 'rmse', 'r2'. Got %s" % str(scoring_function))
 
         self.scoring_function = scoring_function
 
-    #TODO test
     def _set_hidden_layers_sizes(self, hidden_layer_sizes):
         hidden_layers = []
         try:
@@ -335,7 +333,6 @@ class _NN(object):
 
         return weights, biases
 
-    #TODO test
     def _l2_loss(self, weights):
         """
         Creates the expression for L2-regularisation on the weights
@@ -353,7 +350,6 @@ class _NN(object):
 
         return self.l2_reg * reg_term
 
-    #TODO test
     def _l1_loss(self, weights):
         """
         Creates the expression for L1-regularisation on the weights
@@ -370,7 +366,6 @@ class _NN(object):
             reg_term += tf.reduce_sum(tf.abs(weights[i]))
 
         return self.l1_reg * reg_term
-
 
     def model(self, x, weights, biases):
         """
@@ -400,7 +395,6 @@ class _NN(object):
 
         return z
 
-    #TODO test
     def _get_batch_size(self):
         """
         Determines the actual batch size. If set to auto, the batch size will be set to 100.
@@ -636,7 +630,7 @@ class MRMP(_NN):
 
         # Running the graph
         if self.tensorboard:
-            self.tensorboard_logger.set_summary_writer(sess)
+            self.tensorboard_logger.set_summary_writer(self.session)
 
         self.session.run(init)
 
