@@ -1,4 +1,6 @@
 
+import numpy as np
+
 def is_numeric(x):
     try:
         float(x)
@@ -36,10 +38,10 @@ def is_string(x):
     return isinstance(x, str)
 
 def is_positive_integer(x):
-    return is_numeric(x) and is_integer(x) and is_positive(x)
+    return (is_numeric(x) and is_integer(x) and is_positive(x))
 
 def is_positive_integer_or_zero(x):
-    return is_numeric(x) and is_integer(x) and is_positive_or_zero(x)
+    return (is_numeric(x) and is_integer(x) and is_positive_or_zero(x))
 
 def is_negative_integer(x):
     if is_integer(x):
@@ -48,10 +50,13 @@ def is_negative_integer(x):
         return False
 
 def is_non_zero_integer(x):
-    if is_positive_integer(x) or is_negative_integer(x):
-        return True
-    else:
-        return False
+    return (is_positive_integer(x) or is_negative_integer(x))
+
+def is_array_like(x):
+    return (isinstance(x, list) or isinstance(x, np.ndarray))
+
+def is_dict(x):
+    return isinstance(x, dict)
 
 # Custom exception to raise when we intentinoally catch an error
 # This way we can test that the right error was raised in test cases
