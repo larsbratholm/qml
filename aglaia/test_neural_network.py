@@ -6,9 +6,12 @@ import tensorflow as tf
 import numpy as np
 
 # TODO relative imports
-from aglaia import _NN, MRMP
-from wrappers import _OSPNN, OSPMRMP
-from utils import InputError
+from .aglaia import _NN, MRMP
+from .wrappers import _OSPNN, OSPMRMP
+from .utils import InputError
+
+
+# ------------ ** All functions to test the inputs to the classes ** ---------------
 
 def hidden_layer_sizes(C):
     # Exceptions that are supposed to be caught
@@ -240,6 +243,31 @@ def representation(C):
     catch(None)
     catch(-1)
 
+def scoringfunction(C):
+    """
+    This function checks that the function _set_scoring_function accepts only mae, rmsd and r2 as scoring functions.
+    :param C: a class
+    :return: none
+    """
+
+    def catch(s):
+        try:
+            C(scoring_function = s)
+            raise Exception
+        except InputError:
+            pass
+
+    accepted_inputs = ['mae', 'rmse', 'r2']
+    unaccepted_inputs = [0, "none", 4.2, -1]
+
+    # This should not raise an exception
+    for item in accepted_inputs:
+        C(scoring_function=item)
+
+    # This should be caught
+    for item in unaccepted_inputs:
+        catch(item)
+
 def test_input():
     # Additional test that inheritance is ok
     for C in _NN, MRMP, _OSPNN, OSPMRMP:
@@ -250,6 +278,7 @@ def test_input():
         learning_rate(C)
         iterations(C)
         tf_dtype(C)
+        scoringfunction(C)
 
     for C in _OSPNN, OSPMRMP:
         hl1(C)
@@ -257,6 +286,91 @@ def test_input():
         hl3(C)
 
     representation(OSPMRMP)
+
+# --------------------- ** tests for regularisation terms ** -----------------
+
+def test_l2_loss():
+    """
+    This tests the evaluation of the l2 regularisation term on the weights of the neural net.
+    :return: None
+    """
+
+    # Some example weights
+    weights = [tf.constant([2.0, 4.0], dtype=tf.float32)]
+
+    # Creating object with known l2_reg parameter
+    obj = MRMP(l2_reg=0.1)
+    expected_result = [2.0]
+
+    # Evaluating l2 term
+    l2_loss_tf = obj._l2_loss(weights=weights)
+    sess = tf.Session()
+    l2_loss = sess.run(l2_loss_tf)
+
+    # Testing
+    assert np.isclose(l2_loss, expected_result)
+
+
+def test_l1_loss():
+    """
+    This tests the evaluation of the l1 regularisation term on the weights of the neural net.
+    :return: None
+    """
+
+    # Some example weights
+    weights = [tf.constant([2.0, 4.0], dtype=tf.float32)]
+
+    # Creating object with known l1_reg parameter
+    obj = MRMP(l1_reg=0.1)
+    expected_result = [0.6]
+
+    # Evaluating l1 term
+    l1_loss_tf = obj._l1_loss(weights=weights)
+    sess = tf.Session()
+    l1_loss = sess.run(l1_loss_tf)
+
+    # Testing
+    assert np.isclose(l1_loss, expected_result)
+
+def test_get_batch_size():
+    """
+    This tests the get_batch_size function
+    :return:
+    """
+
+    example_data = [200, 50, 50]
+    possible_cases = ["auto", 100, 20]
+    actual_batch_sizes = []
+    expected_batch_sizes = [100, 50, 17]
+
+    for i, case in enumerate(possible_cases):
+        obj = MRMP(batch_size=case)
+        obj.n_samples = example_data[i]
+        actual_batch = obj._get_batch_size()
+        actual_batch_sizes.append(actual_batch)
+
+    for i in range(len(expected_batch_sizes)):
+        assert actual_batch_sizes[i] == expected_batch_sizes[i]
+
+def test_fit1():
+    """This tests that the neural net can overfit a cubic function."""
+
+    x = np.linspace(-2.0, 2.0, 200)
+    X = np.reshape(x, (len(x), 1))
+    y = x ** 3
+
+    estimator = MRMP(hidden_layer_sizes=(5, 5, 5), learning_rate=0.01, iterations=35000, l2_reg=0, tf_dtype=32,
+                            scoring_function="rmse")
+    estimator.fit(X, y)
+
+    x_test = np.linspace(-1.5, 1.5, 15)
+    X_test = np.reshape(x_test, (len(x_test), 1))
+    y_test = x_test ** 3
+    y_pred = estimator.predict(X_test)
+
+    y_pred_row = np.reshape(y_pred, (y_pred.shape[0],))
+    np.testing.assert_array_almost_equal(y_test, y_pred_row, decimal=1)
+
 
 if __name__ == "__main__":
     test_input()
