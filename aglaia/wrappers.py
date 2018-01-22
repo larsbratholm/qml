@@ -514,11 +514,12 @@ class OANN(OMNN):
         if self.representation == 'atomic_coulomb_matrix':
 
             nmax = self._get_msize()
-            representation_size = (nmax*(nmax+1)) // 2
-            x = np.empty((idx.size, representation_size), dtype=float)
+            x = []
             for i, mol in enumerate(self.compounds[idx]):
-                mol.generate_coulomb_matrix(size = nmax, sorting = "row-norm")
-                x[i] = mol.representation
+                mol.generate_atomic_coulomb_matrix(size = nmax, sorting = "distance")
+
+        #    y[0] = ([0, 1], [1.2, 2.3])
+        #    y[0] = ([[0, 1, 2, 3], [1, 2, 3, 4]], [1.2, 2.3])
 
         elif self.representation == "slatm":
             mbtypes = self._get_slatm_mbtypes([mol.nuclear_charges for mol in self.compounds])
