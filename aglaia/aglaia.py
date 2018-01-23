@@ -22,7 +22,7 @@ import matplotlib.pyplot as plt
 #from .utils import is_positive, is_positive_integer, is_positive_integer_or_zero, \
 #       is_bool, is_string, is_positive_or_zero, InputError, ceil
 from .utils import InputError, ceil, is_positive_or_zero, is_positive_integer, is_positive, \
-        is_bool, is_positive_integer_or_zero
+        is_bool, is_positive_integer_or_zero, is_string
 from .tf_utils import TensorBoardLogger
 
 class _NN(object):

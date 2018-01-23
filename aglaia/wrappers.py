@@ -7,6 +7,7 @@ import itertools
 from inspect import signature
 import numpy as np
 from sklearn.base import BaseEstimator
+
 try:
     from qml import Compound
 except ModuleNotFoundError:
@@ -14,7 +15,7 @@ except ModuleNotFoundError:
 
 from .aglaia import _NN, NN
 from .utils import InputError, is_array_like, is_numeric_array, is_positive_integer, is_positive_integer_or_zero, \
-        is_non_zero_integer, is_positive_integer_or_zero_array, is_dict, is_none
+        is_non_zero_integer, is_positive_integer_or_zero_array, is_dict, is_none, is_string, is_positive, is_bool
 
 class _ONN(BaseEstimator, _NN):
     """
@@ -37,8 +38,8 @@ class _ONN(BaseEstimator, _NN):
         super(_ONN, self).__init__(**kwargs)
 
         self._set_hl(hl1, hl2, hl3)
-        self.set_compounds(self, compounds)
-        self.set_properties(self, properties)
+        self.set_compounds(compounds)
+        self.set_properties(properties)
 
     def set_compounds(self, compounds):
         self._set_compounds(compounds)
@@ -145,7 +146,7 @@ class _ONN(BaseEstimator, _NN):
 
 
         # Check that the number of properties match the number of compounds
-        if self.properties.size == 0:
+        if is_none(self.properties):
             pass
         else:
             if self.properties.size == len(filenames):
@@ -445,7 +446,8 @@ class OANN(OMNN):
 
         """
 
-        super(OANN,self).__init__(compounds = compounds, properties = properties, **kwargs)
+        # TODO remove compounds and properties super
+        super(OANN,self).__init__(compounds = compounds, properties = properties, representation = representation, **kwargs)
 
     # TODO test
     # TODO check if this actually works with osprey
@@ -489,7 +491,7 @@ class OANN(OMNN):
             raise InputError("Unknown representation %s" % representation)
         self.representation = representation.lower()
 
-        self._set_slatm(self, *args)
+        self._set_slatm(*args)
 
     def get_descriptor(self, indices):
         """
@@ -514,16 +516,19 @@ class OANN(OMNN):
         if self.representation == 'atomic_coulomb_matrix':
 
             nmax = self._get_msize()
-            x = []
+            representations = np.empty(idx.size, dtype = object)
             for i, mol in enumerate(self.compounds[idx]):
                 mol.generate_atomic_coulomb_matrix(size = nmax, sorting = "distance")
+                print(mol.nuclear_charges)
+                print(mol.representation.shape)
+                quit()
 
         #    y[0] = ([0, 1], [1.2, 2.3])
         #    y[0] = ([[0, 1, 2, 3], [1, 2, 3, 4]], [1.2, 2.3])
 
         elif self.representation == "slatm":
             mbtypes = self._get_slatm_mbtypes([mol.nuclear_charges for mol in self.compounds])
-            x = np.empty(idx.size, dtype=object)
+            x = np.empty(idx.size, dtype = object)
             for i, mol in enumerate(self.compounds[idx]):
                 mol.generate_slatm(mbtypes, local = False, sigmas = [self.slatm_sigma1, self.slatm_sigma2],
                         dgrids = [self.slatm_dgrid1, self.slatm_dgrid2], rcut = self.slatm_rcut, alchemy = self.slatm_alchemy,

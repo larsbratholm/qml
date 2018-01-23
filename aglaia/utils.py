@@ -49,7 +49,7 @@ def is_non_zero_integer(x):
 def is_positive_integer_or_zero_array(x):
     if is_array_like(x):
         try:
-            if np.asarray(x, dtype=float) == np.asarray(x, dtype=int):
+            if (np.asarray(x, dtype = float) == np.asarray(x, dtype = int)).all():
                 return True
         except (ValueError, TypeError):
             pass
