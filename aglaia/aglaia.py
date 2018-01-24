@@ -489,8 +489,8 @@ class _NN(object):
 class NN(_NN):
     """
     Neural network for either
-    1) predicting global properties, such as energies, using molecular representations, or
-    2) predicting local properties, such as chemical shieldings, using atomic representations.
+    1) predicting global properties, such as energies, using molecular descriptors, or
+    2) predicting local properties, such as chemical shieldings, using atomic descriptors.
     """
 
     def __init__(self, **kwargs):
@@ -506,7 +506,7 @@ class NN(_NN):
     #TODO test
     def fit(self, x, y):
         """
-        Fit the neural network to molecular representations x and target y.
+        Fit the neural network to molecular descriptors x and target y.
 
         :param x: Input data with samples in the rows and features in the columns.
         :type x: array

@@ -236,7 +236,7 @@ class OMNN(NN, _ONN):
     """
     Adds additional variables and functionality to the NN class that makes interfacing with
     Osprey for hyperparameter search easier.
-    Used for generating molecular representations to predict global properties, such as energies.
+    Used for generating molecular descriptors to predict global properties, such as energies.
     """
 
     def __init__(self, representation = 'unsorted_coulomb_matrix', 
@@ -332,7 +332,7 @@ class OMNN(NN, _ONN):
             raise InputError("Expected boolean value for variable 'slatm_alchemy'. Got %s." % str(slatm_alchemy))
         self.slatm_alchemy = bool(slatm_alchemy)
 
-    def get_descriptor(self, indices):
+    def get_descriptors_from_indices(self, indices):
 
         if is_none(self.properties):
             raise InputError("Properties needs to be set in advance")
@@ -396,7 +396,7 @@ class OMNN(NN, _ONN):
 
         """
 
-        x = self.get_descriptor(indices)
+        x = self.get_descriptors_from_indices(indices)
 
         idx = np.asarray(indices, dtype = int).ravel()
         y = self.properties[idx]
@@ -404,7 +404,7 @@ class OMNN(NN, _ONN):
         return self._fit(x, y)
 
     def predict(self, indices):
-        x = self.get_descriptor(indices)
+        x = self.get_descriptors_from_indices(indices)
         return self._predict(x)
 
 # Osprey atomic neural network
@@ -412,12 +412,12 @@ class OANN(OMNN):
     """
     Adds additional variables and functionality to the NN class that makes interfacing with
     Osprey for hyperparameter search easier.
-    Used for generating atomic representations to predict local properties, such as chemical shieldings or j-couplings.
+    Used for generating atomic descriptors to predict local properties, such as chemical shieldings or j-couplings.
     """
 
     def __init__(self, representation = 'atomic_coulomb_matrix', 
             slatm_sigma1 = 0.05, slatm_sigma2 = 0.05, slatm_dgrid1 = 0.03, slatm_dgrid2 = 0.03, slatm_rcut = 4.8, slatm_rpower = 6,
-            slatm_alchemy = False, compounds = None, properties = None, **kwargs):
+            slatm_alchemy = False, compounds = None, properties = None, cm_cutoff = 1e6, **kwargs):
         """
         A descriptor is generated for a single atom or a set of atoms from the carteesian coordinates and chemical
         composition of its environment.
@@ -448,6 +448,14 @@ class OANN(OMNN):
 
         # TODO remove compounds and properties super
         super(OANN,self).__init__(compounds = compounds, properties = properties, representation = representation, **kwargs)
+
+        self._set_cm(cm_cutoff)
+
+    def _set_cm(self, cm_cutoff):
+        if is_positive(cm_cutoff):
+            self.cm_cutoff = float(cm_cutoff)
+        else:
+            raise InputError("Expected positive float for variable cm_cutoff. Got %s" % str(cm_cutoff))
 
     # TODO test
     # TODO check if this actually works with osprey
@@ -493,7 +501,7 @@ class OANN(OMNN):
 
         self._set_slatm(*args)
 
-    def get_descriptor(self, indices):
+    def get_descriptors_from_indices(self, indices):
         """
         Constructs the descriptors from the given compounds and indices. Each entry of indices contain the
         index of a compound.
@@ -513,30 +521,70 @@ class OANN(OMNN):
         if idx.max() >= self.compounds.size:
             raise InputError("Index %d larger than number of given compounds (%d)" % (idx.max(), self.compounds.size))
 
+        x = []
+
         if self.representation == 'atomic_coulomb_matrix':
 
             nmax = self._get_msize()
-            representations = np.empty(idx.size, dtype = object)
             for i, mol in enumerate(self.compounds[idx]):
-                mol.generate_atomic_coulomb_matrix(size = nmax, sorting = "distance")
-                print(mol.nuclear_charges)
-                print(mol.representation.shape)
-                quit()
+                mol.generate_atomic_coulomb_matrix(size = nmax, sorting = "distance", central_cutoff = self.cm_cutoff)
+                x_i = self._get_descriptors_from_mol(mol, i)
+                x.extend(x_i)
 
-        #    y[0] = ([0, 1], [1.2, 2.3])
-        #    y[0] = ([[0, 1, 2, 3], [1, 2, 3, 4]], [1.2, 2.3])
 
         elif self.representation == "slatm":
             mbtypes = self._get_slatm_mbtypes([mol.nuclear_charges for mol in self.compounds])
-            x = np.empty(idx.size, dtype = object)
             for i, mol in enumerate(self.compounds[idx]):
-                mol.generate_slatm(mbtypes, local = False, sigmas = [self.slatm_sigma1, self.slatm_sigma2],
+                mol.generate_slatm(mbtypes, local = True, sigmas = [self.slatm_sigma1, self.slatm_sigma2],
                         dgrids = [self.slatm_dgrid1, self.slatm_dgrid2], rcut = self.slatm_rcut, alchemy = self.slatm_alchemy,
                         rpower = self.slatm_rpower)
-                x[i] = mol.representation
-            x = np.asarray(list(x), dtype=float)
+                x_i = self._get_descriptors_from_mol(mol, i)
+                x.extend(x_i)
+
+        return np.asarray(x)
+
+    def _get_descriptors_from_mol(self, mol, idx):
+        """
+        Gets the needed atomic descriptors from the molecule. If more that one atom contribute directly to the property
+        the atomic representations of them are merged together to a single one.
+
+        """
+
+        indices, _ = self.properties[idx]
+
+        # convert to arrays
+        indices_array = np.asarray(indices, dtype = int)
+
+        x = []
+
+        # if the indices array is 1d we just have to match the atomic representation with the respective property
+        if indices_array.ndim == 1:
+            for i in indices_array:
+                x.append(mol.representation[i])
+
+        # if not we have to merge the atomic representations of the atoms in use
+        else:
+            for i, arr in enumerate(indices_array):
+                merged = []
+                for j in arr:
+                    merged.extend(mol.representation[i])
+                x.append(merged[:])
 
         return x
+
+    def _get_properties_from_indices(self, indices):
+
+        # convert to 1d
+        idx = np.asarray(indices, dtype=int).ravel()
+
+        y = []
+
+        for i in indices:
+            y_i = list(self.properties[i][1])
+            y.extend(y_i)
+
+        return np.asarray(y)
+
 
     # TODO test
     def fit(self, indices, y = None):
@@ -551,15 +599,14 @@ class OANN(OMNN):
 
         """
 
-        x = self.get_descriptor(indices)
+        x = self.get_descriptors_from_indices(indices)
 
-        idx = np.asarray(indices, dtype = int).ravel()
-        y = self.properties[idx]
+        y = self._get_properties_from_indices(indices)
 
         return self._fit(x, y)
 
     def predict(self, indices):
-        x = self.get_descriptor(indices)
+        x = self.get_descriptors_from_indices(indices)
         return self._predict(x)
 if __name__ == "__main__":
     import time
