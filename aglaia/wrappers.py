@@ -24,7 +24,7 @@ class _OSPNN(BaseEstimator, _NN):
     """
 
     def __init__(self, hl1 = 5, hl2 = 0, hl3 = 0,
-            compounds = None, properties = None, nuclear_charges = None, coordinates = None, **kwargs):
+            compounds = None, properties = None, descriptor=None, nuclear_charges = None, coordinates = None, **kwargs):
         """
         :param hl1: Number of neurons in the first hidden layer. If different from zero, ``hidden_layer_sizes`` is
                     overwritten.
@@ -40,12 +40,15 @@ class _OSPNN(BaseEstimator, _NN):
 
         # Placeholder variables
         self.compounds = np.empty(0, dtype=object)
+        self.descriptor = np.empty(0, dtype=float)
         self.properties = np.empty(0, dtype=float)
 
         if type(compounds) != type(None):
             self.compounds = compounds
         if type(properties) != type(None):
             self.properties = properties
+        if type(descriptor) != type(None):
+            self.descriptor = descriptor
 
     def get_params(self, deep = True):
         """
@@ -338,12 +341,76 @@ class OSPMRMP(MRMP, _OSPNN):
 
         self.properties = np.asarray(y, dtype = float)
 
+    def generate_descriptor(self):
+        """
+        This function is called to generate the descriptors that can be stored in the class.
+        :return: None
+        """
+
+        if len(self.compounds) == 0:
+            raise InputError("QML compounds needs to be created in advance")
+
+        # Generating the descriptors
+
+        n_samples = len(self.compounds)
+
+        if self.representation == 'unsorted_coulomb_matrix':
+
+            nmax = self._get_msize()
+            representation_size = (nmax*(nmax+1))//2
+            x = np.empty((n_samples, representation_size), dtype=float)
+            for i, mol in enumerate(self.compounds):
+                mol.generate_coulomb_matrix(size = nmax, sorting = "unsorted")
+                x[i] = mol.representation
+
+        elif self.representation == 'sorted_coulomb_matrix':
+
+            nmax = self._get_msize()
+            representation_size = (nmax*(nmax+1))//2
+            x = np.empty((n_samples, representation_size), dtype=float)
+            for i, mol in enumerate(self.compounds):
+                mol.generate_coulomb_matrix(size = nmax, sorting = "row-norm")
+                x[i] = mol.representation
+
+        elif self.representation == "bag_of_bonds":
+            asize = self._get_asize()
+            x = np.empty(n_samples, dtype=object)
+            for i, mol in enumerate(self.compounds):
+                mol.generate_bob(asize = asize)
+                x[i] = mol.representation
+            x = np.asarray(list(x), dtype=float)
+
+        elif self.representation == "slatm":
+            from qml.representations import get_slatm_mbtypes
+            mbtypes = get_slatm_mbtypes([mol.nuclear_charges for mol in self.compounds])
+            x = np.empty(n_samples, dtype=object)
+            for i, mol in enumerate(self.compounds):
+                mol.generate_slatm(mbtypes, local = False, sigmas = [self.slatm_sigma1, self.slatm_sigma2],
+                        dgrids = [self.slatm_dgrid1, self.slatm_dgrid2], rcut = self.slatm_rcut, alchemy = self.slatm_alchemy,
+                        rpower = self.slatm_rpower)
+                x[i] = mol.representation
+            x = np.asarray(list(x), dtype=float)
+
+        else:
+
+            raise InputError("This should never happen. Unrecognised representation. Got %s." % str(self.representation))
+
+        self.descriptor = x
+
     def get_representation(self, indices):
+        """
+        This function takes as input a list of indices and it returns a n_samples by n_features matrix containing all
+        the descriptors of the samples that are specified by the indices.
+        :param indices: list
+        :return: np array of shape (n_samples, n_features)
+        """
 
         if self.properties.size == 0:
             raise InputError("Properties needs to be set in advance")
         if len(self.compounds) == 0:
             raise InputError("QML compounds needs to be created in advance")
+        if len(self.descriptor) == 0:
+            raise InputError("Descriptors needs to be created in advance")
 
         if not is_positive_integer_or_zero(indices[0]):
             raise InputError("Expected input to be indices")
@@ -357,45 +424,9 @@ class OSPMRMP(MRMP, _OSPNN):
         except InputError:
             raise InputError("Expected input to be indices")
 
+        x_desc = self.descriptor[idx, :]
 
-        if self.representation == 'unsorted_coulomb_matrix':
-
-            nmax = self._get_msize()
-            representation_size = (nmax*(nmax+1))//2
-            x = np.empty((idx.size, representation_size), dtype=float)
-            for i, mol in enumerate(self.compounds[idx]):
-                mol.generate_coulomb_matrix(size = nmax, sorting = "unsorted")
-                x[i] = mol.representation
-
-        if self.representation == 'sorted_coulomb_matrix':
-
-            nmax = self._get_msize()
-            representation_size = (nmax*(nmax+1))//2
-            x = np.empty((idx.size, representation_size), dtype=float)
-            for i, mol in enumerate(self.compounds[idx]):
-                mol.generate_coulomb_matrix(size = nmax, sorting = "row-norm")
-                x[i] = mol.representation
-
-        elif self.representation == "bag_of_bonds":
-            asize = self._get_asize()
-            x = np.empty(idx.size, dtype=object)
-            for i, mol in enumerate(self.compounds[idx]):
-                mol.generate_bob(asize = asize)
-                x[i] = mol.representation
-            x = np.asarray(list(x), dtype=float)
-
-        elif self.representation == "slatm":
-            from qml.representations import get_slatm_mbtypes
-            mbtypes = get_slatm_mbtypes([mol.nuclear_charges for mol in self.compounds])
-            x = np.empty(idx.size, dtype=object)
-            for i, mol in enumerate(self.compounds[idx]):
-                mol.generate_slatm(mbtypes, local = False, sigmas = [self.slatm_sigma1, self.slatm_sigma2],
-                        dgrids = [self.slatm_dgrid1, self.slatm_dgrid2], rcut = self.slatm_rcut, alchemy = self.slatm_alchemy,
-                        rpower = self.slatm_rpower)
-                x[i] = mol.representation
-            x = np.asarray(list(x), dtype=float)
-
-        return x
+        return x_desc
 
     # TODO test
     def fit(self, indices, y = None):
@@ -409,6 +440,7 @@ class OSPMRMP(MRMP, _OSPNN):
         :type indices: integer array
 
         """
+
         x = self.get_representation(indices)
 
         idx = np.asarray(indices, dtype = int).ravel()
@@ -428,6 +460,7 @@ if __name__ == "__main__":
         y = np.array(range(len(filenames)), dtype=int)
         x.generate_compounds(filenames)
         x.set_properties(y)
+        x.generate_descriptor()
         t = time.time()
         x.fit(y)
         print(rep, time.time() - t)
