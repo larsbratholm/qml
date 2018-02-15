@@ -13,9 +13,6 @@ from .aglaia import _NN, MRMP
 from .utils import InputError, is_positive_integer, is_string, is_positive_integer_or_zero, \
         is_non_zero_integer, is_bool, is_positive
 
-# from aglaia import _NN, MRMP
-# from utils import InputError, is_positive_integer, is_string, is_positive_integer_or_zero, \
-#         is_non_zero_integer, is_bool, is_positive
 
 class _OSPNN(BaseEstimator, _NN):
     """
