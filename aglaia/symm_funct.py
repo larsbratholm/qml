@@ -1,7 +1,7 @@
 import tensorflow as tf
 import numpy as np
 
-def symm_func_g2(xyzs, Zs, radial_cutoff, radial_rs, eta):
+def symm_func_g2_tm(xyzs, Zs, radial_cutoff, radial_rs, eta):
     """
     This does the radial part of the symmetry function (G2 function in Behler's papers). It calculates each term for the
     sum, but it doesn't do the sum.
@@ -51,11 +51,67 @@ def symm_func_g2(xyzs, Zs, radial_cutoff, radial_rs, eta):
     # Actual symmetry function
     radial_embedding = gaussian_factor * cutoff_factor
 
-    return radial_embedding
+    return radial_embedding, pair_indices, pair_elements
+
+def symm_func_g2(xyzs, Zs, radial_cutoff, radial_rs, eta):
+    """
+    This does the radial part of the symmetry function (G2 function in Behler's papers). It doesn't distinguish for
+    different pairs of atoms
+
+    :param xyzs: tf tensor of shape (n_samples, n_atoms, 3) contaning the coordinates of each atom in each data sample
+    :param Zs: tf tensor of shape (n_samples, n_atoms) containing the atomic number of each atom in each data sample
+    :param radial_cutoff: scalar tensor
+    :param radial_rs: tf tensor of shape (n_rs,) with the R_s values
+    :param eta: tf scalar
+
+    :return: tf tensor of shape (n_samples, n_atoms, n_rs)
+    """
+
+    # Calculating the distance matrix between the atoms of each sample
+    dxyzs = tf.expand_dims(xyzs, axis=2) - tf.expand_dims(xyzs, axis=1)
+    dist_tensor = tf.norm(dxyzs, axis=3)  # (n_samples, n_atoms, n_atoms)
+
+    # Indices of terms that need to be zero (diagonal elements)
+    n_atoms = Zs.get_shape().as_list()[1]
+    n_samples = Zs.get_shape().as_list()[0]
+
+    zarray = np.zeros((n_samples, n_atoms, n_atoms))
+
+    for i in range(n_atoms):
+                    zarray[:, i, i] = 1
+
+    where_eq_idx = tf.convert_to_tensor(zarray, dtype=tf.bool)
+
+    # Calculating the exponential term
+    expanded_rs = tf.expand_dims(tf.expand_dims(tf.expand_dims(radial_rs, axis=0), axis=0), axis=0) # (1, 1, 1, n_rs)
+    expanded_dist = tf.expand_dims(dist_tensor, axis=-1) # (n_samples, n_atoms, n_atoms, 1)
+    exponent = - eta * tf.square(tf.subtract(expanded_dist, expanded_rs))
+    exp_term = tf.exp(exponent) # (n_samples, n_atoms, n_atoms, n_rs)
+
+    # Calculating the fc terms
+    # Finding where the distances are less than the cutoff
+    where_less_cutoff = tf.less(dist_tensor, radial_cutoff)
+    # Calculating all of the fc function terms
+    fc = 0.5 * (tf.cos(3.14159265359 * dist_tensor / radial_cutoff) + 1.0)
+    # Setting to zero the terms where the distance is larger than the cutoff
+    zeros = tf.zeros(tf.shape(dist_tensor))
+    cut_off_fc = tf.where(where_less_cutoff, fc, zeros)  # (n_samples, n_atoms, n_atoms)
+    # Cleaning up diagonal terms
+    clean_fc_term = tf.where(where_eq_idx, zeros, cut_off_fc)
+
+    # Multiplying exponential and fc terms
+    expanded_fc = tf.expand_dims(clean_fc_term, axis=-1) # (n_samples, n_atoms, n_atoms, 1)
+    presum_term = tf.multiply(expanded_fc, exp_term) # (n_samples, n_atoms, n_atoms, n_rs)
+
+    # final_term = tf.reduce_sum(presum_term, axis=[2])
+
+    return presum_term
 
 def symm_func_salpha_ang(xyzs, Zs, angular_cutoff, angular_rs, theta_s, zeta, eta):
     """
     This does the angular part of the symmetry function as mentioned here: https://arxiv.org/pdf/1711.06385.pdf
+    At present it does not make different bins depending on the atom type. It also works for systems where all the
+    samples are the same molecule.
 
     :param xyzs: tf tensor of shape (n_samples, n_atoms, 3) contaning the coordinates of each atom in each data sample
     :param Zs: tf tensor of shape (n_samples, n_atoms) containing the atomic number of each atom in each data sample
@@ -167,6 +223,168 @@ def symm_func_salpha_ang(xyzs, Zs, angular_cutoff, angular_rs, theta_s, zeta, et
                              [n_samples, n_atoms, n_atoms, n_atoms, tf.shape(theta_s)[0] * tf.shape(angular_rs)[0]])
 
     # Summing the dimensions to get a term of shape (n_samples,  n_atoms, n_rs*n_theta_s)
-    final_term = tf.reduce_sum(presum_term, axis=[2, 3])
+    # final_term = 0.5 * tf.reduce_sum(presum_term, axis=[2, 3])
+
+    return presum_term
+
+def sum_radial(pre_sumterm, Zs, element_pairs_list, rs):
+    """
+    This function does the sum of the terms in the radial part of the symmetry function. It separates the sums depending
+    on atom type.
+
+    pre_sumterm is the output of the function symm_func_g2.
+    Zs contains the atomic numbers of all the atoms in each sample
+    element_pairs_list is a list containing all the atom pairs present in the system
+
+    :param pre_sumterm: tensor of shape (n_samples, n_atoms, n_atoms, n_rs)
+    :Zs: tensor of shape (n_samples, n_atoms)
+    :param element_pairs_list: list of length n_elementpairs
+    :return: tensor of shape (n_samples, n_atoms, n_elementpairs * n_rs)
+    """
+
+    # Total number of element pairs in the system
+    n_pairs = len(element_pairs_list)
+    n_atoms = Zs.get_shape().as_list()[1]
+    n_samples = Zs.get_shape().as_list()[0]
+    n_rs = rs.get_shape().as_list()[0]
+
+    # Making a matrix with all the atom-atom pairs for each sample in the data
+    Zs_exp_1 = tf.expand_dims(tf.tile(tf.expand_dims(Zs, axis=1), multiples=[1, n_atoms, 1]), axis=-1)
+    Zs_exp_2 = tf.expand_dims(tf.tile(tf.expand_dims(Zs, axis=-1), multiples=[1, 1, n_atoms]), axis=-1)
+    Zs_pairs = tf.concat([Zs_exp_1, Zs_exp_2], axis=-1)  # Need to clean up diagonal elements
+
+    # Cleaning up diagonal elements
+    zarray = np.zeros((n_samples, n_atoms, n_atoms, 2))
+
+    for i in range(n_atoms):
+        zarray[:, i, i, :] = 1
+
+    where_eq_idx = tf.convert_to_tensor(zarray, dtype=tf.bool)
+    zeros = tf.zeros(tf.shape(Zs_pairs), dtype=tf.int32)
+    clean_Zs_pairs = tf.where(where_eq_idx, zeros, Zs_pairs)
+
+    # Sorting the pairs so that for example pair [7, 1] is the same as [1, 7]
+    sorted_Zs_pairs, _ = tf.nn.top_k(clean_Zs_pairs, k=2, sorted=True)
+
+    # Looping over all atom pairs and collecting the relevant terms from pre_sumterm
+    presum_terms = []
+
+    zeros = tf.zeros(tf.shape(pre_sumterm), dtype=tf.float32)
+
+    for i in range(n_pairs):
+        # Making a tensor of the shape sorted_Zs_pairs but where each element is the same pair
+        one_pair = tf.constant(element_pairs_list[i])
+        expanded_pair = tf.tile(tf.expand_dims(tf.expand_dims(tf.expand_dims(one_pair, axis=0), axis=0), axis=0),
+                                multiples=[1, n_atoms, n_atoms, 1])
+        # Checking which pairs in sorted_Zs_pairs match one_pair
+        equal_pair = tf.equal(expanded_pair, sorted_Zs_pairs)
+        equal_1, equal_2 = tf.split(equal_pair, 2, axis=-1)
+        equal_3 = tf.tile(tf.logical_and(equal_1, equal_2), multiples=[1, 1, 1, n_rs])
+        # Extract the terms in pre_sumterm that correspond to atom pair "one_pair"
+        slice_presum = tf.where(equal_3, pre_sumterm, zeros)
+        presum_terms.append(slice_presum)
+
+    # Concatenating the list
+    radial_acsf_presum = tf.concat(presum_terms, axis=-1)
+
+    # Doing the final sum
+    final_term = tf.reduce_sum(radial_acsf_presum, axis=[2])
 
     return final_term
+
+# def sum_angular():
+
+def sum_radial_better(pre_sum, Zs, elements_list, rs):
+    n_atoms = Zs.get_shape().as_list()[1]
+    n_samples = Zs.get_shape().as_list()[0]
+    n_elements = len(elements_list)
+    n_rs = rs.get_shape().as_list()[0]
+
+    neighb_atoms = tf.tile(tf.expand_dims(tf.expand_dims(Zs, axis=1), axis=-1),
+                           multiples=[n_samples, n_atoms, 1, n_rs])  # (n_samples, n_atoms, n_atoms, n_rs)
+    zeros = tf.zeros(tf.shape(pre_sum), dtype=tf.float32)
+
+    pre_sum_terms = []
+
+    for i in range(n_elements):
+        print(i)
+        element = tf.constant(elements_list[i])
+        expanded_element = tf.tile(
+            tf.expand_dims(tf.expand_dims(tf.expand_dims(tf.expand_dims(element, axis=0), axis=0), axis=0), axis=0),
+            multiples=[n_samples, n_atoms, n_atoms, n_rs])
+        equal_elements =  tf.equal(expanded_element, neighb_atoms)
+        slice_presum = tf.where(equal_elements, pre_sum, zeros)
+        pre_sum_terms.append(slice_presum)
+
+    rad_acsf_presum = tf.concat(pre_sum_terms, axis=-1)
+    final_term = tf.reduce_sum(rad_acsf_presum, axis=[2])
+
+    return final_term
+
+def sum_angular(pre_sumterm, Zs, element_pairs_list, angular_rs, theta_s):
+
+    n_atoms = Zs.get_shape().as_list()[1]
+    n_samples = Zs.get_shape().as_list()[0]
+    n_pairs = len(element_pairs_list)
+    n_rs = angular_rs.get_shape().as_list()[0]
+    n_thetas = theta_s.get_shape().as_list()[0]
+
+    # Making the pair matrix
+    Zs_exp_1 = tf.expand_dims(tf.tile(tf.expand_dims(Zs, axis=1), multiples=[1, n_atoms, 1]), axis=-1)
+    Zs_exp_2 = tf.expand_dims(tf.tile(tf.expand_dims(Zs, axis=-1), multiples=[1, 1, n_atoms]), axis=-1)
+    neighb_pairs = tf.concat([Zs_exp_1, Zs_exp_2], axis=-1)  # (n_samples, n_atoms, n_atoms, 2)
+
+    # Cleaning up diagonal elements
+    zarray = np.zeros((n_samples, n_atoms, n_atoms, 2))
+
+    for i in range(n_atoms):
+        zarray[:, i, i, :] = 1
+
+    where_eq_idx = tf.convert_to_tensor(zarray, dtype=tf.bool)
+    zeros = tf.zeros(tf.shape(neighb_pairs), dtype=tf.int32)
+    clean_pairs = tf.where(where_eq_idx, zeros, neighb_pairs)
+
+    # Sorting the pairs in descending order so that for example pair [7, 1] is the same as [1, 7]
+    sorted_pairs, _ = tf.nn.top_k(clean_pairs, k=2, sorted=True)  # (n_samples, n_atoms, n_atoms, 2)
+
+    # Preparing to clean the sorted pairs from where there will be self interactions in the three-body-terms
+    oarray = np.ones((n_samples, n_atoms, n_atoms, n_atoms))
+
+    # Find a vectorised way of doing this
+    for i in range(n_atoms):
+        for j in range(n_atoms):
+            for k in range(n_atoms):
+                if i == j or i == k or j == k:
+                    oarray[:, i, j, k] = 0
+
+    where_self_int = tf.convert_to_tensor(oarray, dtype=tf.bool)
+    exp_self_int = tf.expand_dims(where_self_int, axis=-1)  # (n_samples, n_atoms, n_atoms, n_atoms, 1)
+
+    zeros_large = tf.zeros(tf.shape(pre_sumterm), dtype=tf.float32)
+    presum_terms = []
+
+    for i in range(n_pairs):
+        # Making a tensor where all the elements are the pair under consideration
+        pair = tf.constant(element_pairs_list[i])
+        expanded_pair = tf.tile(
+            tf.expand_dims(tf.expand_dims(tf.expand_dims(pair, axis=0), axis=0), axis=0),
+            multiples=[n_samples, n_atoms, n_atoms, 1])  # (n_samples, n_atoms, n_atoms, 2)
+        # Comparing which neighbour pairs correspond to the pair under consideration
+        equal_pair_mix = tf.equal(expanded_pair, sorted_pairs)
+        equal_pair_split1, equal_pair_split2 = tf.split(equal_pair_mix, 2, axis=-1)
+        equal_pair = tf.tile(tf.expand_dims(tf.logical_and(equal_pair_split1, equal_pair_split2), axis=[1]),
+                             multiples=[1, n_atoms, 1, 1, 1])  # (n_samples, n_atoms, n_atoms, n_atoms, 1)
+        # Removing the pairs where the same atom is present more than once
+        int_to_keep = tf.logical_and(equal_pair, exp_self_int)
+        exp_int_to_keep = tf.tile(int_to_keep, multiples=[1, 1, 1, 1, n_rs * n_thetas])
+        # Extracting the terms that correspond to the pair under consideration
+        slice_presum = tf.where(exp_int_to_keep, pre_sumterm, zeros_large)
+        presum_terms.append(slice_presum)
+
+    # Concatenating all of the terms corresponding to different pair neighbours
+    angular_acsf_presum = tf.concat(presum_terms, axis=-1)
+    # Summing over neighbouring pairs
+    final_term = 0.5 * tf.reduce_sum(angular_acsf_presum, axis=[2, 3])
+
+    return final_term
+
