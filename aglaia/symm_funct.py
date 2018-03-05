@@ -1,3 +1,9 @@
+"""
+This module contains an implementation of the the symmetry functions used in the Parkhill paper https://arxiv.org/pdf/1711.06385.pdf.
+This implementation is different.
+Note: it is all in single precision.
+"""
+
 import tensorflow as tf
 import numpy as np
 
@@ -17,7 +23,7 @@ def acsf_rad(xyzs, Zs, radial_cutoff, radial_rs, eta):
 
     # Calculating the distance matrix between the atoms of each sample
     dxyzs = tf.expand_dims(xyzs, axis=2) - tf.expand_dims(xyzs, axis=1)
-    dist_tensor = tf.norm(dxyzs, axis=3)  # (n_samples, n_atoms, n_atoms)
+    dist_tensor = tf.cast(tf.norm(dxyzs, axis=3), dtype=tf.float32)  # (n_samples, n_atoms, n_atoms)
 
     # Indices of terms that need to be zero (diagonal elements)
     n_atoms = Zs.get_shape().as_list()[1]
@@ -71,7 +77,7 @@ def acsf_ang(xyzs, Zs, angular_cutoff, angular_rs, theta_s, zeta, eta):
 
     # Finding the R_ij + R_ik term
     dxyzs = tf.expand_dims(xyzs, axis=2) - tf.expand_dims(xyzs, axis=1)
-    dist_tensor = tf.norm(dxyzs, axis=3)  # (n_samples, n_atoms, n_atoms)
+    dist_tensor = tf.cast(tf.norm(dxyzs, axis=3), dtype=tf.float32)  # (n_samples, n_atoms, n_atoms)
 
     # This is the tensor where element sum_dist_tensor[0,1,2,3] is the R_12 + R_13 in the 0th data sample
     sum_dist_tensor = tf.expand_dims(dist_tensor, axis=3) + tf.expand_dims(dist_tensor,
@@ -118,8 +124,8 @@ def acsf_ang(xyzs, Zs, angular_cutoff, angular_rs, theta_s, zeta, eta):
     # Finding the tensor with the vector distances between all the atoms
     dxyzs = tf.expand_dims(xyzs, axis=2) - tf.expand_dims(xyzs, axis=1)
     # Doing the dot products of all the possible vectors
-    dots_dxyzs = tf.reduce_sum(tf.multiply(tf.expand_dims(dxyzs, axis=3), tf.expand_dims(dxyzs, axis=2)),
-                               axis=4)  # (n_samples,  n_atoms, n_atoms, n_atoms)
+    dots_dxyzs = tf.cast(tf.reduce_sum(tf.multiply(tf.expand_dims(dxyzs, axis=3), tf.expand_dims(dxyzs, axis=2)),
+                               axis=4), dtype=tf.float32)  # (n_samples,  n_atoms, n_atoms, n_atoms)
     # Doing the products of the magnitudes
     dist_prod = tf.multiply(tf.expand_dims(dist_tensor, axis=3),
                             tf.expand_dims(dist_tensor, axis=2))  # (n_samples,  n_atoms, n_atoms, n_atoms)
@@ -168,9 +174,6 @@ def acsf_ang(xyzs, Zs, angular_cutoff, angular_rs, theta_s, zeta, eta):
     presum_term = tf.reshape(prod_of_terms,
                              [n_samples, n_atoms, n_atoms, n_atoms, tf.shape(theta_s)[0] * tf.shape(angular_rs)[0]])
 
-    # Summing the dimensions to get a term of shape (n_samples,  n_atoms, n_rs*n_theta_s)
-    # final_term = 0.5 * tf.reduce_sum(presum_term, axis=[2, 3])
-
     return presum_term
 
 def sum_rad(pre_sum, Zs, elements_list, radial_rs):
@@ -192,7 +195,7 @@ def sum_rad(pre_sum, Zs, elements_list, radial_rs):
     ## Making a matrix of all the possible neighbouring atoms
     # No need to clean up diagonal elements because they are already set to zero in the presum term
     neighb_atoms = tf.tile(tf.expand_dims(tf.expand_dims(Zs, axis=1), axis=-1),
-                           multiples=[n_samples, n_atoms, 1, n_rs])  # (n_samples, n_atoms, n_atoms, n_rs)
+                           multiples=[1, n_atoms, 1, n_rs])  # (n_samples, n_atoms, n_atoms, n_rs)
     zeros = tf.zeros(tf.shape(pre_sum), dtype=tf.float32)
 
 
@@ -200,7 +203,7 @@ def sum_rad(pre_sum, Zs, elements_list, radial_rs):
     pre_sum_terms = []
 
     for i in range(n_elements):
-        element = tf.constant(elements_list[i])
+        element = tf.constant(elements_list[i], dtype=tf.int32)
         expanded_element = tf.tile(
             tf.expand_dims(tf.expand_dims(tf.expand_dims(tf.expand_dims(element, axis=0), axis=0), axis=0), axis=0),
             multiples=[n_samples, n_atoms, n_atoms, n_rs])
@@ -269,7 +272,7 @@ def sum_ang(pre_sumterm, Zs, element_pairs_list, angular_rs, theta_s):
 
     for i in range(n_pairs):
         # Making a tensor where all the elements are the pair under consideration
-        pair = tf.constant(element_pairs_list[i])
+        pair = tf.constant(element_pairs_list[i], dtype=tf.int32)
         expanded_pair = tf.tile(
             tf.expand_dims(tf.expand_dims(tf.expand_dims(pair, axis=0), axis=0), axis=0),
             multiples=[n_samples, n_atoms, n_atoms, 1])  # (n_samples, n_atoms, n_atoms, 2)
@@ -311,7 +314,7 @@ def generate_parkhill_acsf(xyzs, Zs, elements, element_pairs, radial_cutoff=10.0
     :param theta_s: np.array of shape (n_thetas,)
     :param zeta: scalar float
     :param eta: scalar float
-    :return: a tf tensor of shape (n_samples, n_atoms, n_rad_rd * n_elements + n_ang_rs * n_thetas * n_elementpairs)
+    :return: a tf tensor of shape (n_samples, n_atoms, n_rad_rs * n_elements + n_ang_rs * n_thetas * n_elementpairs)
     """
 
     # Checking if the parameters that should be lists have been left to the default values
@@ -323,8 +326,8 @@ def generate_parkhill_acsf(xyzs, Zs, elements, element_pairs, radial_cutoff=10.0
         theta_s = [3.0, 2.0]
 
     # Turning the quantities into tensors
-    Zs_tf = tf.constant(Zs)
-    xyzs_tf = tf.constant(xyzs)
+    Zs_tf = tf.constant(Zs, dtype=tf.int32)
+    xyzs_tf = tf.constant(xyzs, dtype=tf.float32)
 
     rad_cutoff = tf.constant(radial_cutoff, dtype=tf.float32)
     ang_cutoff = tf.constant(angular_cutoff, dtype=tf.float32)
