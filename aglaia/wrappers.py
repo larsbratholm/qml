@@ -7,21 +7,28 @@ import itertools
 from inspect import signature
 import numpy as np
 from sklearn.base import BaseEstimator
+try:
+    from qml import Compound
+except ModuleNotFoundError:
+    raise ModuleNotFoundError("The module qml is required")
 
-#TODO relative imports
-from .aglaia import _NN, MRMP
-from .utils import InputError, is_positive_integer, is_string, is_positive_integer_or_zero, \
-        is_non_zero_integer, is_bool, is_positive
+try:
+    from qml import Compound
+except ModuleNotFoundError:
+    raise ModuleNotFoundError("The module qml is required")
 
+from .aglaia import _NN, NN
+from .utils import InputError, is_array_like, is_numeric_array, is_positive_integer, is_positive_integer_or_zero, \
+        is_non_zero_integer, is_positive_integer_or_zero_array, is_dict, is_none, is_string, is_positive, is_bool
 
-class _OSPNN(BaseEstimator, _NN):
+class _ONN(BaseEstimator, _NN):
     """
     Adds additional variables and functionality to the _NN class that makes interfacing with
     Osprey for hyperparameter search easier
     """
 
     def __init__(self, hl1 = 5, hl2 = 0, hl3 = 0,
-            compounds = None, properties = None, nuclear_charges = None, coordinates = None, **kwargs):
+            compounds = None, properties = None, **kwargs):
         """
         :param hl1: Number of neurons in the first hidden layer. If different from zero, ``hidden_layer_sizes`` is
                     overwritten.
@@ -32,18 +39,33 @@ class _OSPNN(BaseEstimator, _NN):
         :type hl3: integer
         """
 
-        super(_OSPNN, self).__init__(**kwargs)
+        super(_ONN, self).__init__(**kwargs)
 
         self._set_hl(hl1, hl2, hl3)
+        self.set_compounds(compounds)
+        self.set_properties(properties)
 
-        # Placeholder variables
-        self.compounds = np.empty(0, dtype=object)
-        self.properties = np.empty(0, dtype=float)
+    def set_compounds(self, compounds):
+        self._set_compounds(compounds)
 
-        if type(compounds) != type(None):
-            self.compounds = compounds
-        if type(properties) != type(None):
+    def _set_compounds(self, compounds):
+        if not is_none(compounds):
+            if is_array_like(compounds) and isinstance(compounds[0], Compound):
+                self.compounds = compounds
+            else:
+                raise InputError('Variable "compounds" needs to an array of QML compounds. Got %s' % str(compounds))
+        else:
+            self.compounds = None
+
+    def set_properties(self, properties):
+        self._set_properties(properties)
+
+    def _set_properties(self, properties):
+        if not is_none(properties):
             self.properties = properties
+        else:
+            self.properties = None
+
 
     def get_params(self, deep = True):
         """
@@ -54,14 +76,14 @@ class _OSPNN(BaseEstimator, _NN):
 
         """
         params = BaseEstimator.get_params(self)
-        parent_init = super(_OSPNN, self).__init__
+        parent_init = super(_ONN, self).__init__
 
         # Taken from scikit-learns BaseEstimator class
         parent_init_signature = signature(parent_init)
         for p in (p for p in parent_init_signature.parameters.values() 
                 if p.name != 'self' and p.kind != p.VAR_KEYWORD):
             if p.name in params:
-                return InputError('This should never happen')
+                raise InputError('This should never happen')
             params[p.name] = p.default
 
         return params
@@ -126,13 +148,9 @@ class _OSPNN(BaseEstimator, _NN):
         :type filenames: list
         """
 
-        try:
-            from qml import Compound
-        except ModuleNotFoundError:
-            raise ModuleNotFoundError("The module qml is required")
 
         # Check that the number of properties match the number of compounds
-        if self.properties.size == 0:
+        if is_none(self.properties):
             pass
         else:
             if self.properties.size == len(filenames):
@@ -199,19 +217,30 @@ class _OSPNN(BaseEstimator, _NN):
         nmax = max(mol.natoms for mol in self.compounds)
 
         return nmax + pad
+    
+    def _get_slatm_mbtypes(self, arr):
+        from qml.representations import get_slatm_mbtypes
+        return get_slatm_mbtypes(arr)
 
     def score(self, indices):
         idx = np.asarray(indices, dtype=int)
         y = self.properties[idx]
-        return self._score(idx, y)
+
+        # Osprey maximises a score per default, so return minus mae/rmsd and plus r2
+        if self.scoring_function == "r2":
+            return self._score(idx, y)
+        else:
+            return - self._score(idx, y)
 
 
 #TODO slatm exception tests
-# Molecular Representation Single Property
-class OSPMRMP(MRMP, _OSPNN):
+# TODO remove compounds argument and only keep it in _ONN
+# Osprey molecular neural network
+class OMNN(NN, _ONN):
     """
-    Adds additional variables and functionality to the MRMP class that makes interfacing with
+    Adds additional variables and functionality to the NN class that makes interfacing with
     Osprey for hyperparameter search easier.
+    Used for generating molecular descriptors to predict global properties, such as energies.
     """
 
     def __init__(self, representation = 'unsorted_coulomb_matrix', 
@@ -220,7 +249,7 @@ class OSPMRMP(MRMP, _OSPNN):
         """
         A molecule's cartesian coordinates and chemical composition is transformed into a descriptor for the molecule,
         which is then used as input to a single or multi layered feedforward neural network with a single output.
-        This class inherits from the _NN and _OSPNN class and all inputs not unique to the MRMP class is passed to the
+        This class inherits from the _NN and _ONN class and all inputs not unique to the OMNN class is passed to the
         parents.
 
         Available representations at the moment are ['unsorted_coulomb_matrix', 'sorted_coulomb_matrix',
@@ -245,14 +274,39 @@ class OSPMRMP(MRMP, _OSPNN):
 
         """
 
-        super(OSPMRMP,self).__init__(compounds = compounds, properties = properties, **kwargs)
+        # TODO try to avoid directly passing compounds and properties. That shouldn't be needed.
+        super(OMNN,self).__init__(compounds = compounds, properties = properties, **kwargs)
 
+        self._set_representation(representation, slatm_sigma1, slatm_sigma2, slatm_dgrid1, slatm_dgrid2, slatm_rcut,
+                slatm_rpower, slatm_alchemy)
+
+    def _set_properties(self, properties):
+        """
+        Set properties. Needed to be called before fitting.
+
+        :param y: array of properties of size (nsamples,)
+        :type y: array
+        """
+        if not is_none(properties):
+            if is_numeric_array(properties) and np.asarray(properties).ndim == 1:
+                self.properties = np.asarray(properties)
+            else:
+                raise InputError('Variable "properties" expected to be array like of dimension 1. Got %s' % str(properties))
+        else:
+            self.properties = None
+
+    def _set_representation(self, representation, *args):
 
         if not is_string(representation):
             raise InputError("Expected string for variable 'representation'. Got %s" % str(representation))
         if representation.lower() not in ['sorted_coulomb_matrix', 'unsorted_coulomb_matrix', 'bag_of_bonds', 'slatm']:
             raise InputError("Unknown representation %s" % representation)
         self.representation = representation.lower()
+
+        self._set_slatm(*args)
+
+    def _set_slatm(self, slatm_sigma1, slatm_sigma2, slatm_dgrid1, slatm_dgrid2, slatm_rcut,
+            slatm_rpower, slatm_alchemy):
 
         if not is_positive(slatm_sigma1):
             raise InputError("Expected positive float for variable 'slatm_sigma1'. Got %s." % str(slatm_sigma1))
@@ -282,45 +336,18 @@ class OSPMRMP(MRMP, _OSPNN):
             raise InputError("Expected boolean value for variable 'slatm_alchemy'. Got %s." % str(slatm_alchemy))
         self.slatm_alchemy = bool(slatm_alchemy)
 
-    # TODO test
-    def set_properties(self, y):
-        """
-        Set properties. Needed to be called before fitting.
+    def get_descriptors_from_indices(self, indices):
 
-        :param y: array of properties of size (nsamples,)
-        :type y: array
-        """
-
-        if self.compounds.size == 0:
-            pass
-        else:
-            if self.compounds.size == len(y):
-                pass
-            else:
-                raise InputError("Number of properties (%d) does not match number of compounds (%d)" 
-                        % (len(y), self.compounds.size))
-
-        self.properties = np.asarray(y, dtype = float)
-
-    def get_representation(self, indices):
-
-        if self.properties.size == 0:
+        if is_none(self.properties):
             raise InputError("Properties needs to be set in advance")
-        if len(self.compounds) == 0:
+        if is_none(self.compounds):
             raise InputError("QML compounds needs to be created in advance")
 
-        if not is_positive_integer_or_zero(indices[0]):
+        if not is_positive_integer_or_zero_array(indices):
             raise InputError("Expected input to be indices")
 
-        try:
-            idx = np.asarray(indices, dtype=int)
-            if not np.array_equal(idx, indices):
-                raise InputError
-            # convert to 1d
-            idx = idx.ravel()
-        except InputError:
-            raise InputError("Expected input to be indices")
-
+        # Convert to 1d
+        idx = np.asarray(indices, dtype=int).ravel()
 
         if self.representation == 'unsorted_coulomb_matrix':
 
@@ -349,8 +376,7 @@ class OSPMRMP(MRMP, _OSPNN):
             x = np.asarray(list(x), dtype=float)
 
         elif self.representation == "slatm":
-            from qml.representations import get_slatm_mbtypes
-            mbtypes = get_slatm_mbtypes([mol.nuclear_charges for mol in self.compounds])
+            mbtypes = self._get_slatm_mbtypes([mol.nuclear_charges for mol in self.compounds])
             x = np.empty(idx.size, dtype=object)
             for i, mol in enumerate(self.compounds[idx]):
                 mol.generate_slatm(mbtypes, local = False, sigmas = [self.slatm_sigma1, self.slatm_sigma2],
@@ -374,7 +400,7 @@ class OSPMRMP(MRMP, _OSPNN):
 
         """
 
-        x = self.get_representation(indices)
+        x = self.get_descriptors_from_indices(indices)
 
         idx = np.asarray(indices, dtype = int).ravel()
         y = self.properties[idx]
@@ -382,18 +408,206 @@ class OSPMRMP(MRMP, _OSPNN):
         return self._fit(x, y)
 
     def predict(self, indices):
-        x = self.get_representation(indices)
+        x = self.get_descriptors_from_indices(indices)
         return self._predict(x)
 
-if __name__ == "__main__":
-    import time
-    for rep in ["unsorted_coulomb_matrix", "sorted_coulomb_matrix", "bag_of_bonds", "slatm"]:
-        x = OSPMRMP(representation=rep)
-        filenames = glob.glob("/home/lb17101/dev/qml/tests/qm7/*.xyz")[:100]
-        y = np.array(range(len(filenames)), dtype=int)
-        x.generate_compounds(filenames)
-        x.set_properties(y)
-        t = time.time()
-        x.fit(y)
-        print(rep, time.time() - t)
+# Osprey atomic neural network
+class OANN(OMNN):
+    """
+    Adds additional variables and functionality to the NN class that makes interfacing with
+    Osprey for hyperparameter search easier.
+    Used for generating atomic descriptors to predict local properties, such as chemical shieldings or j-couplings.
+    """
 
+    def __init__(self, representation = 'atomic_coulomb_matrix', 
+            slatm_sigma1 = 0.05, slatm_sigma2 = 0.05, slatm_dgrid1 = 0.03, slatm_dgrid2 = 0.03, slatm_rcut = 4.8, slatm_rpower = 6,
+            slatm_alchemy = False, compounds = None, properties = None, cm_cutoff = 1e6, **kwargs):
+        """
+        A descriptor is generated for a single atom or a set of atoms from the carteesian coordinates and chemical
+        composition of its environment.
+        This is then used as input to a single or multi layered feedforward neural network with a single output.
+        This class inherits from the OMNN class and all inputs not unique to the OANN class is passed to the
+        parents.
+
+        Available representations at the moment are ['atomic_coulomb_matrix', 'slatm'].
+
+        :param representation: Name of molecular representation.
+        :type representation: string
+        :param slatm_sigma1: Scale of the gaussian bins for the two-body term
+        :type slatm_sigma1: float
+        :param slatm_sigma2: Scale of the gaussian bins for the three-body term
+        :type slatm_sigma2: float
+        :param slatm_dgrid1: Spacing between the gaussian bins for the two-body term
+        :type slatm_dgrid1: float
+        :param slatm_dgrid2: Spacing between the gaussian bins for the three-body term
+        :type slatm_dgrid2: float
+        :param slatm_rcut: Cutoff radius
+        :type slatm_rcut: float
+        :param slatm_rpower: exponent of the binning
+        :type slatm_rpower: integer
+        :param slatm_alchemy: Whether to use the alchemy version of slatm or not.
+        :type slatm_alchemy: bool
+
+        """
+
+        # TODO remove compounds and properties super
+        super(OANN,self).__init__(compounds = compounds, properties = properties, representation = representation, **kwargs)
+
+        self._set_cm(cm_cutoff)
+
+    def _set_cm(self, cm_cutoff):
+        if is_positive(cm_cutoff):
+            self.cm_cutoff = float(cm_cutoff)
+        else:
+            raise InputError("Expected positive float for variable cm_cutoff. Got %s" % str(cm_cutoff))
+
+    # TODO test
+    # TODO check if this actually works with osprey
+    # TODO there must be a prettier way of handling data that I'm not seeing.
+    #      A single large array would be slower if one needs to look up the compound every time.
+    def _set_properties(self, properties):
+        """
+        Set properties. Needed to be called before fitting.
+        `y` needs to be a dictionary with keys corresponding to compound indices.
+        Every value is a tuple of two arrays. The first array specifies the properties and the second array
+        specifies the indices of the atoms where the property arises from.
+        For example the following indicates that for the compound with index 0, the atoms with indices 0 and 1 have
+        a property of value 1.2 and 2.3 respectively:
+
+            y[0] = ([0, 1], [1.2, 2.3])
+
+        Multi-index properties is supported. Three-bond coupling constants will directly propagate through four atoms
+        and one could have the following, where four atom indices correspond to a single property.
+
+            y[0] = ([[0, 1, 2, 3], [1, 2, 3, 4]], [1.2, 2.3])
+
+        :param y: Dictionary with keys corresponding to compound indices.
+        :type y: dictionary
+        """
+        if not is_none(properties):
+            # Check that properties follows the correct format
+            if is_dict(properties) and 0 in properties and len(properties[0]) == 2 \
+                    and is_array_like(properties[0][0]) and is_array_like(properties[0][1]):
+                self.properties = properties
+            else:
+                raise InputError('Variable "properties" expected to be dictionary. Got %s' % str(properties))
+        else:
+            self.properties = None
+
+    # This will be run when initialising _OANN
+    def _set_representation(self, representation, *args):
+
+        if not is_string(representation):
+            raise InputError("Expected string for variable 'representation'. Got %s" % str(representation))
+        if representation.lower() not in ['atomic_coulomb_matrix', 'slatm']:
+            raise InputError("Unknown representation %s" % representation)
+        self.representation = representation.lower()
+
+        self._set_slatm(*args)
+
+    def get_descriptors_from_indices(self, indices):
+        """
+        Constructs the descriptors from the given compounds and indices. Each entry of indices contain the
+        index of a compound.
+        """
+
+        if is_none(self.properties):
+            raise InputError("Properties needs to be set in advance")
+        if is_none(self.compounds):
+            raise InputError("QML compounds needs to be created in advance")
+
+        if not is_positive_integer_or_zero_array(indices):
+            raise InputError("Expected input to be indices")
+
+        # convert to 1d
+        idx = np.asarray(indices, dtype=int).ravel()
+
+        if idx.max() >= self.compounds.size:
+            raise InputError("Index %d larger than number of given compounds (%d)" % (idx.max(), self.compounds.size))
+
+        x = []
+
+        if self.representation == 'atomic_coulomb_matrix':
+
+            nmax = self._get_msize()
+            for i, mol in enumerate(self.compounds[idx]):
+                mol.generate_atomic_coulomb_matrix(size = nmax, sorting = "distance", central_cutoff = self.cm_cutoff)
+                x_i = self._get_descriptors_from_mol(mol, i)
+                x.extend(x_i)
+
+        elif self.representation == "slatm":
+            mbtypes = self._get_slatm_mbtypes([mol.nuclear_charges for mol in self.compounds])
+            for i, mol in enumerate(self.compounds[idx]):
+                mol.generate_slatm(mbtypes, local = True, sigmas = [self.slatm_sigma1, self.slatm_sigma2],
+                        dgrids = [self.slatm_dgrid1, self.slatm_dgrid2], rcut = self.slatm_rcut, alchemy = self.slatm_alchemy,
+                        rpower = self.slatm_rpower)
+                x_i = self._get_descriptors_from_mol(mol, i)
+                x.extend(x_i)
+
+        return np.asarray(x)
+
+    def _get_descriptors_from_mol(self, mol, idx):
+        """
+        Gets the needed atomic descriptors from the molecule. If more that one atom contribute directly to the property
+        the atomic representations of them are merged together to a single one.
+
+        """
+
+        indices, _ = self.properties[idx]
+
+        # convert to arrays
+        indices_array = np.asarray(indices, dtype = int)
+
+        x = []
+
+        # if the indices array is 1d we just have to match the atomic representation with the respective property
+        if indices_array.ndim == 1:
+            for i in indices_array:
+                x.append(mol.representation[i])
+
+        # if not we have to merge the atomic representations of the atoms in use
+        else:
+            for i, arr in enumerate(indices_array):
+                merged = []
+                for j in arr:
+                    merged.extend(mol.representation[j])
+                x.append(merged[:])
+
+        return x
+
+    def _get_properties_from_indices(self, indices):
+
+        # convert to 1d
+        idx = np.asarray(indices, dtype=int).ravel()
+
+        y = []
+
+        for i in indices:
+            y_i = list(self.properties[i][1])
+            y.extend(y_i)
+
+        return np.asarray(y)
+
+
+    # TODO test
+    def fit(self, indices, y = None):
+        """
+        Fit the neural network to a set of molecular descriptors and targets. It is assumed that QML compounds and
+        properties have been set in advance and which indices to use is given.
+
+        :param y: Dummy for osprey
+        :type y: None
+        :param indices: Which indices of the pregenerated QML compounds and properties to use.
+        :type indices: integer array
+
+        """
+
+        x = self.get_descriptors_from_indices(indices)
+
+        y = self._get_properties_from_indices(indices)
+
+        return self._fit(x, y)
+
+    def predict(self, indices):
+        x = self.get_descriptors_from_indices(indices)
+        return self._predict(x)

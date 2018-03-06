@@ -19,9 +19,10 @@ import matplotlib.pyplot as plt
 #from tensorflow.python.framework import graph_io
 #from tensorflow.python.tools import freeze_graph
 
-#TODO relative imports
-from .utils import is_positive, is_positive_integer, is_positive_integer_or_zero, \
-        is_bool, is_string, is_positive_or_zero, InputError, ceil
+#from .utils import is_positive, is_positive_integer, is_positive_integer_or_zero, \
+#       is_bool, is_string, is_positive_or_zero, InputError, ceil
+from .utils import InputError, ceil, is_positive_or_zero, is_positive_integer, is_positive, \
+        is_bool, is_positive_integer_or_zero, is_string, is_positive_integer_array
 from .tf_utils import TensorBoardLogger
 
 class _NN(object):
@@ -82,7 +83,19 @@ class _NN(object):
         self._set_tf_dtype(tf_dtype)
         self._set_scoring_function(scoring_function)
         self._set_tensorboard(tensorboard, store_frequency, tensorboard_subdir)
+        self._set_activation_function(activation_function)
 
+
+        # Placeholder variables
+        self.n_features = None
+        self.n_samples = None
+        self.training_cost = []
+        self.session = None
+        #self.test_cost = []
+        #self.loaded_model = False
+        #self.is_vis_ready = False
+
+    def _set_activation_function(self, activation_function):
         if activation_function in ['sigmoid', tf.nn.sigmoid]:
             self.activation_function = tf.nn.sigmoid
         elif activation_function in ['tanh', tf.nn.tanh]:
@@ -103,15 +116,6 @@ class _NN(object):
             self.activation_function = tf.nn.relu_x
         else:
             raise InputError("Unknown activation function. Got %s" % str(activation_function))
-
-        # Placeholder variables
-        self.n_features = None
-        self.n_samples = None
-        self.training_cost = []
-        self.session = None
-        #self.test_cost = []
-        #self.loaded_model = False
-        #self.is_vis_ready = False
 
     def _set_l1_reg(self, l1_reg):
         if not is_positive_or_zero(l1_reg):
@@ -166,26 +170,10 @@ class _NN(object):
 
     #TODO test
     def _set_hidden_layers_sizes(self, hidden_layer_sizes):
-        hidden_layers = []
-        try:
-            hidden_layer_sizes[0]
-        except TypeError:
-            raise InputError("'hidden_layer_sizes' must be array-like")
-        except IndexError:
-            raise InputError("'hidden_layer_sizes' must be non-empty")
-        for i,n in enumerate(hidden_layer_sizes):
-            if not is_positive_integer_or_zero(n):
-                raise InputError("Hidden layer size must be a positive integer. Got %s" % str(n))
+        if not is_positive_integer_array(hidden_layer_sizes):
+            raise InputError("'hidden_layer_sizes' must be an array of  positive integers")
 
-            # Ignore layers of size zero
-            if int(n) == 0:
-                break
-            hidden_layers.append(int(n))
-
-        if len(hidden_layers) == 0:
-            raise InputError("Hidden layers must be non-zero. Got %s" % str(hidden_layer_sizes))
-
-        self.hidden_layer_sizes = np.asarray(hidden_layers, dtype=int)
+        self.hidden_layer_sizes = np.asarray(hidden_layer_sizes, dtype = int)
 
     def _set_tensorboard(self, tensorboard, store_frequency, tensorboard_subdir):
 
@@ -411,10 +399,10 @@ class _NN(object):
         if y_nn.shape != y_true.shape:
             raise InputError("Shape mismatch between predicted and true values. %s and %s" % (str(y_nn.shape), str(y_true.shape)))
 
-        if y_nn.ndim == 1:
+        if y_nn.ndim == 1 or y_nn.shape[1] == 1:
             df = pd.DataFrame()
-            df["Predictions"] = y_nn
-            df["True"] = y_true
+            df["Predictions"] = y_nn.ravel()
+            df["True"] = y_true.ravel()
             sns.set()
             lm = sns.lmplot('True', 'Predictions', data=df, scatter_kws={"s": 20, "alpha": 0.6}, line_kws={"alpha": 0.5})
             if filename == '':
@@ -424,7 +412,7 @@ class _NN(object):
             else:
                 raise InputError("Wrong data type of variable 'filename'. Expected string")
         else:
-            for i in range(y_nn.ndim):
+            for i in range(y_nn.shape[0]):
                 df = pd.DataFrame()
                 df["Predictions"] = y_nn[:,i]
                 df["True"] = y_true[:,i]
@@ -454,7 +442,12 @@ class _NN(object):
             return self._score_r2(*args)
 
     def predict(self, x):
-        return self._predict(x)
+        predictions = self._predict(x)
+
+        if predictions.ndim > 1 and predictions.shape[1] == 1:
+            return predictions.ravel()
+        else:
+            return predictions
 
     # TODO test
     def _predict(self, x):
@@ -482,26 +475,28 @@ class _NN(object):
             y_pred = self.session.run(model, feed_dict = {tf_x : x})
             return y_pred
 
-# Molecular Representation Single Property
-class MRMP(_NN):
+# TODO: Rename to something more sensible
+class NN(_NN):
     """
-    Neural network for predicting single properties, such as energies, using molecular representations.
+    Neural network for either
+    1) predicting global properties, such as energies, using molecular representations, or
+    2) predicting local properties, such as chemical shieldings, using atomic representations.
     """
 
     def __init__(self, **kwargs):
         """
-        Molecular descriptors is used as input to a single or multi layered feed-forward neural network with a single output.
-        This class inherits from the _NN class and all inputs not unique to the MRMP class is passed to the _NN
+        Descriptors is used as input to a single or multi layered feed-forward neural network with a single output.
+        This class inherits from the _NN class and all inputs not unique to the NN class is passed to the _NN
         parent.
 
         """
 
-        super(MRMP,self).__init__(**kwargs)
+        super(NN,self).__init__(**kwargs)
 
     #TODO test
     def fit(self, x, y):
         """
-        Fit the neural network to molecular representations x and target y.
+        Fit the neural network to molecular descriptors x and target y.
 
         :param x: Input data with samples in the rows and features in the columns.
         :type x: array
@@ -689,30 +684,3 @@ class MRMP(_NN):
 
         return cost
 
-if __name__ == "__main__":
-    # Simple example of fitting a quadratic function
-    estimator = MRMP(hidden_layer_sizes=(5, 5, 5), learning_rate=0.01, iterations=5000, l2_reg = 0, tf_dtype = 32, scoring_function="rmse")
-    x = np.arange(-2.0, 2.0, 0.05)
-    X = np.reshape(x, (len(x), 1))
-    y = np.reshape(X ** 3, (len(x),))
-
-    estimator.fit(X, y)
-    y_pred = estimator.predict(X)
-
-    #  Visualisation of predictions
-    fig2, ax2 = plt.subplots(figsize=(6,6))
-    ax2.scatter(x, y, label="original", marker="o", c="r")
-    ax2.scatter(x, y_pred, label="predictions", marker="o", c='b')
-    ax2.set_xlabel('x')
-    ax2.set_ylabel('y')
-    ax2.legend()
-
-    # Correlation plot
-    fig3, ax3 = plt.subplots(figsize=(6,6))
-    ax3.scatter(y, y_pred, marker="o", c="r")
-    ax3.set_xlabel('original y')
-    ax3.set_ylabel('prediction y')
-    plt.show()
-
-    # Cost plot
-    estimator.plot_cost()
