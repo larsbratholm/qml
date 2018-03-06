@@ -24,9 +24,14 @@
 """
 Aglaia main module
 ===============
+
+Provides
+    1. NN class
+    2. wrappers
 """
 from __future__ import absolute_import
-from .aglaia import *
+
+from .aglaia import NN
 
 __author__ = "Silvia Amabilino, Lars Andersen Bratholm"
 __copyright__ = "Copyright 2017"

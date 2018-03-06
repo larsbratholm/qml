@@ -303,7 +303,7 @@ class OMNN(NN, _ONN):
             raise InputError("Unknown representation %s" % representation)
         self.representation = representation.lower()
 
-        self._set_slatm(self, *args)
+        self._set_slatm(*args)
 
     def _set_slatm(self, slatm_sigma1, slatm_sigma2, slatm_dgrid1, slatm_dgrid2, slatm_rcut,
             slatm_rpower, slatm_alchemy):
@@ -535,7 +535,6 @@ class OANN(OMNN):
                 x_i = self._get_descriptors_from_mol(mol, i)
                 x.extend(x_i)
 
-
         elif self.representation == "slatm":
             mbtypes = self._get_slatm_mbtypes([mol.nuclear_charges for mol in self.compounds])
             for i, mol in enumerate(self.compounds[idx]):
@@ -571,7 +570,7 @@ class OANN(OMNN):
             for i, arr in enumerate(indices_array):
                 merged = []
                 for j in arr:
-                    merged.extend(mol.representation[i])
+                    merged.extend(mol.representation[j])
                 x.append(merged[:])
 
         return x
@@ -612,16 +611,3 @@ class OANN(OMNN):
     def predict(self, indices):
         x = self.get_descriptors_from_indices(indices)
         return self._predict(x)
-if __name__ == "__main__":
-    import time
-    OANN()
-    #for rep in ["unsorted_coulomb_matrix", "sorted_coulomb_matrix", "bag_of_bonds", "slatm"]:
-    #    x = OMNN(representation=rep)
-    #    filenames = glob.glob("/home/lb17101/dev/qml/tests/qm7/*.xyz")[:100]
-    #    y = np.array(range(len(filenames)), dtype=int)
-    #    x.generate_compounds(filenames)
-    #    x.set_properties(y)
-    #    t = time.time()
-    #    x.fit(y)
-    #    print(rep, time.time() - t)
-

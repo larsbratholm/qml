@@ -22,7 +22,7 @@ import matplotlib.pyplot as plt
 #from .utils import is_positive, is_positive_integer, is_positive_integer_or_zero, \
 #       is_bool, is_string, is_positive_or_zero, InputError, ceil
 from .utils import InputError, ceil, is_positive_or_zero, is_positive_integer, is_positive, \
-        is_bool, is_positive_integer_or_zero, is_string
+        is_bool, is_positive_integer_or_zero, is_string, is_positive_integer_array
 from .tf_utils import TensorBoardLogger
 
 class _NN(object):
@@ -170,26 +170,10 @@ class _NN(object):
 
     #TODO test
     def _set_hidden_layers_sizes(self, hidden_layer_sizes):
-        hidden_layers = []
-        try:
-            hidden_layer_sizes[0]
-        except TypeError:
-            raise InputError("'hidden_layer_sizes' must be array-like")
-        except IndexError:
-            raise InputError("'hidden_layer_sizes' must be non-empty")
-        for i,n in enumerate(hidden_layer_sizes):
-            if not is_positive_integer_or_zero(n):
-                raise InputError("Hidden layer size must be a positive integer. Got %s" % str(n))
+        if not is_positive_integer_array(hidden_layer_sizes):
+            raise InputError("'hidden_layer_sizes' must be an array of  positive integers")
 
-            # Ignore layers of size zero
-            if int(n) == 0:
-                break
-            hidden_layers.append(int(n))
-
-        if len(hidden_layers) == 0:
-            raise InputError("Hidden layers must be non-zero. Got %s" % str(hidden_layer_sizes))
-
-        self.hidden_layer_sizes = np.asarray(hidden_layers, dtype=int)
+        self.hidden_layer_sizes = np.asarray(hidden_layer_sizes, dtype = int)
 
     def _set_tensorboard(self, tensorboard, store_frequency, tensorboard_subdir):
 
@@ -458,7 +442,12 @@ class _NN(object):
             return self._score_r2(*args)
 
     def predict(self, x):
-        return self._predict(x)
+        predictions = self._predict(x)
+
+        if predictions.ndim > 1 and predictions.shape[1] == 1:
+            return predictions.ravel()
+        else:
+            return predictions
 
     # TODO test
     def _predict(self, x):
@@ -486,6 +475,7 @@ class _NN(object):
             y_pred = self.session.run(model, feed_dict = {tf_x : x})
             return y_pred
 
+# TODO: Rename to something more sensible
 class NN(_NN):
     """
     Neural network for either
