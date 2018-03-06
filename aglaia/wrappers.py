@@ -7,21 +7,24 @@ import itertools
 from inspect import signature
 import numpy as np
 from sklearn.base import BaseEstimator
+try:
+    from qml import Compound
+except ModuleNotFoundError:
+    raise ModuleNotFoundError("The module qml is required")
 
-#TODO relative imports
-from .aglaia import _NN, MRMP
+from .aglaia import _NN, NN
 from .utils import InputError, is_positive_integer, is_string, is_positive_integer_or_zero, \
-        is_non_zero_integer, is_bool, is_positive
+        is_non_zero_integer, is_bool, is_positive, is_array_like, is_dict
 
 
-class _OSPNN(BaseEstimator, _NN):
+class _ONN(BaseEstimator, _NN):
     """
     Adds additional variables and functionality to the _NN class that makes interfacing with
     Osprey for hyperparameter search easier
     """
 
     def __init__(self, hl1 = 5, hl2 = 0, hl3 = 0,
-            compounds = None, properties = None, nuclear_charges = None, coordinates = None, **kwargs):
+            compounds = None, properties = None, **kwargs):
         """
         :param hl1: Number of neurons in the first hidden layer. If different from zero, ``hidden_layer_sizes`` is
                     overwritten.
@@ -32,18 +35,33 @@ class _OSPNN(BaseEstimator, _NN):
         :type hl3: integer
         """
 
-        super(_OSPNN, self).__init__(**kwargs)
+        super(_ONN, self).__init__(**kwargs)
 
         self._set_hl(hl1, hl2, hl3)
+        self.set_compounds(self, compounds)
+        self.set_properties(self, properties)
 
-        # Placeholder variables
-        self.compounds = np.empty(0, dtype=object)
-        self.properties = np.empty(0, dtype=float)
+    def set_compounds(self, compounds):
+        self._set_compounds(compounds)
 
+    def _set_compounds(self, compounds):
         if type(compounds) != type(None):
-            self.compounds = compounds
+            if is_array_like(compounds) and isinstance(compounds[0], Compound):
+                self.compounds = compounds
+            else:
+                raise InputError('Variable "compounds" needs to an array of QML compounds. Got %s' % str(compounds))
+        else:
+            self.compounds = None
+
+    def set_properties(self, properties):
+        self._set_properties(properties)
+
+    def _set_properties(self, properties):
         if type(properties) != type(None):
             self.properties = properties
+        else:
+            self.properties = None
+
 
     def get_params(self, deep = True):
         """
@@ -54,14 +72,14 @@ class _OSPNN(BaseEstimator, _NN):
 
         """
         params = BaseEstimator.get_params(self)
-        parent_init = super(_OSPNN, self).__init__
+        parent_init = super(_ONN, self).__init__
 
         # Taken from scikit-learns BaseEstimator class
         parent_init_signature = signature(parent_init)
         for p in (p for p in parent_init_signature.parameters.values() 
                 if p.name != 'self' and p.kind != p.VAR_KEYWORD):
             if p.name in params:
-                return InputError('This should never happen')
+                raise InputError('This should never happen')
             params[p.name] = p.default
 
         return params
@@ -126,10 +144,6 @@ class _OSPNN(BaseEstimator, _NN):
         :type filenames: list
         """
 
-        try:
-            from qml import Compound
-        except ModuleNotFoundError:
-            raise ModuleNotFoundError("The module qml is required")
 
         # Check that the number of properties match the number of compounds
         if self.properties.size == 0:
@@ -199,19 +213,30 @@ class _OSPNN(BaseEstimator, _NN):
         nmax = max(mol.natoms for mol in self.compounds)
 
         return nmax + pad
+    
+    def _get_slatm_mbtypes(self, arr):
+        from qml.representations import get_slatm_mbtypes
+        return get_slatm_mbtypes(arr)
 
     def score(self, indices):
         idx = np.asarray(indices, dtype=int)
         y = self.properties[idx]
-        return self._score(idx, y)
+
+        # Osprey maximises a score per default, so return minus mae/rmsd and plus r2
+        if self.scoring_function == "r2":
+            return self._score(idx, y)
+        else:
+            return - self._score(idx, y)
 
 
 #TODO slatm exception tests
-# Molecular Representation Single Property
-class OSPMRMP(MRMP, _OSPNN):
+# TODO remove compounds argument and only keep it in _ONN
+# Osprey molecular neural network
+class OMNN(NN, _ONN):
     """
-    Adds additional variables and functionality to the MRMP class that makes interfacing with
+    Adds additional variables and functionality to the NN class that makes interfacing with
     Osprey for hyperparameter search easier.
+    Used for generating molecular representations to predict global properties, such as energies.
     """
 
     def __init__(self, representation = 'unsorted_coulomb_matrix', 
@@ -220,7 +245,7 @@ class OSPMRMP(MRMP, _OSPNN):
         """
         A molecule's cartesian coordinates and chemical composition is transformed into a descriptor for the molecule,
         which is then used as input to a single or multi layered feedforward neural network with a single output.
-        This class inherits from the _NN and _OSPNN class and all inputs not unique to the MRMP class is passed to the
+        This class inherits from the _NN and _ONN class and all inputs not unique to the OMNN class is passed to the
         parents.
 
         Available representations at the moment are ['unsorted_coulomb_matrix', 'sorted_coulomb_matrix',
@@ -245,14 +270,33 @@ class OSPMRMP(MRMP, _OSPNN):
 
         """
 
-        super(OSPMRMP,self).__init__(compounds = compounds, properties = properties, **kwargs)
+        # TODO try to avoid directly passing compounds and properties. That shouldn't be needed.
+        super(OMNN,self).__init__(compounds = compounds, properties = properties, **kwargs)
 
+        self._set_representation(representation, slatm_sigma1, slatm_sigma2, slatm_dgrid1, slatm_dgrid2, slatm_rcut,
+                slatm_rpower, slatm_alchemy)
+
+    def _set_properties(self, properties):
+        if type(properties) != type(None):
+            if is_array_like(properties) and np.asarray(properties).ndim != 1:
+                self.properties = np.asarray(properties)
+            else:
+                raise InputError('Variable "properties" expected to be array like of dimension 1. Got %s' % str(properties))
+        else:
+            self.properties = None
+
+    def _set_representation(self, representation, *args):
 
         if not is_string(representation):
             raise InputError("Expected string for variable 'representation'. Got %s" % str(representation))
         if representation.lower() not in ['sorted_coulomb_matrix', 'unsorted_coulomb_matrix', 'bag_of_bonds', 'slatm']:
             raise InputError("Unknown representation %s" % representation)
         self.representation = representation.lower()
+
+        self._set_slatm(self, *args)
+
+    def _set_slatm(self, slatm_sigma1, slatm_sigma2, slatm_dgrid1, slatm_dgrid2, slatm_rcut,
+            slatm_rpower, slatm_alchemy):
 
         if not is_positive(slatm_sigma1):
             raise InputError("Expected positive float for variable 'slatm_sigma1'. Got %s." % str(slatm_sigma1))
@@ -302,7 +346,7 @@ class OSPMRMP(MRMP, _OSPNN):
 
         self.properties = np.asarray(y, dtype = float)
 
-    def get_representation(self, indices):
+    def get_descriptor(self, indices):
 
         if self.properties.size == 0:
             raise InputError("Properties needs to be set in advance")
@@ -349,8 +393,7 @@ class OSPMRMP(MRMP, _OSPNN):
             x = np.asarray(list(x), dtype=float)
 
         elif self.representation == "slatm":
-            from qml.representations import get_slatm_mbtypes
-            mbtypes = get_slatm_mbtypes([mol.nuclear_charges for mol in self.compounds])
+            mbtypes = self._get_slatm_mbtypes([mol.nuclear_charges for mol in self.compounds])
             x = np.empty(idx.size, dtype=object)
             for i, mol in enumerate(self.compounds[idx]):
                 mol.generate_slatm(mbtypes, local = False, sigmas = [self.slatm_sigma1, self.slatm_sigma2],
@@ -374,7 +417,7 @@ class OSPMRMP(MRMP, _OSPNN):
 
         """
 
-        x = self.get_representation(indices)
+        x = self.get_descriptor(indices)
 
         idx = np.asarray(indices, dtype = int).ravel()
         y = self.properties[idx]
@@ -382,7 +425,7 @@ class OSPMRMP(MRMP, _OSPNN):
         return self._fit(x, y)
 
     def predict(self, indices):
-        x = self.get_representation(indices)
+        x = self.get_descriptor(indices)
         return self._predict(x)
 
 if __name__ == "__main__":
