@@ -5,11 +5,12 @@ Tests directly related to the class _NN and it's children.
 import tensorflow as tf
 import numpy as np
 import matplotlib.pyplot as plt
+import glob
 
 # TODO relative imports
 from aglaia import SPNN
 from aglaia.aglaia import _NN
-from aglaia.wrappers import _OSPNN, OSPSPNN
+from aglaia.wrappers import _OSPNN, OSPSPNN, OANN
 from aglaia.utils import InputError
 
 
@@ -279,6 +280,39 @@ def test_mrmp():
     # Cost plot
     estimator.plot_cost()
     estimator.correlation_plot(y_pred, y)
+
+
+def test_minimal_OANN():
+    m = OANN(representation='slatm', iterations = 10)
+    filenames = glob.glob("../data/qm7/*.xyz")[:2]
+    m.generate_compounds(filenames)
+
+    # one property per atom
+    d = {}
+    for i, c in enumerate(m.compounds):
+        x = []
+        y = []
+        for j in range(len(c.nuclear_charges)):
+            y.append(np.random.random())
+            x.append(j)
+        d[i] = x[:], y[:]
+
+    m.set_properties(d)
+    m.fit([0,1])
+
+    # one property per atom pair
+    d = {}
+    for i, c in enumerate(m.compounds):
+        x = []
+        y = []
+        for j in range(len(c.nuclear_charges)):
+            for k in range(j+1, len(c.nuclear_charges)):
+                y.append(np.random.random())
+                x.append([j,k])
+        d[i] = x[:], y[:]
+
+    m.set_properties(d)
+    m.fit([0,1])
 
 if __name__ == "__main__":
     test_input()
