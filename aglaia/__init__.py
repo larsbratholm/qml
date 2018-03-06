@@ -26,6 +26,7 @@ Aglaia main module
 ===============
 """
 from __future__ import absolute_import
+from .aglaia import *
 
 __author__ = "Silvia Amabilino, Lars Andersen Bratholm"
 __copyright__ = "Copyright 2017"
