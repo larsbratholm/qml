@@ -419,7 +419,7 @@ class _NN(object):
         else:
             if self.batch_size > self.n_samples:
                 print("Warning: batch_size larger than sample size. It is going to be clipped")
-                return min(self.nsamples, self.batch_size)
+                return min(self.n_samples, self.batch_size)
             else:
                 batch_size = self.batch_size
 
