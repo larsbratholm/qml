@@ -196,34 +196,34 @@ class _NN(object):
         self.l1_regularization_strength = float(l1_regularization_strength)
         self.l2_regularization_strength = float(l2_regularization_strength)
 
-    def _set_optimiser(self):
-        """
-        This function generates the object optimiser.
-
-        :return: optimiser_obj: an object of the tensorflow optimiser class
-        """
-        self.AdagradDA = False
-        if self.optimiser_class in ['AdamOptimizer', tf.train.AdamOptimizer]:
-            optimiser_obj = tf.train.AdamOptimizer(learning_rate=self.learning_rate, beta1=self.beta1, beta2=self.beta2,
-                                                    epsilon=self.epsilon)
-        elif self.optimiser_class in ['AdadeltaOptimizer', tf.train.AdadeltaOptimizer]:
-             optimiser_obj = tf.train.AdadeltaOptimizer(learning_rate=self.learning_rate, rho=self.rho, epsilon=self.epsilon)
-        elif self.optimiser_class in ['AdagradOptimizer', tf.train.AdagradOptimizer]:
-             optimiser_obj = tf.train.AdagradOptimizer(learning_rate=self.learning_rate,
-                                                       initial_accumulator_value=self.initial_accumulator_value)
-        elif self.optimiser_class in ['AdagradDAOptimizer', tf.train.AdagradDAOptimizer]:
-            self.global_step = tf.placeholder(dtype=tf.int64)
-            optimiser_obj = tf.train.AdagradDAOptimizer(learning_rate=self.learning_rate, global_step=self.global_step,
-                                                         initial_gradient_squared_accumulator_value=self.initial_gradient_squared_accumulator_value,
-                                                         l1_regularization_strength=self.l1_regularization_strength,
-                                                         l2_regularization_strength=self.l2_regularization_strength)
-            self.AdagradDA = True
-        elif self.optimiser_class in ['GradientDescentOptimizer', tf.train.GradientDescentOptimizer]:
-            optimiser_obj = tf.train.GradientDescentOptimizer(learning_rate=self.learning_rate)
-        else:
-            raise InputError("Unknown optimiser class. Got %s" % str(self.optimiser_class))
-
-        return optimiser_obj
+    # def _set_optimiser(self):
+    #     """
+    #     This function generates the object optimiser.
+    #
+    #     :return: optimiser_obj: an object of the tensorflow optimiser class
+    #     """
+    #     self.AdagradDA = False
+    #     if self.optimiser_class in ['AdamOptimizer', tf.train.AdamOptimizer]:
+    #         optimiser_obj = tf.train.AdamOptimizer(learning_rate=self.learning_rate, beta1=self.beta1, beta2=self.beta2,
+    #                                                 epsilon=self.epsilon)
+    #     elif self.optimiser_class in ['AdadeltaOptimizer', tf.train.AdadeltaOptimizer]:
+    #          optimiser_obj = tf.train.AdadeltaOptimizer(learning_rate=self.learning_rate, rho=self.rho, epsilon=self.epsilon)
+    #     elif self.optimiser_class in ['AdagradOptimizer', tf.train.AdagradOptimizer]:
+    #          optimiser_obj = tf.train.AdagradOptimizer(learning_rate=self.learning_rate,
+    #                                                    initial_accumulator_value=self.initial_accumulator_value)
+    #     elif self.optimiser_class in ['AdagradDAOptimizer', tf.train.AdagradDAOptimizer]:
+    #         self.global_step = tf.placeholder(dtype=tf.int64)
+    #         optimiser_obj = tf.train.AdagradDAOptimizer(learning_rate=self.learning_rate, global_step=self.global_step,
+    #                                                      initial_gradient_squared_accumulator_value=self.initial_gradient_squared_accumulator_value,
+    #                                                      l1_regularization_strength=self.l1_regularization_strength,
+    #                                                      l2_regularization_strength=self.l2_regularization_strength)
+    #         self.AdagradDA = True
+    #     elif self.optimiser_class in ['GradientDescentOptimizer', tf.train.GradientDescentOptimizer]:
+    #         optimiser_obj = tf.train.GradientDescentOptimizer(learning_rate=self.learning_rate)
+    #     else:
+    #         raise InputError("Unknown optimiser class. Got %s" % str(self.optimiser_class))
+    #
+    #     return optimiser_obj
 
     def _set_scoring_function(self, scoring_function):
         if not is_string(scoring_function):
@@ -484,7 +484,7 @@ class _NN(object):
             if filename == '':
                 plt.show()
             elif is_string(filename):
-                plt.save(filename)
+                plt.savefig(filename)
             else:
                 raise InputError("Wrong data type of variable 'filename'. Expected string")
         else:
@@ -501,7 +501,7 @@ class _NN(object):
                     file_ = str(i) + "_" + tokens[-1]
                     if len(tokens) > 1:
                         file_ = "/".join(tokens[:-1]) + "/" + file_
-                    plt.save(file_)
+                    plt.savefig(file_)
                 else:
                     raise InputError("Wrong data type of variable 'filename'. Expected string")
 
