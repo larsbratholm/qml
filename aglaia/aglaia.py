@@ -12,6 +12,8 @@ import tensorflow as tf
 #from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.utils.validation import check_X_y, check_array
 from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 #import inverse_dist as inv
 #from tensorflow.python.framework import ops
@@ -195,35 +197,6 @@ class _NN(object):
                              (str(l1_regularization_strength), str(l2_regularization_strength)))
         self.l1_regularization_strength = float(l1_regularization_strength)
         self.l2_regularization_strength = float(l2_regularization_strength)
-
-    # def _set_optimiser(self):
-    #     """
-    #     This function generates the object optimiser.
-    #
-    #     :return: optimiser_obj: an object of the tensorflow optimiser class
-    #     """
-    #     self.AdagradDA = False
-    #     if self.optimiser_class in ['AdamOptimizer', tf.train.AdamOptimizer]:
-    #         optimiser_obj = tf.train.AdamOptimizer(learning_rate=self.learning_rate, beta1=self.beta1, beta2=self.beta2,
-    #                                                 epsilon=self.epsilon)
-    #     elif self.optimiser_class in ['AdadeltaOptimizer', tf.train.AdadeltaOptimizer]:
-    #          optimiser_obj = tf.train.AdadeltaOptimizer(learning_rate=self.learning_rate, rho=self.rho, epsilon=self.epsilon)
-    #     elif self.optimiser_class in ['AdagradOptimizer', tf.train.AdagradOptimizer]:
-    #          optimiser_obj = tf.train.AdagradOptimizer(learning_rate=self.learning_rate,
-    #                                                    initial_accumulator_value=self.initial_accumulator_value)
-    #     elif self.optimiser_class in ['AdagradDAOptimizer', tf.train.AdagradDAOptimizer]:
-    #         self.global_step = tf.placeholder(dtype=tf.int64)
-    #         optimiser_obj = tf.train.AdagradDAOptimizer(learning_rate=self.learning_rate, global_step=self.global_step,
-    #                                                      initial_gradient_squared_accumulator_value=self.initial_gradient_squared_accumulator_value,
-    #                                                      l1_regularization_strength=self.l1_regularization_strength,
-    #                                                      l2_regularization_strength=self.l2_regularization_strength)
-    #         self.AdagradDA = True
-    #     elif self.optimiser_class in ['GradientDescentOptimizer', tf.train.GradientDescentOptimizer]:
-    #         optimiser_obj = tf.train.GradientDescentOptimizer(learning_rate=self.learning_rate)
-    #     else:
-    #         raise InputError("Unknown optimiser class. Got %s" % str(self.optimiser_class))
-    #
-    #     return optimiser_obj
 
     def _set_scoring_function(self, scoring_function):
         if not is_string(scoring_function):

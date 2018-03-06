@@ -149,6 +149,10 @@ class _OSPNN(BaseEstimator, _NN):
         elif size == 3:
             self.hidden_layer_sizes = np.asarray([hl1, hl2, hl3], dtype = int)
 
+        self.hl1 = hl1
+        self.hl2 = hl2
+        self.hl3 = hl3
+
     #TODO test
     def generate_compounds(self, filenames):
         """
