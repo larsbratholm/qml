@@ -12,10 +12,14 @@ try:
 except ModuleNotFoundError:
     raise ModuleNotFoundError("The module qml is required")
 
-from .aglaia import _NN, NN
-from .utils import InputError, is_positive_integer, is_string, is_positive_integer_or_zero, \
-        is_non_zero_integer, is_bool, is_positive, is_array_like, is_dict
+try:
+    from qml import Compound
+except ModuleNotFoundError:
+    raise ModuleNotFoundError("The module qml is required")
 
+from .aglaia import _NN, NN
+from .utils import InputError, is_array_like, is_numeric_array, is_positive_integer, is_positive_integer_or_zero, \
+        is_non_zero_integer, is_positive_integer_or_zero_array, is_dict, is_none, is_string, is_positive, is_bool
 
 class _ONN(BaseEstimator, _NN):
     """
@@ -38,14 +42,14 @@ class _ONN(BaseEstimator, _NN):
         super(_ONN, self).__init__(**kwargs)
 
         self._set_hl(hl1, hl2, hl3)
-        self.set_compounds(self, compounds)
-        self.set_properties(self, properties)
+        self.set_compounds(compounds)
+        self.set_properties(properties)
 
     def set_compounds(self, compounds):
         self._set_compounds(compounds)
 
     def _set_compounds(self, compounds):
-        if type(compounds) != type(None):
+        if not is_none(compounds):
             if is_array_like(compounds) and isinstance(compounds[0], Compound):
                 self.compounds = compounds
             else:
@@ -57,7 +61,7 @@ class _ONN(BaseEstimator, _NN):
         self._set_properties(properties)
 
     def _set_properties(self, properties):
-        if type(properties) != type(None):
+        if not is_none(properties):
             self.properties = properties
         else:
             self.properties = None
@@ -146,7 +150,7 @@ class _ONN(BaseEstimator, _NN):
 
 
         # Check that the number of properties match the number of compounds
-        if self.properties.size == 0:
+        if is_none(self.properties):
             pass
         else:
             if self.properties.size == len(filenames):
@@ -236,7 +240,7 @@ class OMNN(NN, _ONN):
     """
     Adds additional variables and functionality to the NN class that makes interfacing with
     Osprey for hyperparameter search easier.
-    Used for generating molecular representations to predict global properties, such as energies.
+    Used for generating molecular descriptors to predict global properties, such as energies.
     """
 
     def __init__(self, representation = 'unsorted_coulomb_matrix', 
@@ -277,8 +281,14 @@ class OMNN(NN, _ONN):
                 slatm_rpower, slatm_alchemy)
 
     def _set_properties(self, properties):
-        if type(properties) != type(None):
-            if is_array_like(properties) and np.asarray(properties).ndim != 1:
+        """
+        Set properties. Needed to be called before fitting.
+
+        :param y: array of properties of size (nsamples,)
+        :type y: array
+        """
+        if not is_none(properties):
+            if is_numeric_array(properties) and np.asarray(properties).ndim == 1:
                 self.properties = np.asarray(properties)
             else:
                 raise InputError('Variable "properties" expected to be array like of dimension 1. Got %s' % str(properties))
@@ -326,45 +336,18 @@ class OMNN(NN, _ONN):
             raise InputError("Expected boolean value for variable 'slatm_alchemy'. Got %s." % str(slatm_alchemy))
         self.slatm_alchemy = bool(slatm_alchemy)
 
-    # TODO test
-    def set_properties(self, y):
-        """
-        Set properties. Needed to be called before fitting.
+    def get_descriptors_from_indices(self, indices):
 
-        :param y: array of properties of size (nsamples,)
-        :type y: array
-        """
-
-        if self.compounds.size == 0:
-            pass
-        else:
-            if self.compounds.size == len(y):
-                pass
-            else:
-                raise InputError("Number of properties (%d) does not match number of compounds (%d)" 
-                        % (len(y), self.compounds.size))
-
-        self.properties = np.asarray(y, dtype = float)
-
-    def get_descriptor(self, indices):
-
-        if self.properties.size == 0:
+        if is_none(self.properties):
             raise InputError("Properties needs to be set in advance")
-        if len(self.compounds) == 0:
+        if is_none(self.compounds):
             raise InputError("QML compounds needs to be created in advance")
 
-        if not is_positive_integer_or_zero(indices[0]):
+        if not is_positive_integer_or_zero_array(indices):
             raise InputError("Expected input to be indices")
 
-        try:
-            idx = np.asarray(indices, dtype=int)
-            if not np.array_equal(idx, indices):
-                raise InputError
-            # convert to 1d
-            idx = idx.ravel()
-        except InputError:
-            raise InputError("Expected input to be indices")
-
+        # Convert to 1d
+        idx = np.asarray(indices, dtype=int).ravel()
 
         if self.representation == 'unsorted_coulomb_matrix':
 
@@ -417,7 +400,7 @@ class OMNN(NN, _ONN):
 
         """
 
-        x = self.get_descriptor(indices)
+        x = self.get_descriptors_from_indices(indices)
 
         idx = np.asarray(indices, dtype = int).ravel()
         y = self.properties[idx]
@@ -425,7 +408,7 @@ class OMNN(NN, _ONN):
         return self._fit(x, y)
 
     def predict(self, indices):
-        x = self.get_descriptor(indices)
+        x = self.get_descriptors_from_indices(indices)
         return self._predict(x)
 
 # Osprey atomic neural network
@@ -433,12 +416,12 @@ class OANN(OMNN):
     """
     Adds additional variables and functionality to the NN class that makes interfacing with
     Osprey for hyperparameter search easier.
-    Used for generating atomic representations to predict local properties, such as chemical shieldings or j-couplings.
+    Used for generating atomic descriptors to predict local properties, such as chemical shieldings or j-couplings.
     """
 
-    def __init__(self, representation = 'sorted_coulomb_matrix', 
+    def __init__(self, representation = 'atomic_coulomb_matrix', 
             slatm_sigma1 = 0.05, slatm_sigma2 = 0.05, slatm_dgrid1 = 0.03, slatm_dgrid2 = 0.03, slatm_rcut = 4.8, slatm_rpower = 6,
-            slatm_alchemy = False, compounds = None, properties = None, **kwargs):
+            slatm_alchemy = False, compounds = None, properties = None, cm_cutoff = 1e6, **kwargs):
         """
         A descriptor is generated for a single atom or a set of atoms from the carteesian coordinates and chemical
         composition of its environment.
@@ -446,7 +429,7 @@ class OANN(OMNN):
         This class inherits from the OMNN class and all inputs not unique to the OANN class is passed to the
         parents.
 
-        Available representations at the moment are ['sorted_coulomb_matrix', 'slatm'].
+        Available representations at the moment are ['atomic_coulomb_matrix', 'slatm'].
 
         :param representation: Name of molecular representation.
         :type representation: string
@@ -467,35 +450,22 @@ class OANN(OMNN):
 
         """
 
-        super(OANN,self).__init__(compounds = compounds, properties = properties, **kwargs)
+        # TODO remove compounds and properties super
+        super(OANN,self).__init__(compounds = compounds, properties = properties, representation = representation, **kwargs)
 
-    def _set_properties(self, properties):
-        if type(properties) != type(None):
-            # Check that properties follows the correct format
-            if is_dict(properties) and 0 in properties and len(properties[0]) == 2 \
-                    and is_array_like(properties[0][0]) and is_array_like(properties[0][1]):
-                self.properties = np.asarray(properties)
-            else:
-                raise InputError('Variable "properties" expected to be array like of dimension 1. Got %s' % str(properties))
+        self._set_cm(cm_cutoff)
+
+    def _set_cm(self, cm_cutoff):
+        if is_positive(cm_cutoff):
+            self.cm_cutoff = float(cm_cutoff)
         else:
-            self.properties = None
-
-    # This will be run when initialising _OANN
-    def _set_representation(self, representation, *args):
-
-        if not is_string(representation):
-            raise InputError("Expected string for variable 'representation'. Got %s" % str(representation))
-        if representation.lower() not in ['sorted_coulomb_matrix', 'slatm']:
-            raise InputError("Unknown representation %s" % representation)
-        self.representation = representation.lower()
-
-        self._set_slatm(self, *args)
+            raise InputError("Expected positive float for variable cm_cutoff. Got %s" % str(cm_cutoff))
 
     # TODO test
     # TODO check if this actually works with osprey
     # TODO there must be a prettier way of handling data that I'm not seeing.
     #      A single large array would be slower if one needs to look up the compound every time.
-    def set_properties(self, y):
+    def _set_properties(self, properties):
         """
         Set properties. Needed to be called before fitting.
         `y` needs to be a dictionary with keys corresponding to compound indices.
@@ -504,72 +474,121 @@ class OANN(OMNN):
         For example the following indicates that for the compound with index 0, the atoms with indices 0 and 1 have
         a property of value 1.2 and 2.3 respectively:
 
-            y[0] = ([0,1], [1.2, 2.3])
+            y[0] = ([0, 1], [1.2, 2.3])
 
         Multi-index properties is supported. Three-bond coupling constants will directly propagate through four atoms
         and one could have the following, where four atom indices correspond to a single property.
 
-            y[0] = ([[0,1,2,3], [1,2,3,4]], [1.2, 2.3])
+            y[0] = ([[0, 1, 2, 3], [1, 2, 3, 4]], [1.2, 2.3])
 
         :param y: Dictionary with keys corresponding to compound indices.
         :type y: dictionary
         """
-
-        if self.compounds.size == 0:
-            pass
-        else:
-            if self.compounds.size == len(y):
-                pass
+        if not is_none(properties):
+            # Check that properties follows the correct format
+            if is_dict(properties) and 0 in properties and len(properties[0]) == 2 \
+                    and is_array_like(properties[0][0]) and is_array_like(properties[0][1]):
+                self.properties = properties
             else:
-                raise InputError("Number of properties (%d) are lower than the number of compounds (%d)" 
-                        % (len(y), self.compounds.size))
+                raise InputError('Variable "properties" expected to be dictionary. Got %s' % str(properties))
+        else:
+            self.properties = None
 
-        self.properties = {}
+    # This will be run when initialising _OANN
+    def _set_representation(self, representation, *args):
 
-    def get_descriptor(self, indices):
+        if not is_string(representation):
+            raise InputError("Expected string for variable 'representation'. Got %s" % str(representation))
+        if representation.lower() not in ['atomic_coulomb_matrix', 'slatm']:
+            raise InputError("Unknown representation %s" % representation)
+        self.representation = representation.lower()
+
+        self._set_slatm(*args)
+
+    def get_descriptors_from_indices(self, indices):
         """
-        Constructs the descriptors from the given compounds and indices. Each entry of indices contain
-        the compound index as well as 
+        Constructs the descriptors from the given compounds and indices. Each entry of indices contain the
+        index of a compound.
         """
 
-        if self.properties.size == 0:
+        if is_none(self.properties):
             raise InputError("Properties needs to be set in advance")
-        if len(self.compounds) == 0:
+        if is_none(self.compounds):
             raise InputError("QML compounds needs to be created in advance")
 
-        if not is_positive_integer_or_zero(indices[0]):
+        if not is_positive_integer_or_zero_array(indices):
             raise InputError("Expected input to be indices")
 
-        try:
-            idx = np.asarray(indices, dtype=int)
-            if not np.array_equal(idx, indices):
-                raise InputError
-            # convert to 1d
-            idx = idx.ravel()
-        except InputError:
-            raise InputError("Expected input to be indices")
+        # convert to 1d
+        idx = np.asarray(indices, dtype=int).ravel()
 
+        if idx.max() >= self.compounds.size:
+            raise InputError("Index %d larger than number of given compounds (%d)" % (idx.max(), self.compounds.size))
 
-        if self.representation == 'sorted_coulomb_matrix':
+        x = []
+
+        if self.representation == 'atomic_coulomb_matrix':
 
             nmax = self._get_msize()
-            representation_size = (nmax*(nmax+1))//2
-            x = np.empty((idx.size, representation_size), dtype=float)
             for i, mol in enumerate(self.compounds[idx]):
-                mol.generate_coulomb_matrix(size = nmax, sorting = "row-norm")
-                x[i] = mol.representation
+                mol.generate_atomic_coulomb_matrix(size = nmax, sorting = "distance", central_cutoff = self.cm_cutoff)
+                x_i = self._get_descriptors_from_mol(mol, i)
+                x.extend(x_i)
+
 
         elif self.representation == "slatm":
             mbtypes = self._get_slatm_mbtypes([mol.nuclear_charges for mol in self.compounds])
-            x = np.empty(idx.size, dtype=object)
             for i, mol in enumerate(self.compounds[idx]):
-                mol.generate_slatm(mbtypes, local = False, sigmas = [self.slatm_sigma1, self.slatm_sigma2],
+                mol.generate_slatm(mbtypes, local = True, sigmas = [self.slatm_sigma1, self.slatm_sigma2],
                         dgrids = [self.slatm_dgrid1, self.slatm_dgrid2], rcut = self.slatm_rcut, alchemy = self.slatm_alchemy,
                         rpower = self.slatm_rpower)
-                x[i] = mol.representation
-            x = np.asarray(list(x), dtype=float)
+                x_i = self._get_descriptors_from_mol(mol, i)
+                x.extend(x_i)
+
+        return np.asarray(x)
+
+    def _get_descriptors_from_mol(self, mol, idx):
+        """
+        Gets the needed atomic descriptors from the molecule. If more that one atom contribute directly to the property
+        the atomic representations of them are merged together to a single one.
+
+        """
+
+        indices, _ = self.properties[idx]
+
+        # convert to arrays
+        indices_array = np.asarray(indices, dtype = int)
+
+        x = []
+
+        # if the indices array is 1d we just have to match the atomic representation with the respective property
+        if indices_array.ndim == 1:
+            for i in indices_array:
+                x.append(mol.representation[i])
+
+        # if not we have to merge the atomic representations of the atoms in use
+        else:
+            for i, arr in enumerate(indices_array):
+                merged = []
+                for j in arr:
+                    merged.extend(mol.representation[i])
+                x.append(merged[:])
 
         return x
+
+    def _get_properties_from_indices(self, indices):
+
+        # convert to 1d
+        idx = np.asarray(indices, dtype=int).ravel()
+
+        y = []
+
+        for i in indices:
+            y_i = list(self.properties[i][1])
+            y.extend(y_i)
+
+        return np.asarray(y)
+
 
     # TODO test
     def fit(self, indices, y = None):
@@ -584,17 +603,25 @@ class OANN(OMNN):
 
         """
 
-        x = self.get_descriptor(indices)
+        x = self.get_descriptors_from_indices(indices)
 
-        idx = np.asarray(indices, dtype = int).ravel()
-        y = self.properties[idx]
+        y = self._get_properties_from_indices(indices)
 
         return self._fit(x, y)
 
     def predict(self, indices):
-        x = self.get_descriptor(indices)
+        x = self.get_descriptors_from_indices(indices)
         return self._predict(x)
 if __name__ == "__main__":
     import time
     OANN()
+    #for rep in ["unsorted_coulomb_matrix", "sorted_coulomb_matrix", "bag_of_bonds", "slatm"]:
+    #    x = OMNN(representation=rep)
+    #    filenames = glob.glob("/home/lb17101/dev/qml/tests/qm7/*.xyz")[:100]
+    #    y = np.array(range(len(filenames)), dtype=int)
+    #    x.generate_compounds(filenames)
+    #    x.set_properties(y)
+    #    t = time.time()
+    #    x.fit(y)
+    #    print(rep, time.time() - t)
 

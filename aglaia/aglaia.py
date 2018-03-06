@@ -19,8 +19,10 @@ import matplotlib.pyplot as plt
 #from tensorflow.python.framework import graph_io
 #from tensorflow.python.tools import freeze_graph
 
+#from .utils import is_positive, is_positive_integer, is_positive_integer_or_zero, \
+#       is_bool, is_string, is_positive_or_zero, InputError, ceil
 from .utils import InputError, ceil, is_positive_or_zero, is_positive_integer, is_positive, \
-        is_bool, is_positive_integer_or_zero
+        is_bool, is_positive_integer_or_zero, is_string
 from .tf_utils import TensorBoardLogger
 
 class _NN(object):
@@ -504,7 +506,7 @@ class NN(_NN):
     #TODO test
     def fit(self, x, y):
         """
-        Fit the neural network to molecular representations x and target y.
+        Fit the neural network to molecular descriptors x and target y.
 
         :param x: Input data with samples in the rows and features in the columns.
         :type x: array
