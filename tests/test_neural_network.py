@@ -4,11 +4,14 @@ Tests directly related to the class _NN and it's children.
 """
 import tensorflow as tf
 import numpy as np
+import matplotlib.pyplot as plt
 
 # TODO relative imports
-from aglaia import _NN, MRMP
-from wrappers import _OSPNN, OSPMRMP
-from utils import InputError
+from aglaia import SPNN
+from aglaia.aglaia import _NN
+from aglaia.wrappers import _OSPNN, OSPSPNN
+from aglaia.utils import InputError
+
 
 def hidden_layer_sizes(C):
     # Exceptions that are supposed to be caught
@@ -242,7 +245,7 @@ def representation(C):
 
 def test_input():
     # Additional test that inheritance is ok
-    for C in _NN, MRMP, _OSPNN, OSPMRMP:
+    for C in _NN, SPNN, _OSPNN, OSPSPNN:
         hidden_layer_sizes(C)
         l1_reg(C)
         l2_reg(C)
@@ -251,12 +254,32 @@ def test_input():
         iterations(C)
         tf_dtype(C)
 
-    for C in _OSPNN, OSPMRMP:
+    for C in _OSPNN, OSPSPNN:
         hl1(C)
         hl2(C)
         hl3(C)
 
-    representation(OSPMRMP)
+    representation(OSPSPNN)
+
+
+def test_mrmp():
+    # set matplotlib to be interactive so the plots wont show
+    # TODO should probably set agg backend instead
+    plt.ion()
+
+    # Simple example of fitting a quadratic function
+    estimator = SPNN(hidden_layer_sizes=(5, 5, 5), learning_rate=0.01, iterations=5000, l2_reg = 0, tf_dtype = 32, scoring_function="rmse")
+    x = np.arange(-2.0, 2.0, 0.05)
+    X = np.reshape(x, (len(x), 1))
+    y = np.reshape(X ** 3, (len(x), 1))
+
+    estimator.fit(X, y)
+    y_pred = estimator.predict(X)
+
+    # Cost plot
+    estimator.plot_cost()
+    estimator.correlation_plot(y_pred, y)
 
 if __name__ == "__main__":
     test_input()
+    test_mrmp()
