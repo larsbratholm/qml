@@ -384,7 +384,7 @@ class _NN(object):
         if filename == None:
             plt.show()
         elif is_string(filename):
-            plt.save(filename)
+            plt.savefig(filename)
         else:
             raise InputError("Wrong data type of variable 'filename'. Expected string")
 

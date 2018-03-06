@@ -33,7 +33,6 @@ class _OSPNN(BaseEstimator, _NN):
         """
 
         super(_OSPNN, self).__init__(**kwargs)
-
         self._set_hl(hl1, hl2, hl3)
 
         # Placeholder variables
@@ -56,13 +55,24 @@ class _OSPNN(BaseEstimator, _NN):
         params = BaseEstimator.get_params(self)
         parent_init = super(_OSPNN, self).__init__
 
+
         # Taken from scikit-learns BaseEstimator class
         parent_init_signature = signature(parent_init)
-        for p in (p for p in parent_init_signature.parameters.values() 
-                if p.name != 'self' and p.kind != p.VAR_KEYWORD):
+        # NEED to add to this signature the params from _OSPNN as they are missing (hl1!!)
+        parameters = (p for p in parent_init_signature.parameters.values()
+                      if p.name != 'self' and p.kind != p.VAR_KEYWORD)
+
+        # Adding the parameters from the parent class
+        for p in parameters:
             if p.name in params:
                 return InputError('This should never happen')
-            params[p.name] = p.default
+
+            if hasattr(self, p.name):
+                params[p.name] = getattr(self, p.name)
+            else:
+                params[p.name] = p.default
+        params['hl1'] = self.hl1
+
 
         return params
 
@@ -71,6 +81,7 @@ class _OSPNN(BaseEstimator, _NN):
         Hack that overrides the set_params routine of BaseEstimator.
 
         """
+
         for key, value in params.items():
             key, delim, sub_key = key.partition('__')
 
