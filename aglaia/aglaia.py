@@ -12,6 +12,8 @@ import tensorflow as tf
 #from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.utils.validation import check_X_y, check_array
 from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 #import inverse_dist as inv
 #from tensorflow.python.framework import ops
@@ -159,16 +161,55 @@ class _NN(object):
         else:
             raise InputError("Unknown tensorflow data type. Got %s" % str(tf_dtype))
 
-    # TODO test
+    def _set_optimiser_param(self, beta1, beta2, epsilon, rho, initial_accumulator_value, initial_gradient_squared_accumulator_value,
+                             l1_regularization_strength, l2_regularization_strength):
+        """
+        This function sets all the parameters that are required by all the optimiser functions. In the end, only the parameters
+        for the optimiser chosen will be used.
+
+        :param beta1:
+        :param beta2:
+        :param epsilon:
+        :param rho:
+        :param initial_accumulator_value:
+        :param initial_gradient_squared_accumulator_value:
+        :param l1_regularization_strength:
+        :param l2_regularization_strength:
+        :return: None
+        """
+        if not is_positive(beta1) and not is_positive(beta2):
+            raise InputError("Expected positive float values for variable beta1 and beta2. Got %s and %s." % (str(beta1),str(beta2)))
+        self.beta1 = float(beta1)
+        self.beta2 = float(beta2)
+
+        if not is_positive(epsilon):
+            raise InputError("Expected positive float value for variable epsilon. Got %s" % str(epsilon))
+        self.epsilon = float(epsilon)
+
+        if not is_positive(rho):
+            raise InputError("Expected positive float value for variable rho. Got %s" % str(rho))
+        self.epsilon = float(rho)
+
+        if not is_positive(initial_accumulator_value) and not is_positive(initial_gradient_squared_accumulator_value):
+            raise InputError("Expected positive float value for accumulator values. Got %s and %s" %
+                             (str(initial_accumulator_value), str(initial_gradient_squared_accumulator_value)))
+        self.initial_accumulator_value = float(initial_accumulator_value)
+        self.initial_gradient_squared_accumulator_value = float(initial_gradient_squared_accumulator_value)
+
+        if not is_positive_or_zero(l1_regularization_strength) and not is_positive_or_zero(l2_regularization_strength):
+            raise InputError("Expected positive or zero float value for regularisation variables. Got %s and %s" %
+                             (str(l1_regularization_strength), str(l2_regularization_strength)))
+        self.l1_regularization_strength = float(l1_regularization_strength)
+        self.l2_regularization_strength = float(l2_regularization_strength)
+
     def _set_scoring_function(self, scoring_function):
         if not is_string(scoring_function):
             raise InputError("Expected a string for variable 'scoring_function'. Got %s" % str(scoring_function))
         if scoring_function.lower() not in ['mae', 'rmse', 'r2']:
-            raise InputError("Available scoring functions are 'mae', 'rmsd', 'r2'. Got %s" % str(scoring_function))
+            raise InputError("Available scoring functions are 'mae', 'rmse', 'r2'. Got %s" % str(scoring_function))
 
         self.scoring_function = scoring_function
 
-    #TODO test
     def _set_hidden_layers_sizes(self, hidden_layer_sizes):
         if not is_positive_integer_array(hidden_layer_sizes):
             raise InputError("'hidden_layer_sizes' must be an array of  positive integers")
@@ -253,7 +294,6 @@ class _NN(object):
 
         return weights, biases
 
-    #TODO test
     def _l2_loss(self, weights):
         """
         Creates the expression for L2-regularisation on the weights
@@ -271,7 +311,6 @@ class _NN(object):
 
         return self.l2_reg * reg_term
 
-    #TODO test
     def _l1_loss(self, weights):
         """
         Creates the expression for L1-regularisation on the weights
@@ -288,7 +327,6 @@ class _NN(object):
             reg_term += tf.reduce_sum(tf.abs(weights[i]))
 
         return self.l1_reg * reg_term
-
 
     def model(self, x, weights, biases):
         """
@@ -318,7 +356,6 @@ class _NN(object):
 
         return z
 
-    #TODO test
     def _get_batch_size(self):
         """
         Determines the actual batch size. If set to auto, the batch size will be set to 100.
@@ -337,7 +374,7 @@ class _NN(object):
         else:
             if self.batch_size > self.n_samples:
                 print("Warning: batch_size larger than sample size. It is going to be clipped")
-                return min(self.nsamples, self.batch_size)
+                return min(self.n_samples, self.batch_size)
             else:
                 batch_size = self.batch_size
 
@@ -372,7 +409,7 @@ class _NN(object):
         if filename == None:
             plt.show()
         elif is_string(filename):
-            plt.save(filename)
+            plt.savefig(filename)
         else:
             raise InputError("Wrong data type of variable 'filename'. Expected string")
 
@@ -408,7 +445,7 @@ class _NN(object):
             if filename == '':
                 plt.show()
             elif is_string(filename):
-                plt.save(filename)
+                plt.savefig(filename)
             else:
                 raise InputError("Wrong data type of variable 'filename'. Expected string")
         else:
@@ -425,7 +462,7 @@ class _NN(object):
                     file_ = str(i) + "_" + tokens[-1]
                     if len(tokens) > 1:
                         file_ = "/".join(tokens[:-1]) + "/" + file_
-                    plt.save(file_)
+                    plt.savefig(file_)
                 else:
                     raise InputError("Wrong data type of variable 'filename'. Expected string")
 
@@ -536,10 +573,8 @@ class NN(_NN):
             if self.tensorboard:
                 self.tensorboard_logger.write_weight_histogram(weights)
 
-
         with tf.name_scope("Model"):
             y_pred = self.model(tf_x, weights, biases)
-
 
         with tf.name_scope("Cost_func"):
             cost = self.cost(y_pred, tf_y, weights)
@@ -563,7 +598,7 @@ class NN(_NN):
 
         # Running the graph
         if self.tensorboard:
-            self.tensorboard_logger.set_summary_writer(sess)
+            self.tensorboard_logger.set_summary_writer(self.session)
 
         self.session.run(init)
 

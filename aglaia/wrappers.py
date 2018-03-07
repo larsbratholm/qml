@@ -74,17 +74,50 @@ class _ONN(BaseEstimator, _NN):
         handle inheritance well, as we would like to include the input parameters to
         __init__ of all the parents as well.
 
+        :returns: params - dictionary of parameters and their user-set value
+
         """
+        # This gets the params of OSPMRMP and puts them in a dictionary 'params'
         params = BaseEstimator.get_params(self)
         parent_init = super(_ONN, self).__init__
 
-        # Taken from scikit-learns BaseEstimator class
-        parent_init_signature = signature(parent_init)
-        for p in (p for p in parent_init_signature.parameters.values() 
-                if p.name != 'self' and p.kind != p.VAR_KEYWORD):
+        # This gets the parameters from _NN
+        grandparent_init = super(_OSPNN, self).__init__
+        grandparent_init_signature = signature(grandparent_init)
+
+        parameters_nn = (p for p in grandparent_init_signature.parameters.values()
+                         if p.name != 'self' and p.kind != p.VAR_KEYWORD)
+
+        for p in parameters_nn:
             if p.name in params:
-                raise InputError('This should never happen')
-            params[p.name] = p.default
+                return InputError('This should never happen')
+
+            if hasattr(self, p.name):
+                params[p.name] = getattr(self, p.name)
+            else:
+                params[p.name] = p.default
+
+        # Adding the parameters from _OSPNN, but leaving kwargs out
+        parent_init = _OSPNN.__init__
+        parent_init_signature = signature(parent_init)
+
+        parameters_ospnn = []
+        for p in parent_init_signature.parameters.values():
+            if p.name != 'self' and p.kind != p.VAR_KEYWORD:
+                if p.name not in params:
+                    parameters_ospnn.append(p)
+
+        for p in parameters_ospnn:
+            if p.name in params:
+                return InputError('This should never happen')
+
+            if p.name == 'kwargs':
+                continue
+
+            if hasattr(self, p.name):
+                params[p.name] = getattr(self, p.name)
+            else:
+                params[p.name] = p.default
 
         return params
 
@@ -93,6 +126,7 @@ class _ONN(BaseEstimator, _NN):
         Hack that overrides the set_params routine of BaseEstimator.
 
         """
+
         for key, value in params.items():
             key, delim, sub_key = key.partition('__')
 
@@ -138,6 +172,10 @@ class _ONN(BaseEstimator, _NN):
             self.hidden_layer_sizes = np.asarray([hl1, hl2], dtype = int)
         elif size == 3:
             self.hidden_layer_sizes = np.asarray([hl1, hl2, hl3], dtype = int)
+
+        self.hl1 = hl1
+        self.hl2 = hl2
+        self.hl3 = hl3
 
     #TODO test
     def generate_compounds(self, filenames):
