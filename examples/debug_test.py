@@ -5,7 +5,7 @@ from sklearn.base import clone
 from aglaia import wrappers
 import tensorflow as tf
 
-estimator = wrappers.OSPMRMP(batch_size = 100, representation = "unsorted_coulomb_matrix",
+estimator = wrappers.OMNN(batch_size = 100, representation = "unsorted_coulomb_matrix",
                     hl1=12, optimiser=tf.train.AdadeltaOptimizer, scoring_function='mae',
                     iterations=6000, slatm_sigma1 = 0.1, activation_function=tf.nn.relu)
 

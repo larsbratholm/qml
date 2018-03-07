@@ -67,6 +67,7 @@ class _ONN(BaseEstimator, _NN):
             self.properties = None
 
 
+    # TODO remove class specific things / clean up
     def get_params(self, deep = True):
         """
         Hack that overrides the get_params routine of BaseEstimator.
@@ -82,7 +83,7 @@ class _ONN(BaseEstimator, _NN):
         parent_init = super(_ONN, self).__init__
 
         # This gets the parameters from _NN
-        grandparent_init = super(_OSPNN, self).__init__
+        grandparent_init = super(_ONN, self).__init__
         grandparent_init_signature = signature(grandparent_init)
 
         parameters_nn = (p for p in grandparent_init_signature.parameters.values()
@@ -97,17 +98,17 @@ class _ONN(BaseEstimator, _NN):
             else:
                 params[p.name] = p.default
 
-        # Adding the parameters from _OSPNN, but leaving kwargs out
-        parent_init = _OSPNN.__init__
+        # Adding the parameters from _ONN, but leaving kwargs out
+        parent_init = _ONN.__init__
         parent_init_signature = signature(parent_init)
 
-        parameters_ospnn = []
+        parameters_onn = []
         for p in parent_init_signature.parameters.values():
             if p.name != 'self' and p.kind != p.VAR_KEYWORD:
                 if p.name not in params:
-                    parameters_ospnn.append(p)
+                    parameters_onn.append(p)
 
-        for p in parameters_ospnn:
+        for p in parameters_onn:
             if p.name in params:
                 return InputError('This should never happen')
 
