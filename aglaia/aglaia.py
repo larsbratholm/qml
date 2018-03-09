@@ -722,3 +722,166 @@ class NN(_NN):
 
         return cost
 
+### --------------------- ** Atomic representation - molecular properties network ** -----------------------------------
+
+# TODO init
+# TODO fit
+# TODO _fit
+# TODO score_r2
+# TODO score_mae
+# TODO score_rmse
+# TODO cost
+
+class ARMP(_NN):
+    """
+    This class contains neural networks that take in atomic representations and they calculate molecular properties
+    such as the energies.
+    """
+
+    def __init__(self, elements, **kwargs):
+        """
+        To see what parameters are required, look at the description of the _NN class init.
+        This class inherits from the _NN class and all inputs not unique to the ARMP class is passed to the _NN
+        parent.
+
+        The additional parameter elements is alist of all the elements present in the molecules of the data.
+
+        :elements: numpy array of int with shape (n_elements,)
+        """
+
+        super(ARMP, self).__init__(**kwargs)
+
+        self._set_elements(elements)
+
+    def _set_elements(self, elements):
+        """
+        This function sets the parameter elements and checks that it makes sense.
+
+        :param elements: numpy array of int with shape (n_elements,)
+        :return: None
+        """
+
+        if len(elements) == 0:
+            raise InputError("Expected at least one element, got 0.")
+        if not elements.dtype == np.int32 or elements.dtype == np.int64:
+            raise InputError("Atomic numbers should be ints, got %s" % str(elements.dtype))
+        if not all(elements >= 0):
+            raise InputError("Atomic numbers should be zero or positive. Got negative values.")
+
+        self.elements = elements
+
+    def fit(self, x, zs, y):
+        """
+        This class fits the neural network to the data. x corresponds to the descriptors and y to the molecular
+        property to predict. zs contains the atomic numbers of all the atoms in the data.
+
+        :param x: tf tensor of shape (n_samples, n_atoms, n_features)
+        :param zs: tf tensor of shape (n_samples, n_atoms)
+        :param y: tf tensor of shape (n_samples, 1)
+        :return: None
+        """
+
+        return self._fit(x, zs, y)
+
+    def _atomic_model(self, x, hidden_layer_sizes, weights, biases):
+        """
+        Constructs the atomic part of the network. It calculates the output for all atoms as if they all were the same
+        element.
+
+        :param x: Input
+        :type x: tf tensor of shape (n_samples, n_features)
+        :param weights: Weights used in the network.
+        :type weights: list of tf.Variables of length hidden_layer_sizes.size + 1
+        :param biases: Biases used in the network.
+        :type biases: list of tf.Variables of length hidden_layer_sizes.size + 1
+        :return: Output
+        :rtype: tf.Variable of size (None, n_targets)
+        """
+        n_samples = x.get_shape().as_list()[0]
+
+        # Calculate the activation of the first hidden layer
+        expanded_weights = tf.tile(tf.expand_dims(tf.transpose(weights[0]), axis=0), multiples=[n_samples, 1, 1])
+        z = tf.add(tf.matmul(x, expanded_weights), biases[0])
+        h = tf.sigmoid(z)
+
+        # Calculate the activation of the remaining hidden layers
+        for i in range(hidden_layer_sizes.size - 1):
+            expanded_weights = tf.tile(tf.expand_dims(tf.transpose(weights[i + 1]), axis=0),
+                                       multiples=[n_samples, 1, 1])
+            z = tf.add(tf.matmul(h, expanded_weights), biases[i + 1])
+            h = tf.sigmoid(z)
+
+        # Calculating the output of the last layer
+        expanded_weights = tf.tile(tf.expand_dims(tf.transpose(weights[-1]), axis=0), multiples=[n_samples, 1, 1])
+        z = tf.add(tf.matmul(h, expanded_weights), biases[-1], name="output")
+
+        z_squeezed = tf.squeeze(z, axis=[-1])
+
+        return z_squeezed
+
+    def _model(self, x, zs, element_weights, element_biases):
+        """
+        This generates the molecular model by combining all the outputs from the atomic networks.
+
+        :param x: tf tensor of shape (n_samples, n_atoms, n_features)
+        :param zs: tf tensor of shape (n_samples, n_atoms)
+        :param hidden_layer_sizes: np array of shape (n_hidden_layers,)
+        :param weights: list of tf.Variables of length hidden_layer_sizes.size + 1
+        :param biases: list of tf.Variables of length hidden_layer_sizes.size + 1
+        :return: tf tensor of shape (n_samples, 1)
+        """
+
+        atomic_energies = tf.zeros(zs.get_shape())
+        zeros = tf.zeros(zs.get_shape())
+
+        for i in range(self.elements.shape[0]):
+            # Calculating the output for every atom in all data as if they were all of the same element
+            atomic_energies = self._atomic_model(x, self.hidden_layer_sizes, element_weights[self.elements[i]],
+                                       element_biases[self.elements[i]])  # (n_samples, n_atoms)
+
+            # Figuring out which atomic energies correspond to the current element.
+            current_element = tf.constant(self.elements[i], shape=zs.get_shape())
+            where_element = tf.equal(zs, current_element)  # (n_samples, n_atoms)
+
+            # Extracting the energies corresponding to the right element
+            element_energies = tf.where(where_element, atomic_energies, zeros)
+
+            # Adding the energies of the current element to the final atomic energies tensor
+            atomic_energies = tf.add(atomic_energies, element_energies)
+
+        # Summing the energies of all the atoms
+        total_energies = tf.reduce_sum(atomic_energies, axis=-1)
+
+        return total_energies
+
+    def _fit(self, x, zs, y):
+        """
+        This function is present because the osprey wrapper needs to overwrite the fit function.
+
+        :param x: tf tensor of shape (n_samples, n_atoms, n_features)
+        :param zs: tf tensor of shape (n_samples, n_atoms)
+        :param y:  tf tensor of shape (n_samples, 1)
+        :return: None
+        """
+
+        # Useful quantities
+        self.n_samples = x.get_shape().as_list()[0]
+        self.n_atoms = x.get_shape().as_list()[1]
+        self.n_features = x.get_shape().as_list()[2]
+
+        # Set the batch size
+        batch_size = self._get_batch_size()
+
+        # Creating dictionaries of the weights and biases for each element
+        element_weights = {}
+        element_biases = {}
+
+        for i in range(self.elements.shape[0]):
+            weights, biases = self._generate_weights(n_out=1)
+            element_weights[self.elements[i]] = weights
+            element_biases[self.elements[i]] = biases
+
+        molecular_energies = self._model(x, zs, element_weights, element_biases)
+
+
+
