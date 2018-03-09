@@ -7,10 +7,6 @@ import itertools
 from inspect import signature
 import numpy as np
 from sklearn.base import BaseEstimator
-try:
-    from qml import Compound
-except ModuleNotFoundError:
-    raise ModuleNotFoundError("The module qml is required")
 
 try:
     from qml import Compound
@@ -49,6 +45,7 @@ class _ONN(BaseEstimator, _NN):
         self._set_compounds(compounds)
 
     def _set_compounds(self, compounds):
+
         if not is_none(compounds):
             if is_array_like(compounds) and isinstance(compounds[0], Compound):
                 self.compounds = compounds
@@ -79,10 +76,9 @@ class _ONN(BaseEstimator, _NN):
         """
         # This gets the params of OSPMRMP and puts them in a dictionary 'params'
         params = BaseEstimator.get_params(self)
-        parent_init = super(_ONN, self).__init__
 
         # This gets the parameters from _NN
-        grandparent_init = super(_OSPNN, self).__init__
+        grandparent_init = super(_ONN, self).__init__
         grandparent_init_signature = signature(grandparent_init)
 
         parameters_nn = (p for p in grandparent_init_signature.parameters.values()
@@ -97,17 +93,17 @@ class _ONN(BaseEstimator, _NN):
             else:
                 params[p.name] = p.default
 
-        # Adding the parameters from _OSPNN, but leaving kwargs out
-        parent_init = _OSPNN.__init__
+        # Adding the parameters from _ONN, but leaving kwargs out
+        parent_init = _ONN.__init__
         parent_init_signature = signature(parent_init)
 
-        parameters_ospnn = []
+        parameters_onn = []
         for p in parent_init_signature.parameters.values():
             if p.name != 'self' and p.kind != p.VAR_KEYWORD:
                 if p.name not in params:
-                    parameters_ospnn.append(p)
+                    parameters_onn.append(p)
 
-        for p in parameters_ospnn:
+        for p in parameters_onn:
             if p.name in params:
                 return InputError('This should never happen')
 
@@ -185,7 +181,6 @@ class _ONN(BaseEstimator, _NN):
         :param filenames: path of xyz-files
         :type filenames: list
         """
-
 
         # Check that the number of properties match the number of compounds
         if is_none(self.properties):

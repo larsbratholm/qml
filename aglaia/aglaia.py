@@ -512,6 +512,9 @@ class _NN(object):
             y_pred = self.session.run(model, feed_dict = {tf_x : x})
             return y_pred
 
+
+### --------------------- ** Molecular representation - molecular properties network ** --------------------------------
+
 # TODO: Rename to something more sensible
 class NN(_NN):
     """
