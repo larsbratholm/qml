@@ -64,6 +64,7 @@ class _ONN(BaseEstimator, _NN):
             self.properties = None
 
 
+    # TODO remove class specific things / clean up
     def get_params(self, deep = True):
         """
         Hack that overrides the get_params routine of BaseEstimator.
