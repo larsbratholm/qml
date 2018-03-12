@@ -854,6 +854,34 @@ class ARMP(_NN):
 
         return total_energies
 
+    def cost(self, y_pred, y, weights_dict):
+        """
+        This function calculates the cost function during the training of the neural network.
+
+        :param y_pred: the neural network predictions
+        :param y: the truth values
+        :param weights_dict: the dictionary containing all of the weights
+
+        :return: tf.Variable of size (1,)
+        """
+
+        err =  tf.square(tf.subtract(y, y_pred))
+        cost_function = tf.reduce_mean(err, name="loss")
+
+        if self.l2_reg > 0:
+            l2_loss = 0
+            for element in weights_dict:
+                l2_loss += self._l2_loss(weights_dict[element])
+            cost_function += l2_loss
+        if self.l1_reg > 0:
+            l1_loss = 0
+            for element in weights_dict:
+                l1_loss += self._l1_loss(weights_dict[element])
+            cost_function += l1_loss
+
+        return cost_function
+
+
     def _fit(self, x, zs, y):
         """
         This function is present because the osprey wrapper needs to overwrite the fit function.
