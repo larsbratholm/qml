@@ -1,3 +1,11 @@
 tensorboard/
 */__pycache__/
 .idea/
+/Examples/data.csv
+__pycache__/
+Examples/tmp_dir/
+Examples/Models/
+Examples/Models/tensorboard/
+Examples/bc_tensorboard/
+/aglaia/.cache/
+data_manip/

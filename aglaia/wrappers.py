@@ -24,7 +24,7 @@ class _ONN(BaseEstimator, _NN):
     """
 
     def __init__(self, hl1 = 5, hl2 = 0, hl3 = 0,
-            compounds = None, properties = None, **kwargs):
+            compounds = None, properties = None, descriptor=None, nuclear_charges = None, coordinates = None, **kwargs):
         """
         :param hl1: Number of neurons in the first hidden layer. If different from zero, ``hidden_layer_sizes`` is
                     overwritten.
@@ -41,6 +41,10 @@ class _ONN(BaseEstimator, _NN):
         self.set_compounds(compounds)
         self.set_properties(properties)
 
+        # Placeholder variables
+        self.compounds = np.empty(0, dtype=object)
+        self.descriptor = np.empty(0, dtype=float)
+        self.properties = np.empty(0, dtype=float)
     def set_compounds(self, compounds):
         self._set_compounds(compounds)
 
@@ -60,6 +64,8 @@ class _ONN(BaseEstimator, _NN):
     def _set_properties(self, properties):
         if not is_none(properties):
             self.properties = properties
+        if type(descriptor) != type(None):
+            self.descriptor = descriptor
         else:
             self.properties = None
 
@@ -197,7 +203,6 @@ class _ONN(BaseEstimator, _NN):
         self.compounds = np.empty(len(filenames), dtype=object)
         for i, filename in enumerate(filenames):
             self.compounds[i] = Compound(filename)
-
 
     # TODO test
     def _get_asize(self, pad = 0):
@@ -387,24 +392,24 @@ class OMNN(NN, _ONN):
 
             nmax = self._get_msize()
             representation_size = (nmax*(nmax+1))//2
-            x = np.empty((idx.size, representation_size), dtype=float)
-            for i, mol in enumerate(self.compounds[idx]):
+            x = np.empty((n_samples, representation_size), dtype=float)
+            for i, mol in enumerate(self.compounds):
                 mol.generate_coulomb_matrix(size = nmax, sorting = "unsorted")
                 x[i] = mol.representation
 
-        if self.representation == 'sorted_coulomb_matrix':
+        elif self.representation == 'sorted_coulomb_matrix':
 
             nmax = self._get_msize()
             representation_size = (nmax*(nmax+1))//2
-            x = np.empty((idx.size, representation_size), dtype=float)
-            for i, mol in enumerate(self.compounds[idx]):
+            x = np.empty((n_samples, representation_size), dtype=float)
+            for i, mol in enumerate(self.compounds):
                 mol.generate_coulomb_matrix(size = nmax, sorting = "row-norm")
                 x[i] = mol.representation
 
         elif self.representation == "bag_of_bonds":
             asize = self._get_asize()
-            x = np.empty(idx.size, dtype=object)
-            for i, mol in enumerate(self.compounds[idx]):
+            x = np.empty(n_samples, dtype=object)
+            for i, mol in enumerate(self.compounds):
                 mol.generate_bob(asize = asize)
                 x[i] = mol.representation
             x = np.asarray(list(x), dtype=float)
@@ -419,7 +424,42 @@ class OMNN(NN, _ONN):
                 x[i] = mol.representation
             x = np.asarray(list(x), dtype=float)
 
-        return x
+        else:
+
+            raise InputError("This should never happen. Unrecognised representation. Got %s." % str(self.representation))
+
+        self.descriptor = x
+
+    def get_representation(self, indices):
+        """
+        This function takes as input a list of indices and it returns a n_samples by n_features matrix containing all
+        the descriptors of the samples that are specified by the indices.
+        :param indices: list
+        :return: np array of shape (n_samples, n_features)
+        """
+
+        if self.properties.size == 0:
+            raise InputError("Properties needs to be set in advance")
+        if len(self.compounds) == 0:
+            raise InputError("QML compounds needs to be created in advance")
+        if len(self.descriptor) == 0:
+            raise InputError("Descriptors needs to be created in advance")
+
+        if not is_positive_integer_or_zero(indices[0]):
+            raise InputError("Expected input to be indices")
+
+        try:
+            idx = np.asarray(indices, dtype=int)
+            if not np.array_equal(idx, indices):
+                raise InputError
+            # convert to 1d
+            idx = idx.ravel()
+        except InputError:
+            raise InputError("Expected input to be indices")
+
+        x_desc = self.descriptor[idx, :]
+
+        return x_desc
 
     # TODO test
     def fit(self, indices, y = None):

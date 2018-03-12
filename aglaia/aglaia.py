@@ -27,6 +27,11 @@ from .utils import InputError, ceil, is_positive_or_zero, is_positive_integer, i
         is_bool, is_positive_integer_or_zero, is_string, is_positive_integer_array
 from .tf_utils import TensorBoardLogger
 
+# from utils import is_positive, is_positive_integer, is_positive_integer_or_zero, \
+#         is_bool, is_string, is_positive_or_zero, InputError, ceil
+# from tf_utils import TensorBoardLogger
+
+
 class _NN(object):
 
     """
@@ -35,7 +40,10 @@ class _NN(object):
 
     def __init__(self, hidden_layer_sizes = [5], l1_reg = 0.0, l2_reg = 0.0001, batch_size = 'auto', learning_rate = 0.001,
                  iterations = 500, tensorboard = False, store_frequency = 200, tf_dtype = tf.float32, scoring_function = 'mae',
-                 activation_function = tf.sigmoid, tensorboard_subdir = os.getcwd() + '/tensorboard', **kwargs):
+                 activation_function = tf.sigmoid, optimiser=tf.train.AdamOptimizer, beta1=0.9, beta2=0.999, epsilon=1e-08,
+                 rho=0.95, initial_accumulator_value=0.1, initial_gradient_squared_accumulator_value=0.1,
+                 l1_regularization_strength=0.0,l2_regularization_strength=0.0,
+                 tensorboard_subdir = os.getcwd() + '/tensorboard', **kwargs):
         """
         :param hidden_layer_sizes: Number of hidden layers. The n'th element represents the number of neurons in the n'th
             hidden layer.
@@ -119,6 +127,34 @@ class _NN(object):
         else:
             raise InputError("Unknown activation function. Got %s" % str(activation_function))
 
+        # Setting the optimiser
+        self.AdagradDA = False
+        self._set_optimiser_param(beta1, beta2, epsilon, rho, initial_accumulator_value,
+                                  initial_gradient_squared_accumulator_value, l1_regularization_strength,
+                                  l2_regularization_strength)
+
+        if optimiser in ['AdamOptimizer', tf.train.AdamOptimizer]:
+            self.optimiser = tf.train.AdamOptimizer
+        elif optimiser in ['AdadeltaOptimizer', tf.train.AdadeltaOptimizer]:
+            self.optimiser = tf.train.AdadeltaOptimizer
+        elif optimiser in ['AdagradOptimizer', tf.train.AdagradOptimizer]:
+            self.optimiser = tf.train.AdagradOptimizer
+        elif optimiser in ['AdagradDAOptimizer', tf.train.AdagradDAOptimizer]:
+            self.optimiser = tf.train.AdagradDAOptimizer
+        elif optimiser in ['GradientDescentOptimizer', tf.train.GradientDescentOptimizer]:
+            self.optimiser = tf.train.GradientDescentOptimizer
+        else:
+            raise InputError("Unknown optimiser. Got %s" % str(optimiser))
+
+        # Placeholder variables
+        self.n_features = None
+        self.n_samples = None
+        self.training_cost = []
+        self.session = None
+        #self.test_cost = []
+        #self.loaded_model = False
+        #self.is_vis_ready = False
+
     def _set_l1_reg(self, l1_reg):
         if not is_positive_or_zero(l1_reg):
             raise InputError("Expected positive float value for variable 'l1_reg'. Got %s" % str(l1_reg))
@@ -201,6 +237,35 @@ class _NN(object):
                              (str(l1_regularization_strength), str(l2_regularization_strength)))
         self.l1_regularization_strength = float(l1_regularization_strength)
         self.l2_regularization_strength = float(l2_regularization_strength)
+
+    def _set_optimiser(self):
+        """
+        This function generates the object optimiser.
+
+        :return: optimiser_obj: an object of the tensorflow optimiser class
+        """
+        self.AdagradDA = False
+        if self.optimiser in ['AdamOptimizer', tf.train.AdamOptimizer]:
+            optimiser_obj = tf.train.AdamOptimizer(learning_rate=self.learning_rate, beta1=self.beta1, beta2=self.beta2,
+                                                    epsilon=self.epsilon)
+        elif self.optimiser in ['AdadeltaOptimizer', tf.train.AdadeltaOptimizer]:
+             optimiser_obj = tf.train.AdadeltaOptimizer(learning_rate=self.learning_rate, rho=self.rho, epsilon=self.epsilon)
+        elif self.optimiser in ['AdagradOptimizer', tf.train.AdagradOptimizer]:
+             optimiser_obj = tf.train.AdagradOptimizer(learning_rate=self.learning_rate,
+                                                       initial_accumulator_value=self.initial_accumulator_value)
+        elif self.optimiser in ['AdagradDAOptimizer', tf.train.AdagradDAOptimizer]:
+            self.global_step = tf.placeholder(dtype=tf.int64)
+            optimiser_obj = tf.train.AdagradDAOptimizer(learning_rate=self.learning_rate, global_step=self.global_step,
+                                                         initial_gradient_squared_accumulator_value=self.initial_gradient_squared_accumulator_value,
+                                                         l1_regularization_strength=self.l1_regularization_strength,
+                                                         l2_regularization_strength=self.l2_regularization_strength)
+            self.AdagradDA = True
+        elif self.optimiser in ['GradientDescentOptimizer', tf.train.GradientDescentOptimizer]:
+            optimiser_obj = tf.train.GradientDescentOptimizer(learning_rate=self.learning_rate)
+        else:
+            raise InputError("Unknown optimiser class. Got %s" % str(self.optimiser))
+
+        return optimiser_obj
 
     def _set_scoring_function(self, scoring_function):
         if not is_string(scoring_function):
@@ -585,8 +650,9 @@ class NN(_NN):
         if self.tensorboard:
             cost_summary = tf.summary.scalar('cost', cost)
 
-        optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(cost)
-
+        # optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(cost)
+        optimiser = self._set_optimiser()
+        optimisation_op = optimiser.minimize(cost)
         # Initialisation of the variables
         init = tf.global_variables_initializer()
         #self.initialised = True
@@ -614,8 +680,12 @@ class NN(_NN):
             for j in range(n_batches):
                 batch_x = x[indices][j * batch_size:(j+1) * batch_size]
                 batch_y = y[indices][j * batch_size:(j+1) * batch_size]
-                feed_dict = {tf_x: batch_x, tf_y: batch_y}
-                opt, c = self.session.run([optimizer, cost], feed_dict=feed_dict)
+                if self.AdagradDA:
+                    feed_dict = {tf_x: batch_x, tf_y: batch_y, self.global_step:i}
+                    opt, c = self.session.run([optimisation_op, cost], feed_dict=feed_dict)
+                else:
+                    feed_dict = {tf_x: batch_x, tf_y: batch_y}
+                    opt, c = self.session.run([optimisation_op, cost], feed_dict=feed_dict)
                 avg_cost += c * batch_x.shape[0] / x.shape[0]
 
                 if self.tensorboard:
@@ -670,7 +740,8 @@ class NN(_NN):
         """
 
         y_pred = self.predict(x)
-        mae = mean_absolute_error(y, y_pred, sample_weight = sample_weight)
+        mae = (-1.0)*mean_absolute_error(y, y_pred, sample_weight = sample_weight)
+        print("Warning! The mae is multiplied by -1 so that it can be minimised in Osprey!")
         return mae
 
     # TODO test
