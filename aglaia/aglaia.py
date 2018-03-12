@@ -27,11 +27,6 @@ from .utils import InputError, ceil, is_positive_or_zero, is_positive_integer, i
         is_bool, is_positive_integer_or_zero, is_string, is_positive_integer_array
 from .tf_utils import TensorBoardLogger
 
-# from utils import is_positive, is_positive_integer, is_positive_integer_or_zero, \
-#         is_bool, is_string, is_positive_or_zero, InputError, ceil
-# from tf_utils import TensorBoardLogger
-
-
 class _NN(object):
 
     """
@@ -95,15 +90,19 @@ class _NN(object):
         self._set_tensorboard(tensorboard, store_frequency, tensorboard_subdir)
         self._set_activation_function(activation_function)
 
-
         # Placeholder variables
         self.n_features = None
         self.n_samples = None
         self.training_cost = []
         self.session = None
-        #self.test_cost = []
-        #self.loaded_model = False
-        #self.is_vis_ready = False
+
+        # Setting the optimiser
+        self._set_optimiser_param(beta1, beta2, epsilon, rho, initial_accumulator_value,
+                                  initial_gradient_squared_accumulator_value, l1_regularization_strength,
+                                  l2_regularization_strength)
+
+        # FIX THIS
+        self.optimiser = self._set_optimiser_type(optimiser)
 
     def _set_activation_function(self, activation_function):
         if activation_function in ['sigmoid', tf.nn.sigmoid]:
@@ -126,34 +125,6 @@ class _NN(object):
             self.activation_function = tf.nn.relu_x
         else:
             raise InputError("Unknown activation function. Got %s" % str(activation_function))
-
-        # Setting the optimiser
-        self.AdagradDA = False
-        self._set_optimiser_param(beta1, beta2, epsilon, rho, initial_accumulator_value,
-                                  initial_gradient_squared_accumulator_value, l1_regularization_strength,
-                                  l2_regularization_strength)
-
-        if optimiser in ['AdamOptimizer', tf.train.AdamOptimizer]:
-            self.optimiser = tf.train.AdamOptimizer
-        elif optimiser in ['AdadeltaOptimizer', tf.train.AdadeltaOptimizer]:
-            self.optimiser = tf.train.AdadeltaOptimizer
-        elif optimiser in ['AdagradOptimizer', tf.train.AdagradOptimizer]:
-            self.optimiser = tf.train.AdagradOptimizer
-        elif optimiser in ['AdagradDAOptimizer', tf.train.AdagradDAOptimizer]:
-            self.optimiser = tf.train.AdagradDAOptimizer
-        elif optimiser in ['GradientDescentOptimizer', tf.train.GradientDescentOptimizer]:
-            self.optimiser = tf.train.GradientDescentOptimizer
-        else:
-            raise InputError("Unknown optimiser. Got %s" % str(optimiser))
-
-        # Placeholder variables
-        self.n_features = None
-        self.n_samples = None
-        self.training_cost = []
-        self.session = None
-        #self.test_cost = []
-        #self.loaded_model = False
-        #self.is_vis_ready = False
 
     def _set_l1_reg(self, l1_reg):
         if not is_positive_or_zero(l1_reg):
@@ -224,7 +195,7 @@ class _NN(object):
 
         if not is_positive(rho):
             raise InputError("Expected positive float value for variable rho. Got %s" % str(rho))
-        self.epsilon = float(rho)
+        self.rho = float(rho)
 
         if not is_positive(initial_accumulator_value) and not is_positive(initial_gradient_squared_accumulator_value):
             raise InputError("Expected positive float value for accumulator values. Got %s and %s" %
@@ -237,6 +208,24 @@ class _NN(object):
                              (str(l1_regularization_strength), str(l2_regularization_strength)))
         self.l1_regularization_strength = float(l1_regularization_strength)
         self.l2_regularization_strength = float(l2_regularization_strength)
+
+    def _set_optimiser_type(self, optimiser):
+        self.AdagradDA = False
+        if optimiser in ['AdamOptimizer', tf.train.AdamOptimizer]:
+            optimiser_type = tf.train.AdamOptimizer
+        elif optimiser in ['AdadeltaOptimizer', tf.train.AdadeltaOptimizer]:
+            optimiser_type = tf.train.AdadeltaOptimizer
+        elif optimiser in ['AdagradOptimizer', tf.train.AdagradOptimizer]:
+            optimiser_type = tf.train.AdagradOptimizer
+        elif optimiser in ['AdagradDAOptimizer', tf.train.AdagradDAOptimizer]:
+            optimiser_type = tf.train.AdagradDAOptimizer
+            self.AdagradDA = True
+        elif optimiser in ['GradientDescentOptimizer', tf.train.GradientDescentOptimizer]:
+            optimiser_type = tf.train.GradientDescentOptimizer
+        else:
+            raise InputError("Unknown optimiser. Got %s" % str(optimiser))
+
+        return optimiser_type
 
     def _set_optimiser(self):
         """
@@ -276,8 +265,15 @@ class _NN(object):
         self.scoring_function = scoring_function
 
     def _set_hidden_layers_sizes(self, hidden_layer_sizes):
+        try:
+            iterator = iter(hidden_layer_sizes)
+        except TypeError:
+            raise InputError("'hidden_layer_sizes' must be an array of positive integers. Got a non-iterable object.")
+
+        if None in hidden_layer_sizes:
+            raise InputError("'hidden_layer_sizes' must be an array of positive integers. Got None elements")
         if not is_positive_integer_array(hidden_layer_sizes):
-            raise InputError("'hidden_layer_sizes' must be an array of  positive integers")
+            raise InputError("'hidden_layer_sizes' must be an array of positive integers")
 
         self.hidden_layer_sizes = np.asarray(hidden_layer_sizes, dtype = int)
 

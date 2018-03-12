@@ -40,16 +40,13 @@ class _ONN(BaseEstimator, _NN):
         self._set_hl(hl1, hl2, hl3)
         self.set_compounds(compounds)
         self.set_properties(properties)
+        self.set_descriptor(descriptor)
 
-        # Placeholder variables
-        self.compounds = np.empty(0, dtype=object)
-        self.descriptor = np.empty(0, dtype=float)
-        self.properties = np.empty(0, dtype=float)
+
     def set_compounds(self, compounds):
         self._set_compounds(compounds)
 
     def _set_compounds(self, compounds):
-
         if not is_none(compounds):
             if is_array_like(compounds) and isinstance(compounds[0], Compound):
                 self.compounds = compounds
@@ -64,10 +61,14 @@ class _ONN(BaseEstimator, _NN):
     def _set_properties(self, properties):
         if not is_none(properties):
             self.properties = properties
+        else:
+            self.properties = None
+
+    def set_descriptor(self, descriptor):
         if type(descriptor) != type(None):
             self.descriptor = descriptor
         else:
-            self.properties = None
+            self.descriptor = None
 
 
     # TODO remove class specific things / clean up
@@ -376,6 +377,8 @@ class OMNN(NN, _ONN):
         self.slatm_alchemy = bool(slatm_alchemy)
 
     def get_descriptors_from_indices(self, indices):
+
+        n_samples = indices.shape[0]
 
         if is_none(self.properties):
             raise InputError("Properties needs to be set in advance")

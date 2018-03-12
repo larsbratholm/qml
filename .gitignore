@@ -9,3 +9,4 @@ Examples/Models/tensorboard/
 Examples/bc_tensorboard/
 /aglaia/.cache/
 data_manip/
+aglaia/tests/.cache/
