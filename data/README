@@ -1,0 +1,5 @@
+The qm7 folder contains many different molecules all in their own xyz file and then there is one file called hof_qm7.txt that contains the energies for each .xyz file.
+
+The local_slatm_qm7.npz contains the qm7 dataset where the xyz coordinates have been turned into a local slatm descriptor. There is a zs array with the atomic number of each atom for each sample. There is an energy array that contains the energy for each sample.
+
+The local_slatm_qm7_light.bz contains the first 100 samples of the qm7 (dictionary keys: 'descriptor', 'zs', 'energies').

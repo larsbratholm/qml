@@ -7,6 +7,9 @@ Examples/tmp_dir/
 Examples/Models/
 Examples/Models/tensorboard/
 Examples/bc_tensorboard/
+other/Examples/.ipynb_checkpoints
 /aglaia/.cache/
 data_manip/
 aglaia/tests/.cache/
+data/*.npz
+data/*.bz

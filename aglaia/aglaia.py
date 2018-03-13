@@ -13,7 +13,7 @@ import tensorflow as tf
 from sklearn.utils.validation import check_X_y, check_array
 from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
 import matplotlib
-matplotlib.use('Agg')
+matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 #import inverse_dist as inv
 #from tensorflow.python.framework import ops
@@ -101,7 +101,6 @@ class _NN(object):
                                   initial_gradient_squared_accumulator_value, l1_regularization_strength,
                                   l2_regularization_strength)
 
-        # FIX THIS
         self.optimiser = self._set_optimiser_type(optimiser)
 
     def _set_activation_function(self, activation_function):
@@ -791,21 +790,13 @@ class NN(_NN):
 
 ### --------------------- ** Atomic representation - molecular properties network ** -----------------------------------
 
-# TODO init
-# TODO fit
-# TODO _fit
-# TODO score_r2
-# TODO score_mae
-# TODO score_rmse
-# TODO cost
-
 class ARMP(_NN):
     """
     This class contains neural networks that take in atomic representations and they calculate molecular properties
     such as the energies.
     """
 
-    def __init__(self, elements, **kwargs):
+    def __init__(self, **kwargs):
         """
         To see what parameters are required, look at the description of the _NN class init.
         This class inherits from the _NN class and all inputs not unique to the ARMP class is passed to the _NN
@@ -818,33 +809,14 @@ class ARMP(_NN):
 
         super(ARMP, self).__init__(**kwargs)
 
-        self._set_elements(elements)
-
-    def _set_elements(self, elements):
-        """
-        This function sets the parameter elements and checks that it makes sense.
-
-        :param elements: numpy array of int with shape (n_elements,)
-        :return: None
-        """
-
-        if len(elements) == 0:
-            raise InputError("Expected at least one element, got 0.")
-        if not elements.dtype == np.int32 or elements.dtype == np.int64:
-            raise InputError("Atomic numbers should be ints, got %s" % str(elements.dtype))
-        if not all(elements >= 0):
-            raise InputError("Atomic numbers should be zero or positive. Got negative values.")
-
-        self.elements = elements
-
     def fit(self, x, zs, y):
         """
         This class fits the neural network to the data. x corresponds to the descriptors and y to the molecular
         property to predict. zs contains the atomic numbers of all the atoms in the data.
 
-        :param x: tf tensor of shape (n_samples, n_atoms, n_features)
-        :param zs: tf tensor of shape (n_samples, n_atoms)
-        :param y: tf tensor of shape (n_samples, 1)
+        :param x: numpy array of shape (n_samples, n_atoms, n_features)
+        :param zs: numpy array of shape (n_samples, n_atoms)
+        :param y: numpy array of shape (n_samples, 1)
         :return: None
         """
 
@@ -867,20 +839,19 @@ class ARMP(_NN):
         n_samples = x.get_shape().as_list()[0]
 
         # Calculate the activation of the first hidden layer
-        expanded_weights = tf.tile(tf.expand_dims(tf.transpose(weights[0]), axis=0), multiples=[n_samples, 1, 1])
-        z = tf.add(tf.matmul(x, expanded_weights), biases[0])
+        weights_t = tf.transpose(weights[0])
+        z = tf.add(tf.tensordot(x, weights_t, axes=1), biases[0])
         h = tf.sigmoid(z)
 
         # Calculate the activation of the remaining hidden layers
         for i in range(hidden_layer_sizes.size - 1):
-            expanded_weights = tf.tile(tf.expand_dims(tf.transpose(weights[i + 1]), axis=0),
-                                       multiples=[n_samples, 1, 1])
-            z = tf.add(tf.matmul(h, expanded_weights), biases[i + 1])
+            weights_t = tf.transpose(weights[i + 1])
+            z = tf.add(tf.tensordot(h, weights_t, axes=1), biases[i + 1])
             h = tf.sigmoid(z)
 
         # Calculating the output of the last layer
-        expanded_weights = tf.tile(tf.expand_dims(tf.transpose(weights[-1]), axis=0), multiples=[n_samples, 1, 1])
-        z = tf.add(tf.matmul(h, expanded_weights), biases[-1], name="output")
+        weights_t = tf.transpose(weights[-1])
+        z = tf.add(tf.tensordot(h, weights_t, axes=1), biases[-1])
 
         z_squeezed = tf.squeeze(z, axis=[-1])
 
@@ -898,8 +869,8 @@ class ARMP(_NN):
         :return: tf tensor of shape (n_samples, 1)
         """
 
-        atomic_energies = tf.zeros(zs.get_shape())
-        zeros = tf.zeros(zs.get_shape())
+        atomic_energies = tf.zeros_like(zs)
+        zeros = tf.zeros_like(zs)
 
         for i in range(self.elements.shape[0]):
             # Calculating the output for every atom in all data as if they were all of the same element
@@ -907,7 +878,8 @@ class ARMP(_NN):
                                        element_biases[self.elements[i]])  # (n_samples, n_atoms)
 
             # Figuring out which atomic energies correspond to the current element.
-            current_element = tf.constant(self.elements[i], shape=zs.get_shape())
+            current_element = tf.multiply(tf.ones_like(zs), tf.constant(self.elements[i], dtype=self.tf_dtype))
+            # current_element = tf.constant(self.elements[i], shape=zs.get_shape())
             where_element = tf.equal(zs, current_element)  # (n_samples, n_atoms)
 
             # Extracting the energies corresponding to the right element
@@ -917,7 +889,7 @@ class ARMP(_NN):
             atomic_energies = tf.add(atomic_energies, element_energies)
 
         # Summing the energies of all the atoms
-        total_energies = tf.reduce_sum(atomic_energies, axis=-1)
+        total_energies = tf.reduce_sum(atomic_energies, axis=-1, name="output")
 
         return total_energies
 
@@ -948,6 +920,19 @@ class ARMP(_NN):
 
         return cost_function
 
+    def _find_elements(self, zs):
+        """
+        This function finds the unique atomic numbers in Zs and returns them in a list.
+
+        :param zs: numpy array of shape (n_samples, n_atoms)
+        :return: numpy array of shape (n_elements,)
+        """
+
+        # Obtaining the unique atomic numbers (but still includes the dummy atoms)
+        elements = np.unique(zs)
+
+        # Removing the dummy
+        return np.trim_zeros(elements)
 
     def _fit(self, x, zs, y):
         """
@@ -959,10 +944,19 @@ class ARMP(_NN):
         :return: None
         """
 
+        # Obtaining the array of unique elements in all samples
+        self.elements = self._find_elements(zs)
+
         # Useful quantities
-        self.n_samples = x.get_shape().as_list()[0]
-        self.n_atoms = x.get_shape().as_list()[1]
-        self.n_features = x.get_shape().as_list()[2]
+        self.n_samples = x.shape[0]
+        self.n_atoms = x.shape[1]
+        self.n_features = x.shape[2]
+
+        # Initial set up of the NN
+        with tf.name_scope("Data"):
+            tf_x = tf.placeholder(self.tf_dtype, [None, self.n_atoms, self.n_features], name="Descriptors")
+            tf_y = tf.placeholder(self.tf_dtype, [None, 1], name="Properties")
+            tf_zs = tf.placeholder(self.tf_dtype, [None, self.n_atoms], name="Atomic-number")
 
         # Set the batch size
         batch_size = self._get_batch_size()
@@ -971,12 +965,92 @@ class ARMP(_NN):
         element_weights = {}
         element_biases = {}
 
-        for i in range(self.elements.shape[0]):
-            weights, biases = self._generate_weights(n_out=1)
-            element_weights[self.elements[i]] = weights
-            element_biases[self.elements[i]] = biases
+        with tf.name_scope("Weights"):
+            for i in range(self.elements.shape[0]):
+                weights, biases = self._generate_weights(n_out=1)
+                element_weights[self.elements[i]] = weights
+                element_biases[self.elements[i]] = biases
 
-        molecular_energies = self._model(x, zs, element_weights, element_biases)
+                # Log weights for tensorboard
+                if self.tensorboard:
+                    self.tensorboard_logger.write_weight_histogram(weights)
 
+        with tf.name_scope("Model"):
+            molecular_energies = self._model(tf_x, tf_zs, element_weights, element_biases)
 
+        with tf.name_scope("Cost_func"):
+            cost = self.cost(molecular_energies, tf_y, element_weights)
 
+        if self.tensorboard:
+            cost_summary = tf.summary.scalar('cost', cost)
+
+        optimiser = self._set_optimiser()
+        optimisation_op = optimiser.minimize(cost)
+
+        # Initialisation of the variables
+        init = tf.global_variables_initializer()
+
+        if self.tensorboard:
+            self.tensorboard_logger.initialise()
+
+        # This is the total number of batches in which the training set is divided
+        n_batches = ceil(self.n_samples, batch_size)
+
+        self.session = tf.Session()
+
+        # Running the graph
+        if self.tensorboard:
+            self.tensorboard_logger.set_summary_writer(self.session)
+
+        self.session.run(init)
+
+        indices = np.arange(0, self.n_samples, 1)
+
+        for i in range(self.iterations):
+            # This will be used to calculate the average cost per iteration
+            avg_cost = 0
+            # Learning over the batches of data
+            for j in range(n_batches):
+                batch_x = x[indices][j * batch_size:(j+1) * batch_size]
+                batch_zs = zs[indices][j * batch_size:(j+1) * batch_size]
+                batch_y = y[indices][j * batch_size:(j+1) * batch_size]
+                if self.AdagradDA:
+                    feed_dict = {tf_x: batch_x, tf_y: batch_y, self.global_step:i, tf_zs:batch_zs}
+                    opt, c = self.session.run([optimisation_op, cost], feed_dict=feed_dict)
+                else:
+                    feed_dict = {tf_x: batch_x, tf_y: batch_y, tf_zs:batch_zs}
+                    opt, c = self.session.run([optimisation_op, cost], feed_dict=feed_dict)
+                avg_cost += c * batch_x.shape[0] / x.shape[0]
+
+                if self.tensorboard:
+                    if i % self.tensorboard_logger.store_frequency == 0:
+                        self.tensorboard_logger.write_summary(self.session, feed_dict, i, j)
+
+            self.training_cost.append(avg_cost)
+
+            # Shuffle the dataset at each iteration
+            np.random.shuffle(indices)
+
+    def _predict(self, xzs):
+        """
+        This function overrites the _NN _predict function because the model is different
+
+        :param xzs: list containing x and zs. x is a np array of shape (n_samples, n_atoms, n_features), zs a np array of shape (n_samples, n_atoms)
+        :return: a np array of shape (n_samples,)
+        """
+
+        x = xzs[0]
+        zs = xzs[1]
+
+        if self.session == None:
+            raise InputError("Model needs to be fit before predictions can be made.")
+
+        graph = tf.get_default_graph()
+
+        with graph.as_default():
+            tf_x = graph.get_tensor_by_name("Data/Descriptors:0")
+            tf_zs = graph.get_tensor_by_name("Data/Atomic-number:0")
+            model = graph.get_tensor_by_name("Model/output:0")
+            y_pred = self.session.run(model, feed_dict={tf_x: x, tf_zs:zs})
+
+        return y_pred
