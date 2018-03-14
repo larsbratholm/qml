@@ -836,7 +836,6 @@ class ARMP(_NN):
         :return: Output
         :rtype: tf.Variable of size (None, n_targets)
         """
-        n_samples = x.get_shape().as_list()[0]
 
         # Calculate the activation of the first hidden layer
         weights_t = tf.transpose(weights[0])

@@ -9,11 +9,11 @@ import numpy as np
 from sklearn.base import BaseEstimator
 
 try:
-    from qml import Compound
+    from qml import Compound, representations
 except ModuleNotFoundError:
     raise ModuleNotFoundError("The module qml is required")
 
-from .aglaia import _NN, NN
+from .aglaia import _NN, NN, ARMP
 from .utils import InputError, is_array_like, is_numeric_array, is_positive_integer, is_positive_integer_or_zero, \
         is_non_zero_integer, is_positive_integer_or_zero_array, is_dict, is_none, is_string, is_positive, is_bool
 
@@ -272,10 +272,40 @@ class _ONN(BaseEstimator, _NN):
         else:
             return - self._score(idx, y)
 
+    def _set_slatm(self, slatm_sigma1, slatm_sigma2, slatm_dgrid1, slatm_dgrid2, slatm_rcut,
+                   slatm_rpower, slatm_alchemy):
+
+        if not is_positive(slatm_sigma1):
+            raise InputError("Expected positive float for variable 'slatm_sigma1'. Got %s." % str(slatm_sigma1))
+        self.slatm_sigma1 = float(slatm_sigma1)
+
+        if not is_positive(slatm_sigma2):
+            raise InputError("Expected positive float for variable 'slatm_sigma2'. Got %s." % str(slatm_sigma2))
+        self.slatm_sigma2 = float(slatm_sigma2)
+
+        if not is_positive(slatm_dgrid1):
+            raise InputError("Expected positive float for variable 'slatm_dgrid1'. Got %s." % str(slatm_dgrid1))
+        self.slatm_dgrid1 = float(slatm_dgrid1)
+
+        if not is_positive(slatm_dgrid2):
+            raise InputError("Expected positive float for variable 'slatm_dgrid2'. Got %s." % str(slatm_dgrid2))
+        self.slatm_dgrid2 = float(slatm_dgrid2)
+
+        if not is_positive(slatm_rcut):
+            raise InputError("Expected positive float for variable 'slatm_rcut'. Got %s." % str(slatm_rcut))
+        self.slatm_rcut = float(slatm_rcut)
+
+        if not is_non_zero_integer(slatm_rpower):
+            raise InputError("Expected non-zero integer for variable 'slatm_rpower'. Got %s." % str(slatm_rpower))
+        self.slatm_rpower = int(slatm_rpower)
+
+        if not is_bool(slatm_alchemy):
+            raise InputError("Expected boolean value for variable 'slatm_alchemy'. Got %s." % str(slatm_alchemy))
+        self.slatm_alchemy = bool(slatm_alchemy)
 
 #TODO slatm exception tests
 # TODO remove compounds argument and only keep it in _ONN
-# Osprey molecular neural network
+# Osprey molecular neural network, molecular properties
 class OMNN(NN, _ONN):
     """
     Adds additional variables and functionality to the NN class that makes interfacing with
@@ -344,37 +374,6 @@ class OMNN(NN, _ONN):
         self.representation = representation.lower()
 
         self._set_slatm(*args)
-
-    def _set_slatm(self, slatm_sigma1, slatm_sigma2, slatm_dgrid1, slatm_dgrid2, slatm_rcut,
-            slatm_rpower, slatm_alchemy):
-
-        if not is_positive(slatm_sigma1):
-            raise InputError("Expected positive float for variable 'slatm_sigma1'. Got %s." % str(slatm_sigma1))
-        self.slatm_sigma1 = float(slatm_sigma1)
-
-        if not is_positive(slatm_sigma2):
-            raise InputError("Expected positive float for variable 'slatm_sigma2'. Got %s." % str(slatm_sigma2))
-        self.slatm_sigma2 = float(slatm_sigma2)
-
-        if not is_positive(slatm_dgrid1):
-            raise InputError("Expected positive float for variable 'slatm_dgrid1'. Got %s." % str(slatm_dgrid1))
-        self.slatm_dgrid1 = float(slatm_dgrid1)
-
-        if not is_positive(slatm_dgrid2):
-            raise InputError("Expected positive float for variable 'slatm_dgrid2'. Got %s." % str(slatm_dgrid2))
-        self.slatm_dgrid2 = float(slatm_dgrid2)
-
-        if not is_positive(slatm_rcut):
-            raise InputError("Expected positive float for variable 'slatm_rcut'. Got %s." % str(slatm_rcut))
-        self.slatm_rcut = float(slatm_rcut)
-
-        if not is_non_zero_integer(slatm_rpower):
-            raise InputError("Expected non-zero integer for variable 'slatm_rpower'. Got %s." % str(slatm_rpower))
-        self.slatm_rpower = int(slatm_rpower)
-
-        if not is_bool(slatm_alchemy):
-            raise InputError("Expected boolean value for variable 'slatm_alchemy'. Got %s." % str(slatm_alchemy))
-        self.slatm_alchemy = bool(slatm_alchemy)
 
     def get_descriptors_from_indices(self, indices):
 
@@ -488,7 +487,7 @@ class OMNN(NN, _ONN):
         x = self.get_descriptors_from_indices(indices)
         return self._predict(x)
 
-# Osprey atomic neural network
+# Osprey atomic neural network, atomic properties
 class OANN(OMNN):
     """
     Adds additional variables and functionality to the NN class that makes interfacing with
@@ -665,7 +664,6 @@ class OANN(OMNN):
 
         return np.asarray(y)
 
-
     # TODO test
     def fit(self, indices, y = None):
         """
@@ -688,3 +686,142 @@ class OANN(OMNN):
     def predict(self, indices):
         x = self.get_descriptors_from_indices(indices)
         return self._predict(x)
+
+# Osprey atomic neural network, molecular properties
+class OAMNN(_ONN, ARMP):
+    """
+    This class is the wrapper for the ARMP neural network for osprey.
+    """
+    def __init__(self, representation = 'unsorted_coulomb_matrix',
+            slatm_sigma1 = 0.05, slatm_sigma2 = 0.05, slatm_dgrid1 = 0.03, slatm_dgrid2 = 0.03, slatm_rcut = 4.8, slatm_rpower = 6,
+            slatm_alchemy = False, compounds = None, properties = None, **kwargs):
+        """
+        A molecule's cartesian coordinates and chemical composition is transformed into a descriptor for the molecule,
+        which is then used as input to a single or multi layered feedforward neural network with a single output.
+        This class inherits from the ARMP and _ONN class and all inputs not unique to the OAMNN class is passed to the
+        parents.
+
+        Available representations at the moment are ['unsorted_coulomb_matrix', 'sorted_coulomb_matrix',
+        bag_of_bonds', 'slatm'].
+
+        :param representation: Name of molecular representation.
+        :type representation: string
+        :param slatm_sigma1: Scale of the gaussian bins for the two-body term
+        :type slatm_sigma1: float
+        :param slatm_sigma2: Scale of the gaussian bins for the three-body term
+        :type slatm_sigma2: float
+        :param slatm_dgrid1: Spacing between the gaussian bins for the two-body term
+        :type slatm_dgrid1: float
+        :param slatm_dgrid2: Spacing between the gaussian bins for the three-body term
+        :type slatm_dgrid2: float
+        :param slatm_rcut: Cutoff radius
+        :type slatm_rcut: float
+        :param slatm_rpower: exponent of the binning
+        :type slatm_rpower: integer
+        :param slatm_alchemy: Whether to use the alchemy version of slatm or not.
+        :type slatm_alchemy: bool
+        :param compounds: Contains informations about xyz, zs, ... of all the samples in the data
+        :type compounds: list of qml Compounds objects
+        :param properties: Molecular properties for all data samples
+        :type properties: list
+        """
+
+        # TODO try to avoid directly passing compounds and properties. That shouldn't be needed.
+        super(OAMNN,self).__init__(compounds = compounds, properties = properties, **kwargs)
+
+        self._set_representation(representation, slatm_sigma1, slatm_sigma2, slatm_dgrid1, slatm_dgrid2, slatm_rcut,
+                slatm_rpower, slatm_alchemy)
+
+    def _set_representation(self, representation, *args):
+        """
+        This function sets the parameter that says which descriptor is going to be used. It also sets the slatm
+        parameters (even if the slatm representation isn't going to be used??)
+
+        :param representation: Name of descriptor to use (string)
+        :param args: slatm parameters: slatm_sigma1, slatm_sigma2, slatm_dgrid1, slatm_dgrid2, slatm_rcut,
+                slatm_rpower, slatm_alchemy.
+        :return: None
+        """
+
+        if not is_string(representation):
+            raise InputError("Expected string for variable 'representation'. Got %s" % str(representation))
+        if representation.lower() not in ['atomic_coulomb_matrix', 'slatm']:
+            raise InputError("Unknown representation %s" % representation)
+        self.representation = representation.lower()
+
+        self._set_slatm(*args)
+
+    def _set_properties(self, properties):
+        """
+        Sets the properties. Needs to be called before fitting.
+
+        :param y: array of properties of size (n_samples,)
+        :type y: array
+        """
+        if not is_none(properties):
+            if is_numeric_array(properties) and np.asarray(properties).ndim == 1:
+                self.properties = np.asarray(properties)
+            else:
+                raise InputError('Variable "properties" expected to be array like of dimension 1. Got %s' % str(properties))
+        else:
+            self.properties = None
+
+    def get_descriptors_from_indices(self, indices):
+        """
+        This function generates and stores in the class the descriptors for the samples corresponding to the indices.
+
+        :param indices: numpy array of shape (n_samples,) of type int
+        :return: None
+        """
+
+        n_samples = indices.shape[0]
+
+        if is_none(self.properties):
+            raise InputError("Properties needs to be set in advance")
+        if is_none(self.compounds):
+            raise InputError("QML compounds needs to be created in advance")
+
+        if not is_positive_integer_or_zero_array(indices):
+            raise InputError("Expected input to be indices")
+
+        # Convert to 1d
+        idx = np.asarray(indices, dtype=int).ravel()
+
+        if self.representation == 'slatm':
+
+            mbtypes = representations.get_slatm_mbtypes([mol.nuclear_charges for mol in self.compounds[idx]])
+            list_descriptors = []
+            max_n_atoms = 0
+
+            # Generating the descriptor in the shape that ARMP requires it
+            for compound in self.compounds[idx]:
+                compound.generate_slatm(mbtypes, local=True, sigmas = [self.slatm_sigma1, self.slatm_sigma2],
+                        dgrids = [self.slatm_dgrid1, self.slatm_dgrid2], rcut = self.slatm_rcut, alchemy = self.slatm_alchemy,
+                        rpower = self.slatm_rpower)
+                descriptor = compound.representation
+                if max_n_atoms < descriptor.shape[0]:
+                    max_n_atoms = descriptor.shape[0]
+                list_descriptors.append(descriptor)
+
+            n_samples = len(list_descriptors)
+            n_features = list_descriptors[0].shape[1]
+            padded_descriptors = np.zeros((n_samples, max_n_atoms, n_features))
+            for i, item in enumerate(list_descriptors):
+                padded_descriptors[i, :item.shape[0], :] = item
+
+            # Generating zs in the shape that ARMP requires it
+            zs = np.zeros((n_samples, max_n_atoms))
+            for i, mol in enumerate(self.compounds):
+                zs[i, :mol.nuclear_charges.shape[0]] = mol.nuclear_charges
+
+        elif self.representation == 'atomic_coulomb_matrix':
+
+            print("I still haven't implemented this. SOZ")
+
+        else:
+
+            raise InputError("This should never happen. Unrecognised representation. Got %s." % str(self.representation))
+
+        self.descriptor = padded_descriptors
+        self.zs = zs
+        
