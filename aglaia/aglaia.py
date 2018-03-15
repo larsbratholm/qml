@@ -12,8 +12,6 @@ import tensorflow as tf
 #from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.utils.validation import check_X_y, check_array
 from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
-import matplotlib
-matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 #import inverse_dist as inv
 #from tensorflow.python.framework import ops
@@ -572,7 +570,6 @@ class _NN(object):
             y_pred = self.session.run(model, feed_dict = {tf_x : x})
             return y_pred
 
-
 ### --------------------- ** Molecular representation - molecular properties network ** --------------------------------
 
 # TODO: Rename to something more sensible
@@ -943,6 +940,9 @@ class ARMP(_NN):
         :return: None
         """
 
+        # reshape to tensorflow friendly shape
+        y = np.atleast_2d(y).T
+
         # Obtaining the array of unique elements in all samples
         self.elements = self._find_elements(zs)
 
@@ -955,7 +955,7 @@ class ARMP(_NN):
         with tf.name_scope("Data"):
             tf_x = tf.placeholder(self.tf_dtype, [None, self.n_atoms, self.n_features], name="Descriptors")
             tf_y = tf.placeholder(self.tf_dtype, [None, 1], name="Properties")
-            tf_zs = tf.placeholder(self.tf_dtype, [None, self.n_atoms], name="Atomic-number")
+            tf_zs = tf.placeholder(self.tf_dtype, [None, self.n_atoms], name="Atomic-numbers")
 
         # Set the batch size
         batch_size = self._get_batch_size()
@@ -1048,8 +1048,75 @@ class ARMP(_NN):
 
         with graph.as_default():
             tf_x = graph.get_tensor_by_name("Data/Descriptors:0")
-            tf_zs = graph.get_tensor_by_name("Data/Atomic-number:0")
+            tf_zs = graph.get_tensor_by_name("Data/Atomic-numbers:0")
             model = graph.get_tensor_by_name("Model/output:0")
             y_pred = self.session.run(model, feed_dict={tf_x: x, tf_zs:zs})
 
         return y_pred
+
+    def _score_r2(self, x, y, sample_weight=None):
+        """
+        Calculate the coefficient of determination (R^2).
+        Larger values corresponds to a better prediction.
+
+        :param x: The input data.
+        :type x: array of shape (n_samples, n_features)
+        :param y: The target values for each sample in x.
+        :type y: array of shape (n_samples,)
+
+        :param sample_weight: Weights of the samples. None indicates that that each sample has the same weight.
+        :type sample_weight: array of shape (n_samples,)
+
+        :return: R^2
+        :rtype: float
+
+        """
+
+        y_pred = self.predict(x)
+        r2 = r2_score(y, y_pred, sample_weight = sample_weight)
+        return r2
+
+    def _score_mae(self, x, y, sample_weight=None):
+        """
+        Calculate the mean absolute error.
+        Smaller values corresponds to a better prediction.
+
+        :param x: The input data.
+        :type x: array of shape (n_samples, n_features)
+        :param y: The target values for each sample in x.
+        :type y: array of shape (n_samples,)
+
+        :param sample_weight: Weights of the samples. None indicates that that each sample has the same weight.
+        :type sample_weight: array of shape (n_samples,)
+
+        :return: Mean absolute error
+        :rtype: float
+
+        """
+
+        y_pred = self.predict(x)
+        mae = (-1.0)*mean_absolute_error(y, y_pred, sample_weight = sample_weight)
+        print("Warning! The mae is multiplied by -1 so that it can be minimised in Osprey!")
+        return mae
+
+    def _score_rmse(self, x, y, sample_weight=None):
+        """
+        Calculate the root mean squared error.
+        Smaller values corresponds to a better prediction.
+
+        :param x: The input data.
+        :type x: array of shape (n_samples, n_features)
+        :param y: The target values for each sample in x.
+        :type y: array of shape (n_samples,)
+
+        :param sample_weight: Weights of the samples. None indicates that that each sample has the same weight.
+        :type sample_weight: array of shape (n_samples,)
+
+        :return: Mean absolute error
+        :rtype: float
+
+        """
+
+        y_pred = self.predict(x)
+        rmse = np.sqrt(mean_squared_error(y, y_pred, sample_weight = sample_weight))
+        return rmse
