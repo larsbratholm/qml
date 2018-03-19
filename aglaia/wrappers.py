@@ -766,11 +766,10 @@ class OAMNN(ARMP, _ONN):
         else:
             self.properties = None
 
-    def get_descriptors_from_indices(self, indices):
+    def make_descriptors(self):
         """
-        This function generates and stores in the class the descriptors for the samples corresponding to the indices.
+        This function makes the descriptors for all the compounds.
 
-        :param indices: numpy array of shape (n_samples,) of type int
         :return: None
         """
 
@@ -779,17 +778,12 @@ class OAMNN(ARMP, _ONN):
         if is_none(self.compounds):
             raise InputError("QML compounds needs to be created in advance")
 
-        if not is_positive_integer_or_zero_array(indices):
-            raise InputError("Expected input to be indices")
-
-        # Convert to 1d
-        idx = np.asarray(indices, dtype=int).ravel()
         descriptor = None
         zs = None
 
         if self.representation == 'slatm':
 
-            descriptor, zs = self._generate_slatm(idx)
+            descriptor, zs = self._generate_slatm()
 
         elif self.representation == 'atomic_coulomb_matrix':
 
@@ -799,23 +793,57 @@ class OAMNN(ARMP, _ONN):
 
             raise InputError("This should never happen. Unrecognised representation. Got %s." % str(self.representation))
 
-        # self.descriptor = descriptor
-        # self.zs = zs
-        return descriptor, zs
+        self.descriptor = descriptor
+        self.zs = zs
 
-    def _generate_slatm(self, idx):
+    def get_descriptors_from_indices(self, indices):
+        """
+        This function returns the descriptors that are stored in the compounds for the samples corresponding to the
+        indices.
+
+        :param indices: numpy array of shape (n_samples,) of type int
+        :return: None
+        """
+
+        if is_none(self.properties):
+            raise InputError("Properties needs to be set in advance")
+        if is_none(self.compounds):
+            raise InputError("QML compounds needs to be created in advance")
+        if is_none(self.descriptor):
+            raise InputError("The descriptors have to be made before being used.")
+
+        if not is_positive_integer_or_zero_array(indices):
+            raise InputError("Expected input to be indices")
+
+        # Convert to 1d
+        idx = np.asarray(indices, dtype=int).ravel()
+
+        if self.representation == 'slatm':
+
+            return self.descriptor[idx], self.zs[idx]
+
+        elif self.representation == 'atomic_coulomb_matrix':
+
+            print("I still haven't implemented this. SOZ")
+            return None
+
+        else:
+
+            raise InputError("This should never happen. Unrecognised representation. Got %s." % str(self.representation))
+
+    def _generate_slatm(self):
         """
         This function generates the local slatm descriptor for all the compounds referred to by the indices.
-        :param idx: numpy array of shape (n_samples,)
-        :return: numpy array of shape (n_samples, n_max_atoms, n_features)
+
+        :return: numpy array of shape (n_samples, n_max_atoms, n_features) and (n_samples, n_atoms)
         """
 
-        mbtypes = representations.get_slatm_mbtypes([mol.nuclear_charges for mol in self.compounds[idx]])
+        mbtypes = representations.get_slatm_mbtypes([mol.nuclear_charges for mol in self.compounds])
         list_descriptors = []
         max_n_atoms = 0
 
         # Generating the descriptor in the shape that ARMP requires it
-        for compound in self.compounds[idx]:
+        for compound in self.compounds:
             compound.generate_slatm(mbtypes, local=True, sigmas=[self.slatm_sigma1, self.slatm_sigma2],
                                     dgrids=[self.slatm_dgrid1, self.slatm_dgrid2], rcut=self.slatm_rcut,
                                     alchemy=self.slatm_alchemy,
@@ -825,6 +853,7 @@ class OAMNN(ARMP, _ONN):
                 max_n_atoms = descriptor.shape[0]
             list_descriptors.append(descriptor)
 
+        # Padding the descriptors of the molecules that have fewer atoms
         n_samples = len(list_descriptors)
         n_features = list_descriptors[0].shape[1]
         padded_descriptors = np.zeros((n_samples, max_n_atoms, n_features))
@@ -833,7 +862,7 @@ class OAMNN(ARMP, _ONN):
 
         # Generating zs in the shape that ARMP requires it
         zs = np.zeros((n_samples, max_n_atoms))
-        for i, mol in enumerate(self.compounds[idx]):
+        for i, mol in enumerate(self.compounds):
             zs[i, :mol.nuclear_charges.shape[0]] = mol.nuclear_charges
 
         return padded_descriptors, zs
@@ -846,6 +875,7 @@ class OAMNN(ARMP, _ONN):
         :param zs: Dummy parameter for osprey
         :return: None
         """
+        self.make_descriptors()
 
         x, zs = self.get_descriptors_from_indices(indices)
         idx = np.asarray(indices, dtype=int).ravel()
