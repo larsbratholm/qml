@@ -766,7 +766,7 @@ class OAMNN(ARMP, _ONN):
         else:
             self.properties = None
 
-    def make_descriptors(self):
+    def generate_descriptor(self):
         """
         This function makes the descriptors for all the compounds.
 
@@ -875,7 +875,7 @@ class OAMNN(ARMP, _ONN):
         :param zs: Dummy parameter for osprey
         :return: None
         """
-        self.make_descriptors()
+        self.generate_descriptor()
 
         x, zs = self.get_descriptors_from_indices(indices)
         idx = np.asarray(indices, dtype=int).ravel()
