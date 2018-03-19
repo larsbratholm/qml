@@ -868,13 +868,14 @@ class ARMP(_NN):
         atomic_energies = tf.zeros_like(zs)
 
         for i in range(self.elements.shape[0]):
-            # Figuring out which atomic energies correspond to the current element.
-            current_element = tf.expand_dims(tf.constant(self.elements[i], dtype=self.tf_dtype), axis=0)
-            where_element = tf.equal(zs, current_element)  # (n_samples, n_atoms)
 
             # Calculating the output for every atom in all data as if they were all of the same element
             atomic_energies = self._atomic_model(x, self.hidden_layer_sizes, element_weights[self.elements[i]],
                                                  element_biases[self.elements[i]])  # (n_samples, n_atoms)
+
+            # Figuring out which atomic energies correspond to the current element.
+            current_element = tf.expand_dims(tf.constant(self.elements[i], dtype=tf.int32), axis=0)
+            where_element = tf.equal(tf.cast(zs, dtype=tf.int32), current_element)  # (n_samples, n_atoms)
 
             # Extracting the energies corresponding to the right element
             element_energies = tf.where(where_element, atomic_energies, tf.zeros_like(zs))
@@ -949,14 +950,23 @@ class ARMP(_NN):
         self.n_atoms = x.shape[1]
         self.n_features = x.shape[2]
 
-        # Initial set up of the NN
-        with tf.name_scope("Data"):
-            tf_x = tf.placeholder(self.tf_dtype, [None, self.n_atoms, self.n_features], name="Descriptors")
-            tf_y = tf.placeholder(self.tf_dtype, [None, 1], name="Properties")
-            tf_zs = tf.placeholder(self.tf_dtype, [None, self.n_atoms], name="Atomic-numbers")
-
         # Set the batch size
         batch_size = self._get_batch_size()
+
+        # This is the total number of batches in which the training set is divided
+        n_batches = ceil(self.n_samples, batch_size)
+
+        # Initial set up of the NN
+        with tf.name_scope("Data"):
+            dataset = tf.data.Dataset.from_tensor_slices((tf.constant(x, dtype=self.tf_dtype), tf.constant(zs, dtype=self.tf_dtype), tf.constant(y, dtype=self.tf_dtype)))
+            dataset = dataset.shuffle(buffer_size=self.n_samples)
+            batched_dataset = dataset.batch(batch_size).repeat(self.iterations)
+
+            iterator = tf.data.Iterator.from_structure(batched_dataset.output_types, batched_dataset.output_shapes)
+            tf_x, tf_zs, tf_y = iterator.get_next()
+            tf_x = tf.identity(tf_x, name="Descriptors")
+            tf_zs = tf.identity(tf_zs, name="Atomic-numbers")
+            tf_y = tf.identity(tf_y, name="Properties")
 
         # Creating dictionaries of the weights and biases for each element
         element_weights = {}
@@ -986,12 +996,10 @@ class ARMP(_NN):
 
         # Initialisation of the variables
         init = tf.global_variables_initializer()
+        iterator_init = iterator.make_initializer(batched_dataset)
 
         if self.tensorboard:
             self.tensorboard_logger.initialise()
-
-        # This is the total number of batches in which the training set is divided
-        n_batches = ceil(self.n_samples, batch_size)
 
         self.session = tf.Session()
 
@@ -1000,33 +1008,26 @@ class ARMP(_NN):
             self.tensorboard_logger.set_summary_writer(self.session)
 
         self.session.run(init)
+        self.session.run(iterator_init)
 
-        indices = np.arange(0, self.n_samples, 1)
+        avg_cost = 0
+        counter = 0
 
         for i in range(self.iterations):
-            # This will be used to calculate the average cost per iteration
-            avg_cost = 0
-            # Learning over the batches of data
-            for j in range(n_batches):
-                batch_x = x[indices][j * batch_size:(j+1) * batch_size]
-                batch_zs = zs[indices][j * batch_size:(j+1) * batch_size]
-                batch_y = y[indices][j * batch_size:(j+1) * batch_size]
-                if self.AdagradDA:
-                    feed_dict = {tf_x: batch_x, tf_y: batch_y, self.global_step:i, tf_zs:batch_zs}
-                    opt, c = self.session.run([optimisation_op, cost], feed_dict=feed_dict)
-                else:
-                    feed_dict = {tf_x: batch_x, tf_y: batch_y, tf_zs:batch_zs}
-                    opt, c = self.session.run([optimisation_op, cost], feed_dict=feed_dict)
-                avg_cost += c * batch_x.shape[0] / x.shape[0]
 
-                if self.tensorboard:
-                    if i % self.tensorboard_logger.store_frequency == 0:
-                        self.tensorboard_logger.write_summary(self.session, feed_dict, i, j)
+            if self.AdagradDA:
+                opt, c = self.session.run([optimisation_op, cost])
+            else:
+                opt, c = self.session.run([optimisation_op, cost])
 
-            self.training_cost.append(avg_cost)
-
-            # Shuffle the dataset at each iteration
-            np.random.shuffle(indices)
+            # Updating the training_cost
+            if counter < n_batches:
+                avg_cost += c
+                counter += 1
+            if counter >= n_batches:
+                self.training_cost.append(avg_cost)
+                avg_cost = 0
+                counter = 0
 
     def _predict(self, xzs):
         """
