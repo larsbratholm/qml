@@ -866,20 +866,18 @@ class ARMP(_NN):
         """
 
         atomic_energies = tf.zeros_like(zs)
-        zeros = tf.zeros_like(zs)
 
         for i in range(self.elements.shape[0]):
-            # Calculating the output for every atom in all data as if they were all of the same element
-            atomic_energies = self._atomic_model(x, self.hidden_layer_sizes, element_weights[self.elements[i]],
-                                       element_biases[self.elements[i]])  # (n_samples, n_atoms)
-
             # Figuring out which atomic energies correspond to the current element.
-            current_element = tf.multiply(tf.ones_like(zs), tf.constant(self.elements[i], dtype=self.tf_dtype))
-            # current_element = tf.constant(self.elements[i], shape=zs.get_shape())
+            current_element = tf.expand_dims(tf.constant(self.elements[i], dtype=self.tf_dtype), axis=0)
             where_element = tf.equal(zs, current_element)  # (n_samples, n_atoms)
 
+            # Calculating the output for every atom in all data as if they were all of the same element
+            atomic_energies = self._atomic_model(x, self.hidden_layer_sizes, element_weights[self.elements[i]],
+                                                 element_biases[self.elements[i]])  # (n_samples, n_atoms)
+
             # Extracting the energies corresponding to the right element
-            element_energies = tf.where(where_element, atomic_energies, zeros)
+            element_energies = tf.where(where_element, atomic_energies, tf.zeros_like(zs))
 
             # Adding the energies of the current element to the final atomic energies tensor
             atomic_energies = tf.add(atomic_energies, element_energies)
