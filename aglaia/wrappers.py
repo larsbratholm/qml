@@ -70,7 +70,6 @@ class _ONN(BaseEstimator, _NN):
         else:
             self.descriptor = None
 
-
     # TODO remove class specific things / clean up
     def get_params(self, deep = True):
         """
@@ -142,7 +141,6 @@ class _ONN(BaseEstimator, _NN):
         # recreate hidden_layers_sizes
         self._set_hl(self.hl1, self.hl2, self.hl3)
         return self
-
 
     # TODO test
     def _set_hl(self, hl1, hl2, hl3):

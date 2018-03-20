@@ -933,9 +933,9 @@ class ARMP(_NN):
         """
         This function is present because the osprey wrapper needs to overwrite the fit function.
 
-        :param x: tf tensor of shape (n_samples, n_atoms, n_features)
-        :param zs: tf tensor of shape (n_samples, n_atoms)
-        :param y:  tf tensor of shape (n_samples, 1)
+        :param x: np array of shape (n_samples, n_atoms, n_features)
+        :param zs: np array of shape (n_samples, n_atoms)
+        :param y:  np array of shape (n_samples, 1)
         :return: None
         """
 
@@ -958,9 +958,14 @@ class ARMP(_NN):
 
         # Initial set up of the NN
         with tf.name_scope("Data"):
-            dataset = tf.data.Dataset.from_tensor_slices((tf.constant(x, dtype=self.tf_dtype), tf.constant(zs, dtype=self.tf_dtype), tf.constant(y, dtype=self.tf_dtype)))
+            x_ph = tf.placeholder(dtype=self.tf_dtype, shape=[None, self.n_atoms, self.n_features])
+            zs_ph = tf.placeholder(dtype=self.tf_dtype, shape=[None, self.n_atoms])
+            y_ph = tf.placeholder(dtype=self.tf_dtype, shape=[None, 1])
+
+            dataset = tf.data.Dataset.from_tensor_slices((x_ph, zs_ph, y_ph))
             dataset = dataset.shuffle(buffer_size=self.n_samples)
-            batched_dataset = dataset.batch(batch_size).repeat(self.iterations)
+            dataset = dataset.batch(batch_size).repeat(self.iterations)
+            batched_dataset = dataset.prefetch(buffer_size=batch_size)
 
             iterator = tf.data.Iterator.from_structure(batched_dataset.output_types, batched_dataset.output_shapes)
             tf_x, tf_zs, tf_y = iterator.get_next()
@@ -1008,12 +1013,12 @@ class ARMP(_NN):
             self.tensorboard_logger.set_summary_writer(self.session)
 
         self.session.run(init)
-        self.session.run(iterator_init)
+        self.session.run(iterator_init, feed_dict={x_ph:x, zs_ph:zs, y_ph:y})
 
         avg_cost = 0
         counter = 0
 
-        for i in range(self.iterations):
+        for i in range(self.iterations*n_batches):
 
             if self.AdagradDA:
                 opt, c = self.session.run([optimisation_op, cost])
@@ -1025,7 +1030,7 @@ class ARMP(_NN):
                 avg_cost += c
                 counter += 1
             if counter >= n_batches:
-                self.training_cost.append(avg_cost)
+                self.training_cost.append(avg_cost/n_batches)
                 avg_cost = 0
                 counter = 0
 
@@ -1094,9 +1099,7 @@ class ARMP(_NN):
         """
 
         y_pred = self.predict(x)
-        mae = (-1.0)*mean_absolute_error(y, y_pred, sample_weight = sample_weight)
-        print("Warning! The mae is multiplied by -1 so that it can be minimised in Osprey!")
-        return mae
+        return mean_absolute_error(y, y_pred, sample_weight = sample_weight)
 
     def _score_rmse(self, x, y, sample_weight=None):
         """
