@@ -24,7 +24,7 @@ class _ONN(BaseEstimator, _NN):
     """
 
     def __init__(self, hl1 = 5, hl2 = 0, hl3 = 0,
-            compounds = None, properties = None, descriptor=None, nuclear_charges = None, coordinates = None, **kwargs):
+            compounds = None, properties = None, descriptor=None, zs=None, nuclear_charges = None, coordinates = None, **kwargs):
         """
         :param hl1: Number of neurons in the first hidden layer. If different from zero, ``hidden_layer_sizes`` is
                     overwritten.
@@ -41,7 +41,7 @@ class _ONN(BaseEstimator, _NN):
         self.set_compounds(compounds)
         self.set_properties(properties)
         self.set_descriptor(descriptor)
-
+        self.set_zs(zs)
 
     def set_compounds(self, compounds):
         self._set_compounds(compounds)
@@ -69,6 +69,12 @@ class _ONN(BaseEstimator, _NN):
             self.descriptor = descriptor
         else:
             self.descriptor = None
+
+    def set_zs(self, zs):
+        if type(zs) != type(None):
+            self.zs = zs
+        else:
+            self.zs = None
 
     # TODO remove class specific things / clean up
     def get_params(self, deep = True):
@@ -785,7 +791,7 @@ class OAMNN(ARMP, _ONN):
 
         elif self.representation == 'atomic_coulomb_matrix':
 
-            print("I still haven't implemented this. SOZ")
+            print("I still haven't implemented the atomic coulomb matrix. Use slatm for now.")
 
         else:
 
@@ -822,7 +828,7 @@ class OAMNN(ARMP, _ONN):
 
         elif self.representation == 'atomic_coulomb_matrix':
 
-            print("I still haven't implemented this. SOZ")
+            print("I still haven't implemented the atomic coulomb matrix. Use slatm for now.")
             return None
 
         else:
@@ -873,7 +879,10 @@ class OAMNN(ARMP, _ONN):
         :param zs: Dummy parameter for osprey
         :return: None
         """
-        self.generate_descriptor()
+        
+        if type(self.descriptor) == type(None):
+            self.generate_descriptor()
+            print("Generating descriptor...")
 
         x, zs = self.get_descriptors_from_indices(indices)
         idx = np.asarray(indices, dtype=int).ravel()

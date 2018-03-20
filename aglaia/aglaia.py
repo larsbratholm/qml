@@ -837,13 +837,13 @@ class ARMP(_NN):
         # Calculate the activation of the first hidden layer
         weights_t = tf.transpose(weights[0])
         z = tf.add(tf.tensordot(x, weights_t, axes=1), biases[0])
-        h = tf.sigmoid(z)
+        h = self.activation_function(z)
 
         # Calculate the activation of the remaining hidden layers
         for i in range(hidden_layer_sizes.size - 1):
             weights_t = tf.transpose(weights[i + 1])
             z = tf.add(tf.tensordot(h, weights_t, axes=1), biases[i + 1])
-            h = tf.sigmoid(z)
+            h = self.activation_function(z)
 
         # Calculating the output of the last layer
         weights_t = tf.transpose(weights[-1])
