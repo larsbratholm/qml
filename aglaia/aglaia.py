@@ -826,13 +826,13 @@ class ARMP(_NN):
         element.
 
         :param x: Input
-        :type x: tf tensor of shape (n_samples, n_features)
-        :param weights: Weights used in the network.
+        :type x: tf tensor of shape (n_samples, n_atoms, n_features)
+        :param weights: Weights used in the network for a particular element.
         :type weights: list of tf.Variables of length hidden_layer_sizes.size + 1
-        :param biases: Biases used in the network.
+        :param biases: Biases used in the network for a particular element.
         :type biases: list of tf.Variables of length hidden_layer_sizes.size + 1
         :return: Output
-        :rtype: tf.Variable of size (None, n_targets)
+        :rtype: tf.Variable of size (n_samples, n_atoms)
         """
 
         # Calculate the activation of the first hidden layer
@@ -868,7 +868,7 @@ class ARMP(_NN):
         for i in range(self.elements.shape[0]):
 
             # Calculating the output for every atom in all data as if they were all of the same element
-            atomic_energies = self._atomic_model(x, self.hidden_layer_sizes, element_weights[self.elements[i]],
+            atomic_energies_all = self._atomic_model(x, self.hidden_layer_sizes, element_weights[self.elements[i]],
                                                  element_biases[self.elements[i]])  # (n_samples, n_atoms)
 
             # Figuring out which atomic energies correspond to the current element.
@@ -876,13 +876,13 @@ class ARMP(_NN):
             where_element = tf.equal(tf.cast(zs, dtype=tf.int32), current_element)  # (n_samples, n_atoms)
 
             # Extracting the energies corresponding to the right element
-            element_energies = tf.where(where_element, atomic_energies, tf.zeros_like(zs))
+            element_energies = tf.where(where_element, atomic_energies_all, tf.zeros_like(zs))
 
             # Adding the energies of the current element to the final atomic energies tensor
             atomic_energies = tf.add(atomic_energies, element_energies)
 
         # Summing the energies of all the atoms
-        total_energies = tf.reduce_sum(atomic_energies, axis=-1, name="output")
+        total_energies = tf.reduce_sum(atomic_energies, axis=-1, name="output", keepdims=True)
 
         return total_energies
 
