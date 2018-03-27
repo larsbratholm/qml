@@ -284,10 +284,11 @@ class _NN(object):
             return
 
         if not is_string(tensorboard_subdir):
-            raise InputError('Expected string value for variable tensorboard_subdir. Got %s' % str(self.tensorboard_subdir))
+            raise InputError('Expected string value for variable tensorboard_subdir. Got %s' % str(tensorboard_subdir))
 
         # TensorBoardLogger will handle all tensorboard related things
         self.tensorboard_logger = TensorBoardLogger(tensorboard_subdir)
+        self.tensorboard_subdir = tensorboard_subdir
 
         if not is_positive_integer(store_frequency):
             raise InputError("Expected positive integer value for variable store_frequency. Got %s" % str(store_frequency))
@@ -835,19 +836,16 @@ class ARMP(_NN):
         """
 
         # Calculate the activation of the first hidden layer
-        weights_t = tf.transpose(weights[0])
-        z = tf.add(tf.tensordot(x, weights_t, axes=1), biases[0])
+        z = tf.add(tf.tensordot(x, tf.transpose(weights[0]), axes=1), biases[0])
         h = self.activation_function(z)
 
         # Calculate the activation of the remaining hidden layers
         for i in range(hidden_layer_sizes.size - 1):
-            weights_t = tf.transpose(weights[i + 1])
-            z = tf.add(tf.tensordot(h, weights_t, axes=1), biases[i + 1])
+            z = tf.add(tf.tensordot(h, tf.transpose(weights[i + 1]), axes=1), biases[i + 1])
             h = self.activation_function(z)
 
         # Calculating the output of the last layer
-        weights_t = tf.transpose(weights[-1])
-        z = tf.add(tf.tensordot(h, weights_t, axes=1), biases[-1])
+        z = tf.add(tf.tensordot(h, tf.transpose(weights[-1]), axes=1), biases[-1])
 
         z_squeezed = tf.squeeze(z, axis=[-1])
 
@@ -964,10 +962,10 @@ class ARMP(_NN):
 
             dataset = tf.data.Dataset.from_tensor_slices((x_ph, zs_ph, y_ph))
             dataset = dataset.shuffle(buffer_size=self.n_samples)
-            dataset = dataset.batch(batch_size).repeat(self.iterations)
-            batched_dataset = dataset.prefetch(buffer_size=batch_size)
+            dataset = dataset.batch(batch_size)
+            # batched_dataset = dataset.prefetch(buffer_size=batch_size)
 
-            iterator = tf.data.Iterator.from_structure(batched_dataset.output_types, batched_dataset.output_shapes)
+            iterator = tf.data.Iterator.from_structure(dataset.output_types, dataset.output_shapes)
             tf_x, tf_zs, tf_y = iterator.get_next()
             tf_x = tf.identity(tf_x, name="Descriptors")
             tf_zs = tf.identity(tf_zs, name="Atomic-numbers")
@@ -1001,7 +999,7 @@ class ARMP(_NN):
 
         # Initialisation of the variables
         init = tf.global_variables_initializer()
-        iterator_init = iterator.make_initializer(batched_dataset)
+        iterator_init = iterator.make_initializer(dataset)
 
         if self.tensorboard:
             self.tensorboard_logger.initialise()
@@ -1010,29 +1008,35 @@ class ARMP(_NN):
 
         # Running the graph
         if self.tensorboard:
-            self.tensorboard_logger.set_summary_writer(self.session)
+            # self.tensorboard_logger.set_summary_writer(self.session)
+            file_writer = tf.summary.FileWriter(logdir=self.tensorboard_subdir, graph=self.session.graph)
 
         self.session.run(init)
         self.session.run(iterator_init, feed_dict={x_ph:x, zs_ph:zs, y_ph:y})
 
-        avg_cost = 0
-        counter = 0
 
-        for i in range(self.iterations*n_batches):
+        for i in range(self.iterations):
 
-            if self.AdagradDA:
-                opt, c = self.session.run([optimisation_op, cost])
-            else:
-                opt, c = self.session.run([optimisation_op, cost])
+            self.session.run(iterator_init, feed_dict={x_ph: x, zs_ph: zs, y_ph: y})
+            avg_cost = 0
 
-            # Updating the training_cost
-            if counter < n_batches:
+            for j in range(n_batches):
+                if self.AdagradDA:
+                    opt, c = self.session.run([optimisation_op, cost])
+                else:
+                    opt, c = self.session.run([optimisation_op, cost])
+
                 avg_cost += c
-                counter += 1
-            if counter >= n_batches:
-                self.training_cost.append(avg_cost/n_batches)
-                avg_cost = 0
-                counter = 0
+
+            # This seems to run the iterator.get_next() op, which gives problems with end of sequence
+            # Hence why I re-initialise the iterator
+            self.session.run(iterator_init, feed_dict={x_ph: x, zs_ph: zs, y_ph: y})
+            if self.tensorboard:
+                if i % self.tensorboard_logger.store_frequency == 0:
+                    summary = self.session.run(tf.summary.merge_all())
+                    file_writer.add_summary(summary, i)
+
+            self.training_cost.append(avg_cost/n_batches)
 
     def _predict(self, xzs):
         """
