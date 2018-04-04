@@ -879,7 +879,7 @@ class OAMNN(ARMP, _ONN):
         :param zs: Dummy parameter for osprey
         :return: None
         """
-        
+
         if type(self.descriptor) == type(None):
             self.generate_descriptor()
             print("Generating descriptor...")
