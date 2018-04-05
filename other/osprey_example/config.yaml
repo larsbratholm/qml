@@ -1,0 +1,26 @@
+estimator:
+  pickle: model.pickle
+
+strategy:
+  name: random
+
+search_space:
+  learning_rate:
+    min: 1e-4
+    max: 1e-1
+    type: float
+    warp: log
+
+cv:
+  name: kfold
+  params:
+    n_splits: 3
+    shuffle: True
+
+dataset_loader:
+  name: dsv
+  params:
+    filenames: /Volumes/Transcend/repositories/Aglaia/other/osprey_example/idx.csv
+
+trials:
+    uri: sqlite:///osprey-trials.db

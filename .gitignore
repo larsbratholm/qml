@@ -7,4 +7,11 @@ Examples/Models/
 Examples/Models/tensorboard/
 Examples/bc_tensorboard/
 /aglaia/.cache/
+aglaia/tests/.cache/
 data_manip/
+data/*.npz
+data/*.bz
+other/osprey_example/saved_model
+other/osprey_example/*.csv
+other/osprey_example/*.pickle
+other/osprey_example/*.db
