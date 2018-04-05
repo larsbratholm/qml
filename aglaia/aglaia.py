@@ -1126,3 +1126,36 @@ class ARMP(_NN):
         y_pred = self.predict(x)
         rmse = np.sqrt(mean_squared_error(y, y_pred, sample_weight = sample_weight))
         return rmse
+
+    def save_nn(self, save_dir="saved_model"):
+        """
+        This function saves the trained model to be used for later prediction.
+
+        :param save_dir: directory in which to save the model (string)
+        :return: None
+        """
+
+        if self.session == None:
+            raise InputError("Model needs to be fit before predictions can be made.")
+
+        graph = tf.get_default_graph()
+
+        with graph.as_default():
+            tf_x = graph.get_tensor_by_name("Data/Descriptors:0")
+            tf_zs = graph.get_tensor_by_name("Data/Atomic-numbers:0")
+            model = graph.get_tensor_by_name("Model/output:0")
+
+        tf.saved_model.simple_save(self.session, export_dir=save_dir,
+                                   inputs={"Data/Descriptors:0": tf_x, "Data/Atomic-numbers:0": tf_zs},
+                                   outputs={"Model/output:0": model})
+
+    def load_nn(self, save_dir="saved_model"):
+        """
+        This function reloads a model for predictions.
+
+        :param save_dir: the name of the directory where the model is saved.
+        :return: None
+        """
+
+        self.session = tf.Session(graph=tf.get_default_graph())
+        tf.saved_model.loader.load(self.session, [tf.saved_model.tag_constants.SERVING], save_dir)
