@@ -6,9 +6,9 @@ import tensorflow as tf
 import numpy as np
 
 # TODO relative imports
-from aglaia.aglaia import _NN, NN
-from aglaia.wrappers import _ONN, OMNN
-from aglaia.utils import InputError
+from .aglaia import _NN, NN
+from .wrappers import _ONN, OMNN
+from .utils import InputError
 
 
 # ------------ ** All functions to test the inputs to the classes ** ---------------

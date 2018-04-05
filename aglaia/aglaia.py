@@ -19,15 +19,11 @@ import matplotlib.pyplot as plt
 #from tensorflow.python.framework import graph_io
 #from tensorflow.python.tools import freeze_graph
 
-#TODO relative imports
-from .utils import is_positive, is_positive_integer, is_positive_integer_or_zero, \
-        is_bool, is_string, is_positive_or_zero, InputError, ceil
+#from .utils import is_positive, is_positive_integer, is_positive_integer_or_zero, \
+#       is_bool, is_string, is_positive_or_zero, InputError, ceil
+from .utils import InputError, ceil, is_positive_or_zero, is_positive_integer, is_positive, \
+        is_bool, is_positive_integer_or_zero, is_string, is_positive_integer_array
 from .tf_utils import TensorBoardLogger
-
-# from utils import is_positive, is_positive_integer, is_positive_integer_or_zero, \
-#         is_bool, is_string, is_positive_or_zero, InputError, ceil
-# from tf_utils import TensorBoardLogger
-
 
 class _NN(object):
 
@@ -90,7 +86,22 @@ class _NN(object):
         self._set_tf_dtype(tf_dtype)
         self._set_scoring_function(scoring_function)
         self._set_tensorboard(tensorboard, store_frequency, tensorboard_subdir)
+        self._set_activation_function(activation_function)
 
+        # Placeholder variables
+        self.n_features = None
+        self.n_samples = None
+        self.training_cost = []
+        self.session = None
+
+        # Setting the optimiser
+        self._set_optimiser_param(beta1, beta2, epsilon, rho, initial_accumulator_value,
+                                  initial_gradient_squared_accumulator_value, l1_regularization_strength,
+                                  l2_regularization_strength)
+
+        self.optimiser = self._set_optimiser_type(optimiser)
+
+    def _set_activation_function(self, activation_function):
         if activation_function in ['sigmoid', tf.nn.sigmoid]:
             self.activation_function = tf.nn.sigmoid
         elif activation_function in ['tanh', tf.nn.tanh]:
@@ -111,34 +122,6 @@ class _NN(object):
             self.activation_function = tf.nn.relu_x
         else:
             raise InputError("Unknown activation function. Got %s" % str(activation_function))
-
-        # Setting the optimiser
-        self.AdagradDA = False
-        self._set_optimiser_param(beta1, beta2, epsilon, rho, initial_accumulator_value,
-                                  initial_gradient_squared_accumulator_value, l1_regularization_strength,
-                                  l2_regularization_strength)
-
-        if optimiser in ['AdamOptimizer', tf.train.AdamOptimizer]:
-            self.optimiser = tf.train.AdamOptimizer
-        elif optimiser in ['AdadeltaOptimizer', tf.train.AdadeltaOptimizer]:
-            self.optimiser = tf.train.AdadeltaOptimizer
-        elif optimiser in ['AdagradOptimizer', tf.train.AdagradOptimizer]:
-            self.optimiser = tf.train.AdagradOptimizer
-        elif optimiser in ['AdagradDAOptimizer', tf.train.AdagradDAOptimizer]:
-            self.optimiser = tf.train.AdagradDAOptimizer
-        elif optimiser in ['GradientDescentOptimizer', tf.train.GradientDescentOptimizer]:
-            self.optimiser = tf.train.GradientDescentOptimizer
-        else:
-            raise InputError("Unknown optimiser. Got %s" % str(optimiser))
-
-        # Placeholder variables
-        self.n_features = None
-        self.n_samples = None
-        self.training_cost = []
-        self.session = None
-        #self.test_cost = []
-        #self.loaded_model = False
-        #self.is_vis_ready = False
 
     def _set_l1_reg(self, l1_reg):
         if not is_positive_or_zero(l1_reg):
@@ -209,7 +192,7 @@ class _NN(object):
 
         if not is_positive(rho):
             raise InputError("Expected positive float value for variable rho. Got %s" % str(rho))
-        self.epsilon = float(rho)
+        self.rho = float(rho)
 
         if not is_positive(initial_accumulator_value) and not is_positive(initial_gradient_squared_accumulator_value):
             raise InputError("Expected positive float value for accumulator values. Got %s and %s" %
@@ -222,6 +205,24 @@ class _NN(object):
                              (str(l1_regularization_strength), str(l2_regularization_strength)))
         self.l1_regularization_strength = float(l1_regularization_strength)
         self.l2_regularization_strength = float(l2_regularization_strength)
+
+    def _set_optimiser_type(self, optimiser):
+        self.AdagradDA = False
+        if optimiser in ['AdamOptimizer', tf.train.AdamOptimizer]:
+            optimiser_type = tf.train.AdamOptimizer
+        elif optimiser in ['AdadeltaOptimizer', tf.train.AdadeltaOptimizer]:
+            optimiser_type = tf.train.AdadeltaOptimizer
+        elif optimiser in ['AdagradOptimizer', tf.train.AdagradOptimizer]:
+            optimiser_type = tf.train.AdagradOptimizer
+        elif optimiser in ['AdagradDAOptimizer', tf.train.AdagradDAOptimizer]:
+            optimiser_type = tf.train.AdagradDAOptimizer
+            self.AdagradDA = True
+        elif optimiser in ['GradientDescentOptimizer', tf.train.GradientDescentOptimizer]:
+            optimiser_type = tf.train.GradientDescentOptimizer
+        else:
+            raise InputError("Unknown optimiser. Got %s" % str(optimiser))
+
+        return optimiser_type
 
     def _set_optimiser(self):
         """
@@ -261,26 +262,17 @@ class _NN(object):
         self.scoring_function = scoring_function
 
     def _set_hidden_layers_sizes(self, hidden_layer_sizes):
-        hidden_layers = []
         try:
-            hidden_layer_sizes[0]
+            iterator = iter(hidden_layer_sizes)
         except TypeError:
-            raise InputError("'hidden_layer_sizes' must be array-like")
-        except IndexError:
-            raise InputError("'hidden_layer_sizes' must be non-empty")
-        for i,n in enumerate(hidden_layer_sizes):
-            if not is_positive_integer_or_zero(n):
-                raise InputError("Hidden layer size must be a positive integer. Got %s" % str(n))
+            raise InputError("'hidden_layer_sizes' must be an array of positive integers. Got a non-iterable object.")
 
-            # Ignore layers of size zero
-            if int(n) == 0:
-                break
-            hidden_layers.append(int(n))
+        if None in hidden_layer_sizes:
+            raise InputError("'hidden_layer_sizes' must be an array of positive integers. Got None elements")
+        if not is_positive_integer_array(hidden_layer_sizes):
+            raise InputError("'hidden_layer_sizes' must be an array of positive integers")
 
-        if len(hidden_layers) == 0:
-            raise InputError("Hidden layers must be non-zero. Got %s" % str(hidden_layer_sizes))
-
-        self.hidden_layer_sizes = np.asarray(hidden_layers, dtype=int)
+        self.hidden_layer_sizes = np.asarray(hidden_layer_sizes, dtype = int)
 
     def _set_tensorboard(self, tensorboard, store_frequency, tensorboard_subdir):
 
@@ -292,10 +284,11 @@ class _NN(object):
             return
 
         if not is_string(tensorboard_subdir):
-            raise InputError('Expected string value for variable tensorboard_subdir. Got %s' % str(self.tensorboard_subdir))
+            raise InputError('Expected string value for variable tensorboard_subdir. Got %s' % str(tensorboard_subdir))
 
         # TensorBoardLogger will handle all tensorboard related things
         self.tensorboard_logger = TensorBoardLogger(tensorboard_subdir)
+        self.tensorboard_subdir = tensorboard_subdir
 
         if not is_positive_integer(store_frequency):
             raise InputError("Expected positive integer value for variable store_frequency. Got %s" % str(store_frequency))
@@ -502,20 +495,20 @@ class _NN(object):
         if y_nn.shape != y_true.shape:
             raise InputError("Shape mismatch between predicted and true values. %s and %s" % (str(y_nn.shape), str(y_true.shape)))
 
-        if y_nn.ndim == 1:
+        if y_nn.ndim == 1 or y_nn.shape[1] == 1:
             df = pd.DataFrame()
-            df["Predictions"] = y_nn
-            df["True"] = y_true
+            df["Predictions"] = y_nn.ravel()
+            df["True"] = y_true.ravel()
             sns.set()
             lm = sns.lmplot('True', 'Predictions', data=df, scatter_kws={"s": 20, "alpha": 0.6}, line_kws={"alpha": 0.5})
             if filename == '':
                 plt.show()
             elif is_string(filename):
-                plt.save(filename)
+                plt.savefig(filename)
             else:
                 raise InputError("Wrong data type of variable 'filename'. Expected string")
         else:
-            for i in range(y_nn.ndim):
+            for i in range(y_nn.shape[0]):
                 df = pd.DataFrame()
                 df["Predictions"] = y_nn[:,i]
                 df["True"] = y_true[:,i]
@@ -528,7 +521,7 @@ class _NN(object):
                     file_ = str(i) + "_" + tokens[-1]
                     if len(tokens) > 1:
                         file_ = "/".join(tokens[:-1]) + "/" + file_
-                    plt.save(file_)
+                    plt.savefig(file_)
                 else:
                     raise InputError("Wrong data type of variable 'filename'. Expected string")
 
@@ -545,7 +538,12 @@ class _NN(object):
             return self._score_r2(*args)
 
     def predict(self, x):
-        return self._predict(x)
+        predictions = self._predict(x)
+
+        if predictions.ndim > 1 and predictions.shape[1] == 1:
+            return predictions.ravel()
+        else:
+            return predictions
 
     # TODO test
     def _predict(self, x):
@@ -573,26 +571,30 @@ class _NN(object):
             y_pred = self.session.run(model, feed_dict = {tf_x : x})
             return y_pred
 
-# Molecular Representation Single Property
-class MRMP(_NN):
+### --------------------- ** Molecular representation - molecular properties network ** --------------------------------
+
+# TODO: Rename to something more sensible
+class NN(_NN):
     """
-    Neural network for predicting single properties, such as energies, using molecular representations.
+    Neural network for either
+    1) predicting global properties, such as energies, using molecular representations, or
+    2) predicting local properties, such as chemical shieldings, using atomic representations.
     """
 
     def __init__(self, **kwargs):
         """
-        Molecular descriptors is used as input to a single or multi layered feed-forward neural network with a single output.
-        This class inherits from the _NN class and all inputs not unique to the MRMP class is passed to the _NN
+        Descriptors is used as input to a single or multi layered feed-forward neural network with a single output.
+        This class inherits from the _NN class and all inputs not unique to the NN class is passed to the _NN
         parent.
 
         """
 
-        super(MRMP,self).__init__(**kwargs)
+        super(NN,self).__init__(**kwargs)
 
     #TODO test
     def fit(self, x, y):
         """
-        Fit the neural network to molecular representations x and target y.
+        Fit the neural network to molecular descriptors x and target y.
 
         :param x: Input data with samples in the rows and features in the columns.
         :type x: array
@@ -823,24 +825,376 @@ if __name__ == "__main__":
     x = np.arange(-2.0, 2.0, 0.05)
     X = np.reshape(x, (len(x), 1))
     y = np.reshape(X ** 3, (len(x),))
+### --------------------- ** Atomic representation - molecular properties network ** -----------------------------------
 
-    estimator.fit(X, y)
-    y_pred = estimator.predict(X)
+class ARMP(_NN):
+    """
+    This class contains neural networks that take in atomic representations and they calculate molecular properties
+    such as the energies.
+    """
 
-    #  Visualisation of predictions
-    fig2, ax2 = plt.subplots(figsize=(6,6))
-    ax2.scatter(x, y, label="original", marker="o", c="r")
-    ax2.scatter(x, y_pred, label="predictions", marker="o", c='b')
-    ax2.set_xlabel('x')
-    ax2.set_ylabel('y')
-    ax2.legend()
+    def __init__(self, **kwargs):
+        """
+        To see what parameters are required, look at the description of the _NN class init.
+        This class inherits from the _NN class and all inputs not unique to the ARMP class is passed to the _NN
+        parent.
 
-    # Correlation plot
-    fig3, ax3 = plt.subplots(figsize=(6,6))
-    ax3.scatter(y, y_pred, marker="o", c="r")
-    ax3.set_xlabel('original y')
-    ax3.set_ylabel('prediction y')
-    plt.show()
+        The additional parameter elements is alist of all the elements present in the molecules of the data.
 
-    # Cost plot
-    estimator.plot_cost()
+        :elements: numpy array of int with shape (n_elements,)
+        """
+
+        super(ARMP, self).__init__(**kwargs)
+
+    def fit(self, x, zs, y):
+        """
+        This class fits the neural network to the data. x corresponds to the descriptors and y to the molecular
+        property to predict. zs contains the atomic numbers of all the atoms in the data.
+
+        :param x: numpy array of shape (n_samples, n_atoms, n_features)
+        :param zs: numpy array of shape (n_samples, n_atoms)
+        :param y: numpy array of shape (n_samples, 1)
+        :return: None
+        """
+
+        return self._fit(x, zs, y)
+
+    def _atomic_model(self, x, hidden_layer_sizes, weights, biases):
+        """
+        Constructs the atomic part of the network. It calculates the output for all atoms as if they all were the same
+        element.
+
+        :param x: Input
+        :type x: tf tensor of shape (n_samples, n_atoms, n_features)
+        :param weights: Weights used in the network for a particular element.
+        :type weights: list of tf.Variables of length hidden_layer_sizes.size + 1
+        :param biases: Biases used in the network for a particular element.
+        :type biases: list of tf.Variables of length hidden_layer_sizes.size + 1
+        :return: Output
+        :rtype: tf.Variable of size (n_samples, n_atoms)
+        """
+
+        # Calculate the activation of the first hidden layer
+        z = tf.add(tf.tensordot(x, tf.transpose(weights[0]), axes=1), biases[0])
+        h = self.activation_function(z)
+
+        # Calculate the activation of the remaining hidden layers
+        for i in range(hidden_layer_sizes.size - 1):
+            z = tf.add(tf.tensordot(h, tf.transpose(weights[i + 1]), axes=1), biases[i + 1])
+            h = self.activation_function(z)
+
+        # Calculating the output of the last layer
+        z = tf.add(tf.tensordot(h, tf.transpose(weights[-1]), axes=1), biases[-1])
+
+        z_squeezed = tf.squeeze(z, axis=[-1])
+
+        return z_squeezed
+
+    def _model(self, x, zs, element_weights, element_biases):
+        """
+        This generates the molecular model by combining all the outputs from the atomic networks.
+
+        :param x: tf tensor of shape (n_samples, n_atoms, n_features)
+        :param zs: tf tensor of shape (n_samples, n_atoms)
+        :param hidden_layer_sizes: np array of shape (n_hidden_layers,)
+        :param weights: list of tf.Variables of length hidden_layer_sizes.size + 1
+        :param biases: list of tf.Variables of length hidden_layer_sizes.size + 1
+        :return: tf tensor of shape (n_samples, 1)
+        """
+
+        atomic_energies = tf.zeros_like(zs)
+
+        for i in range(self.elements.shape[0]):
+
+            # Calculating the output for every atom in all data as if they were all of the same element
+            atomic_energies_all = self._atomic_model(x, self.hidden_layer_sizes, element_weights[self.elements[i]],
+                                                 element_biases[self.elements[i]])  # (n_samples, n_atoms)
+
+            # Figuring out which atomic energies correspond to the current element.
+            current_element = tf.expand_dims(tf.constant(self.elements[i], dtype=tf.int32), axis=0)
+            where_element = tf.equal(tf.cast(zs, dtype=tf.int32), current_element)  # (n_samples, n_atoms)
+
+            # Extracting the energies corresponding to the right element
+            element_energies = tf.where(where_element, atomic_energies_all, tf.zeros_like(zs))
+
+            # Adding the energies of the current element to the final atomic energies tensor
+            atomic_energies = tf.add(atomic_energies, element_energies)
+
+        # Summing the energies of all the atoms
+        total_energies = tf.reduce_sum(atomic_energies, axis=-1, name="output", keepdims=True)
+
+        return total_energies
+
+    def cost(self, y_pred, y, weights_dict):
+        """
+        This function calculates the cost function during the training of the neural network.
+
+        :param y_pred: the neural network predictions
+        :param y: the truth values
+        :param weights_dict: the dictionary containing all of the weights
+
+        :return: tf.Variable of size (1,)
+        """
+
+        err =  tf.square(tf.subtract(y, y_pred))
+        cost_function = tf.reduce_mean(err, name="loss")
+
+        if self.l2_reg > 0:
+            l2_loss = 0
+            for element in weights_dict:
+                l2_loss += self._l2_loss(weights_dict[element])
+            cost_function += l2_loss
+        if self.l1_reg > 0:
+            l1_loss = 0
+            for element in weights_dict:
+                l1_loss += self._l1_loss(weights_dict[element])
+            cost_function += l1_loss
+
+        return cost_function
+
+    def _find_elements(self, zs):
+        """
+        This function finds the unique atomic numbers in Zs and returns them in a list.
+
+        :param zs: numpy array of shape (n_samples, n_atoms)
+        :return: numpy array of shape (n_elements,)
+        """
+
+        # Obtaining the unique atomic numbers (but still includes the dummy atoms)
+        elements = np.unique(zs)
+
+        # Removing the dummy
+        return np.trim_zeros(elements)
+
+    def _fit(self, x, zs, y):
+        """
+        This function is present because the osprey wrapper needs to overwrite the fit function.
+
+        :param x: np array of shape (n_samples, n_atoms, n_features)
+        :param zs: np array of shape (n_samples, n_atoms)
+        :param y:  np array of shape (n_samples, 1)
+        :return: None
+        """
+
+        # reshape to tensorflow friendly shape
+        y = np.atleast_2d(y).T
+
+        # Obtaining the array of unique elements in all samples
+        self.elements = self._find_elements(zs)
+
+        # Useful quantities
+        self.n_samples = x.shape[0]
+        self.n_atoms = x.shape[1]
+        self.n_features = x.shape[2]
+
+        # Set the batch size
+        batch_size = self._get_batch_size()
+
+        # This is the total number of batches in which the training set is divided
+        n_batches = ceil(self.n_samples, batch_size)
+
+        # Initial set up of the NN
+        with tf.name_scope("Data"):
+            x_ph = tf.placeholder(dtype=self.tf_dtype, shape=[None, self.n_atoms, self.n_features])
+            zs_ph = tf.placeholder(dtype=self.tf_dtype, shape=[None, self.n_atoms])
+            y_ph = tf.placeholder(dtype=self.tf_dtype, shape=[None, 1])
+
+            dataset = tf.data.Dataset.from_tensor_slices((x_ph, zs_ph, y_ph))
+            dataset = dataset.shuffle(buffer_size=self.n_samples)
+            dataset = dataset.batch(batch_size)
+            # batched_dataset = dataset.prefetch(buffer_size=batch_size)
+
+            iterator = tf.data.Iterator.from_structure(dataset.output_types, dataset.output_shapes)
+            tf_x, tf_zs, tf_y = iterator.get_next()
+            tf_x = tf.identity(tf_x, name="Descriptors")
+            tf_zs = tf.identity(tf_zs, name="Atomic-numbers")
+            tf_y = tf.identity(tf_y, name="Properties")
+
+        # Creating dictionaries of the weights and biases for each element
+        element_weights = {}
+        element_biases = {}
+
+        with tf.name_scope("Weights"):
+            for i in range(self.elements.shape[0]):
+                weights, biases = self._generate_weights(n_out=1)
+                element_weights[self.elements[i]] = weights
+                element_biases[self.elements[i]] = biases
+
+                # Log weights for tensorboard
+                if self.tensorboard:
+                    self.tensorboard_logger.write_weight_histogram(weights)
+
+        with tf.name_scope("Model"):
+            molecular_energies = self._model(tf_x, tf_zs, element_weights, element_biases)
+
+        with tf.name_scope("Cost_func"):
+            cost = self.cost(molecular_energies, tf_y, element_weights)
+
+        if self.tensorboard:
+            cost_summary = tf.summary.scalar('cost', cost)
+
+        optimiser = self._set_optimiser()
+        optimisation_op = optimiser.minimize(cost)
+
+        # Initialisation of the variables
+        init = tf.global_variables_initializer()
+        iterator_init = iterator.make_initializer(dataset)
+
+        if self.tensorboard:
+            self.tensorboard_logger.initialise()
+
+        self.session = tf.Session()
+
+        # Running the graph
+        if self.tensorboard:
+            # self.tensorboard_logger.set_summary_writer(self.session)
+            file_writer = tf.summary.FileWriter(logdir=self.tensorboard_subdir, graph=self.session.graph)
+
+        self.session.run(init)
+        self.session.run(iterator_init, feed_dict={x_ph:x, zs_ph:zs, y_ph:y})
+
+
+        for i in range(self.iterations):
+
+            self.session.run(iterator_init, feed_dict={x_ph: x, zs_ph: zs, y_ph: y})
+            avg_cost = 0
+
+            for j in range(n_batches):
+                if self.AdagradDA:
+                    opt, c = self.session.run([optimisation_op, cost])
+                else:
+                    opt, c = self.session.run([optimisation_op, cost])
+
+                avg_cost += c
+
+            # This seems to run the iterator.get_next() op, which gives problems with end of sequence
+            # Hence why I re-initialise the iterator
+            self.session.run(iterator_init, feed_dict={x_ph: x, zs_ph: zs, y_ph: y})
+            if self.tensorboard:
+                if i % self.tensorboard_logger.store_frequency == 0:
+                    summary = self.session.run(tf.summary.merge_all())
+                    file_writer.add_summary(summary, i)
+
+            self.training_cost.append(avg_cost/n_batches)
+
+    def _predict(self, xzs):
+        """
+        This function overrites the _NN _predict function because the model is different
+
+        :param xzs: list containing x and zs. x is a np array of shape (n_samples, n_atoms, n_features), zs a np array of shape (n_samples, n_atoms)
+        :return: a np array of shape (n_samples,)
+        """
+
+        x = xzs[0]
+        zs = xzs[1]
+
+        if self.session == None:
+            raise InputError("Model needs to be fit before predictions can be made.")
+
+        graph = tf.get_default_graph()
+
+        with graph.as_default():
+            tf_x = graph.get_tensor_by_name("Data/Descriptors:0")
+            tf_zs = graph.get_tensor_by_name("Data/Atomic-numbers:0")
+            model = graph.get_tensor_by_name("Model/output:0")
+            y_pred = self.session.run(model, feed_dict={tf_x: x, tf_zs:zs})
+
+        return y_pred
+
+    def _score_r2(self, x, y, sample_weight=None):
+        """
+        Calculate the coefficient of determination (R^2).
+        Larger values corresponds to a better prediction.
+
+        :param x: The input data.
+        :type x: array of shape (n_samples, n_features)
+        :param y: The target values for each sample in x.
+        :type y: array of shape (n_samples,)
+
+        :param sample_weight: Weights of the samples. None indicates that that each sample has the same weight.
+        :type sample_weight: array of shape (n_samples,)
+
+        :return: R^2
+        :rtype: float
+
+        """
+
+        y_pred = self.predict(x)
+        r2 = r2_score(y, y_pred, sample_weight = sample_weight)
+        return r2
+
+    def _score_mae(self, x, y, sample_weight=None):
+        """
+        Calculate the mean absolute error.
+        Smaller values corresponds to a better prediction.
+
+        :param x: The input data.
+        :type x: array of shape (n_samples, n_features)
+        :param y: The target values for each sample in x.
+        :type y: array of shape (n_samples,)
+
+        :param sample_weight: Weights of the samples. None indicates that that each sample has the same weight.
+        :type sample_weight: array of shape (n_samples,)
+
+        :return: Mean absolute error
+        :rtype: float
+
+        """
+
+        y_pred = self.predict(x)
+        return mean_absolute_error(y, y_pred, sample_weight = sample_weight)
+
+    def _score_rmse(self, x, y, sample_weight=None):
+        """
+        Calculate the root mean squared error.
+        Smaller values corresponds to a better prediction.
+
+        :param x: The input data.
+        :type x: array of shape (n_samples, n_features)
+        :param y: The target values for each sample in x.
+        :type y: array of shape (n_samples,)
+
+        :param sample_weight: Weights of the samples. None indicates that that each sample has the same weight.
+        :type sample_weight: array of shape (n_samples,)
+
+        :return: Mean absolute error
+        :rtype: float
+
+        """
+
+        y_pred = self.predict(x)
+        rmse = np.sqrt(mean_squared_error(y, y_pred, sample_weight = sample_weight))
+        return rmse
+
+    def save_nn(self, save_dir="saved_model"):
+        """
+        This function saves the trained model to be used for later prediction.
+
+        :param save_dir: directory in which to save the model (string)
+        :return: None
+        """
+
+        if self.session == None:
+            raise InputError("Model needs to be fit before predictions can be made.")
+
+        graph = tf.get_default_graph()
+
+        with graph.as_default():
+            tf_x = graph.get_tensor_by_name("Data/Descriptors:0")
+            tf_zs = graph.get_tensor_by_name("Data/Atomic-numbers:0")
+            model = graph.get_tensor_by_name("Model/output:0")
+
+        tf.saved_model.simple_save(self.session, export_dir=save_dir,
+                                   inputs={"Data/Descriptors:0": tf_x, "Data/Atomic-numbers:0": tf_zs},
+                                   outputs={"Model/output:0": model})
+
+    def load_nn(self, save_dir="saved_model"):
+        """
+        This function reloads a model for predictions.
+
+        :param save_dir: the name of the directory where the model is saved.
+        :return: None
+        """
+
+        self.session = tf.Session(graph=tf.get_default_graph())
+        tf.saved_model.loader.load(self.session, [tf.saved_model.tag_constants.SERVING], save_dir)

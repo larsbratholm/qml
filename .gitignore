@@ -1,4 +1,5 @@
 tensorboard/
+*/__pycache__/
 .idea/
 /Examples/data.csv
 __pycache__/
@@ -6,9 +7,11 @@ Examples/tmp_dir/
 Examples/Models/
 Examples/Models/tensorboard/
 Examples/bc_tensorboard/
+other/Examples/.ipynb_checkpoints
 /aglaia/.cache/
 aglaia/tests/.cache/
 data_manip/
+aglaia/tests/.cache/
 data/*.npz
 data/*.bz
 other/osprey_example/saved_model
