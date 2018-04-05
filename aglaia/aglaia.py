@@ -784,6 +784,39 @@ class MRMP(_NN):
 
         return cost
 
+    def save_nn(self, save_dir="saved_model"):
+        """
+        This function saves the model to be used for later prediction.
+
+        :param save_dir: name of the directory to create to save the model
+        :return: None
+        """
+        if self.session == None:
+            raise InputError("Model needs to be fit before predictions can be made.")
+
+        check_array(x, warn_on_dtype = True)
+
+        graph = tf.get_default_graph()
+
+        with graph.as_default():
+            tf_x = graph.get_tensor_by_name("Data/Descriptors:0")
+            model = graph.get_tensor_by_name("Model/output:0")
+
+        tf.saved_model.simple_save(self.session, export_dir=save_dir,
+                                   inputs={"Data/Descriptors:0": tf_x},
+                                   outputs={"Model/output:0": model})
+
+    def load_nn(self, save_dir="saved_model"):
+        """
+        This function reloads a model for predictions.
+        :param save_dir: the name of the directory where the model is saved.
+        :return: None
+        """
+
+        self.session = tf.Session(graph=tf.get_default_graph())
+        tf.saved_model.loader.load(self.session, [tf.saved_model.tag_constants.SERVING], save_dir)
+
+
 if __name__ == "__main__":
     # Simple example of fitting a quadratic function
     estimator = MRMP(hidden_layer_sizes=(5, 5, 5), learning_rate=0.01, iterations=5000, l2_reg = 0, tf_dtype = 32, scoring_function="rmse")
