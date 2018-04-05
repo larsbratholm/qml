@@ -13,4 +13,7 @@ data_manip/
 aglaia/tests/.cache/
 data/*.npz
 data/*.bz
-other/osprey_example
+other/osprey_example/saved_model
+other/osprey_example/*.csv
+other/osprey_example/*.pickle
+other/osprey_example/*.db
