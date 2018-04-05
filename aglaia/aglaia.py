@@ -818,13 +818,6 @@ class NN(_NN):
         self.session = tf.Session(graph=tf.get_default_graph())
         tf.saved_model.loader.load(self.session, [tf.saved_model.tag_constants.SERVING], save_dir)
 
-
-if __name__ == "__main__":
-    # Simple example of fitting a quadratic function
-    estimator = MRMP(hidden_layer_sizes=(5, 5, 5), learning_rate=0.01, iterations=5000, l2_reg = 0, tf_dtype = 32, scoring_function="rmse")
-    x = np.arange(-2.0, 2.0, 0.05)
-    X = np.reshape(x, (len(x), 1))
-    y = np.reshape(X ** 3, (len(x),))
 ### --------------------- ** Atomic representation - molecular properties network ** -----------------------------------
 
 class ARMP(_NN):
