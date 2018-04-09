@@ -7,6 +7,8 @@ import itertools
 from inspect import signature
 import numpy as np
 from sklearn.base import BaseEstimator
+import aglaia.symm_funct as sf
+import tensorflow as tf
 
 try:
     from qml import Compound, representations
@@ -306,6 +308,54 @@ class _ONN(BaseEstimator, _NN):
         if not is_bool(slatm_alchemy):
             raise InputError("Expected boolean value for variable 'slatm_alchemy'. Got %s." % str(slatm_alchemy))
         self.slatm_alchemy = bool(slatm_alchemy)
+
+    def _set_acsf(self, radial_cutoff, angular_cutoff, radial_rs, angular_rs, theta_s, zeta, eta):
+        """
+        This function sets the parameters for the acsf as described in the Tensormol paper.
+
+        :param radial_cutoff: float
+        :param angular_cutoff: float
+        :param radial_rs: np array of floats of shape (n_rad_rs,)
+        :param angular_rs:  np array of floats of shape (n_ang_rs,)
+        :param theta_s: np array of floats of shape (n_theta_s,)
+        :param zeta: float
+        :param eta: float
+        :return: None
+        """
+
+        if not is_positive(radial_cutoff):
+            raise InputError("Expected positive float for variable 'radial_cutoff'. Got %s." % str(radial_cutoff))
+        self.radial_cutoff = float(radial_cutoff)
+
+        if not is_positive(angular_cutoff):
+            raise InputError("Expected positive float for variable 'angular_cutoff'. Got %s." % str(angular_cutoff))
+        self.angular_cutoff = float(angular_cutoff)
+
+        if not is_numeric_array(radial_rs):
+            raise InputError("Expecting an array like radial_rs. Got %s." % (radial_rs) )
+        if not len(radial_rs)>0:
+            raise InputError("No radial_rs values were given." )
+        self.radial_rs = list(radial_rs)
+
+        if not is_numeric_array(angular_rs):
+            raise InputError("Expecting an array like angular_rs. Got %s." % (angular_rs) )
+        if not len(angular_rs)>0:
+            raise InputError("No angular_rs values were given." )
+        self.angular_rs = list(angular_rs)
+
+        if not is_numeric_array(theta_s):
+            raise InputError("Expecting an array like theta_s. Got %s." % (theta_s) )
+        if not len(theta_s)>0:
+            raise InputError("No theta_s values were given. " )
+        self.theta_s = list(theta_s)
+
+        if is_numeric_array(eta):
+            raise InputError("Expecting a scalar value for eta. Got %s." % (eta))
+        self.eta = eta
+
+        if is_numeric_array(zeta):
+            raise InputError("Expecting a scalar value for zeta. Got %s." % (zeta))
+        self.zeta = zeta
 
 #TODO slatm exception tests
 # TODO remove compounds argument and only keep it in _ONN
@@ -698,7 +748,8 @@ class OAMNN(ARMP, _ONN):
     """
     def __init__(self, representation = 'atomic_coulomb_matrix',
             slatm_sigma1 = 0.05, slatm_sigma2 = 0.05, slatm_dgrid1 = 0.03, slatm_dgrid2 = 0.03, slatm_rcut = 4.8, slatm_rpower = 6,
-            slatm_alchemy = False, compounds = None, properties = None, **kwargs):
+            slatm_alchemy = False, radial_cutoff=10.0, angular_cutoff=10.0, radial_rs=(0.0, 0.1, 0.2), angular_rs=(0.0, 0.1, 0.2), theta_s=(3.0, 2.0), zeta=3.0,
+                 eta=2.0, compounds = None, properties = None, **kwargs):
         """
         A molecule's cartesian coordinates and chemical composition is transformed into a descriptor for the molecule,
         which is then used as input to a single or multi layered feedforward neural network with a single output.
@@ -733,10 +784,19 @@ class OAMNN(ARMP, _ONN):
         # TODO try to avoid directly passing compounds and properties. That shouldn't be needed.
         super(OAMNN,self).__init__(compounds = compounds, properties = properties, **kwargs)
 
-        self._set_representation(representation, slatm_sigma1, slatm_sigma2, slatm_dgrid1, slatm_dgrid2, slatm_rcut,
-                slatm_rpower, slatm_alchemy)
+        # self._set_representation(representation, slatm_sigma1, slatm_sigma2, slatm_dgrid1, slatm_dgrid2, slatm_rcut,
+        #         slatm_rpower, slatm_alchemy)
 
-    def _set_representation(self, representation, *args):
+        self._set_representation(representation)
+
+        if self.representation == 'atomic_coulomb_matrix':
+            print("Atomic Coulomb matrix not implemented yet. ")
+        if self.representation == 'slatm':
+            self._set_slatm(slatm_sigma1, slatm_sigma2, slatm_dgrid1, slatm_dgrid2, slatm_rcut, slatm_rpower, slatm_alchemy)
+        if self.representation == 'acsf':
+            self._set_acsf(radial_cutoff, angular_cutoff, radial_rs, angular_rs, theta_s, zeta, eta)
+
+    def _set_representation(self, representation):
         """
         This function sets the parameter that says which descriptor is going to be used. It also sets the slatm
         parameters (even if the slatm representation isn't going to be used??)
@@ -749,11 +809,9 @@ class OAMNN(ARMP, _ONN):
 
         if not is_string(representation):
             raise InputError("Expected string for variable 'representation'. Got %s" % str(representation))
-        if representation.lower() not in ['atomic_coulomb_matrix', 'slatm']:
+        if representation.lower() not in ['atomic_coulomb_matrix', 'slatm', 'acsf']:
             raise InputError("Unknown representation %s" % representation)
         self.representation = representation.lower()
-
-        self._set_slatm(*args)
 
     def _set_properties(self, properties):
         """
@@ -791,7 +849,11 @@ class OAMNN(ARMP, _ONN):
 
         elif self.representation == 'atomic_coulomb_matrix':
 
-            print("I still haven't implemented the atomic coulomb matrix. Use slatm for now.")
+            print("I still haven't implemented the atomic coulomb matrix. Use slatm or acsf for now.")
+
+        elif self.representation == 'acsf':
+
+            descriptor, zs = self._generate_acsf()
 
         else:
 
@@ -831,13 +893,17 @@ class OAMNN(ARMP, _ONN):
             print("I still haven't implemented the atomic coulomb matrix. Use slatm for now.")
             return None
 
+        elif self.representation == 'acsf':
+
+            return self.descriptor[idx], self.zs[idx]
+
         else:
 
             raise InputError("This should never happen. Unrecognised representation. Got %s." % str(self.representation))
 
     def _generate_slatm(self):
         """
-        This function generates the local slatm descriptor for all the compounds referred to by the indices.
+        This function generates the local slatm descriptor for all the compounds.
 
         :return: numpy array of shape (n_samples, n_max_atoms, n_features) and (n_samples, n_atoms)
         """
@@ -870,6 +936,66 @@ class OAMNN(ARMP, _ONN):
             zs[i, :mol.nuclear_charges.shape[0]] = mol.nuclear_charges
 
         return padded_descriptors, zs
+
+    def _generate_acsf(self):
+        """
+        This function generates the atom centred symmetry functions.
+        :return: numpy array of shape (n_samples, n_max_atoms, n_features) and (n_samples, n_atoms)
+        """
+
+        # Obtaining the total elements and the element pairs
+        mbtypes = representations.get_slatm_mbtypes([mol.nuclear_charges for mol in self.compounds])
+
+        elements = []
+        element_pairs = []
+
+        # Splitting the one and two body interactions in mbtypes
+        for item in mbtypes:
+            if len(item) == 1:
+                elements.append(item[0])
+            if len(item) == 2:
+                element_pairs.append(list(item))
+            if len(item) == 3:
+                break
+
+        # Need the element pairs in descending order for TF
+        for item in element_pairs:
+            item.reverse()
+
+        # Obtaining the xyz and the nuclear charges
+        xyzs = []
+        zs = []
+        max_n_atoms=0
+
+        for compound in self.compounds:
+            xyzs.append(compound.coordinates)
+            zs.append(compound.nuclear_charges)
+            if len(compound.nuclear_charges) > max_n_atoms:
+                max_n_atoms = len(compound.nuclear_charges)
+
+        # Padding so that all the samples have the same shape
+        n_samples = len(zs)
+        for i in range(n_samples):
+            current_n_atoms = len(zs[i])
+            missing_n_atoms = max_n_atoms - current_n_atoms
+            zs_padding = np.zeros(missing_n_atoms)
+            zs[i] = np.concatenate((zs[i], zs_padding))
+            xyz_padding = np.zeros((missing_n_atoms, 3))
+            xyzs[i] = np.concatenate((xyzs[i], xyz_padding))
+
+        zs = np.asarray(zs, dtype=np.int32)
+        xyzs = np.asarray(xyzs, dtype=np.float32)
+
+        descriptor = sf.generate_parkhill_acsf(xyzs=xyzs, Zs=zs, elements=elements, element_pairs=element_pairs,
+                                               radial_cutoff=self.radial_cutoff, angular_cutoff=self.angular_cutoff,
+                                               radial_rs=self.radial_rs, angular_rs=self.angular_rs, theta_s=self.theta_s,
+                                               eta=self.eta, zeta=self.zeta)
+
+        sess = tf.Session()
+        sess.run(tf.global_variables_initializer())
+        descriptor_np = sess.run(descriptor)
+
+        return descriptor_np, zs
 
     def fit(self, indices, zs = None, y = None):
         """

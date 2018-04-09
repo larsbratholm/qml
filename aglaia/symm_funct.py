@@ -295,8 +295,8 @@ def sum_ang(pre_sumterm, Zs, element_pairs_list, angular_rs, theta_s):
 
     return final_term
 
-def generate_parkhill_acsf(xyzs, Zs, elements, element_pairs, radial_cutoff=10.0, angular_cutoff=10.0,
-                           radial_rs=None, angular_rs=None, theta_s=None, zeta=3.0, eta=2.0):
+def generate_parkhill_acsf(xyzs, Zs, elements, element_pairs, radial_cutoff, angular_cutoff,
+                           radial_rs, angular_rs, theta_s, zeta, eta):
     """
     This function generates the atom centred symmetry function as used in the Tensormol paper. Currently only tested for
     single systems with many conformations. It requires the coordinates of all the atoms in each data sample, the atomic
@@ -316,14 +316,6 @@ def generate_parkhill_acsf(xyzs, Zs, elements, element_pairs, radial_cutoff=10.0
     :param eta: scalar float
     :return: a tf tensor of shape (n_samples, n_atoms, n_rad_rs * n_elements + n_ang_rs * n_thetas * n_elementpairs)
     """
-
-    # Checking if the parameters that should be lists have been left to the default values
-    if type(radial_rs) == type(None):
-        radial_rs = [0.0, 0.1, 0.2]
-    if type(angular_rs) == type(None):
-        angular_rs = [0.0, 0.1, 0.2]
-    if type(theta_s) == type(None):
-        theta_s = [3.0, 2.0]
 
     # Turning the quantities into tensors
     Zs_tf = tf.constant(Zs, dtype=tf.int32)
