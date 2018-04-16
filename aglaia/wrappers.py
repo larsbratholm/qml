@@ -9,6 +9,7 @@ import numpy as np
 from sklearn.base import BaseEstimator
 import aglaia.symm_funct as sf
 import tensorflow as tf
+from tensorflow.python.client import timeline
 
 try:
     from qml import Compound, representations
@@ -986,14 +987,28 @@ class OAMNN(ARMP, _ONN):
         zs = np.asarray(zs, dtype=np.int32)
         xyzs = np.asarray(xyzs, dtype=np.float32)
 
-        descriptor = sf.generate_parkhill_acsf(xyzs=xyzs, Zs=zs, elements=elements, element_pairs=element_pairs,
+        # # Uncomment to get memory and compute time in tensorboard
+        # run_metadata = tf.RunMetadata()
+        # options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
+
+        # Turning the quantities into tensors
+        with tf.name_scope("Inputs"):
+            zs_tf = tf.placeholder(shape=[n_samples, max_n_atoms], dtype=tf.int32, name="zs")
+            xyz_tf = tf.placeholder(shape=[n_samples, max_n_atoms, 3], dtype=tf.float32, name="xyz")
+
+        descriptor = sf.generate_parkhill_acsf(xyzs=xyz_tf, Zs=zs_tf, elements=elements, element_pairs=element_pairs,
                                                radial_cutoff=self.radial_cutoff, angular_cutoff=self.angular_cutoff,
                                                radial_rs=self.radial_rs, angular_rs=self.angular_rs, theta_s=self.theta_s,
                                                eta=self.eta, zeta=self.zeta)
 
         sess = tf.Session()
         sess.run(tf.global_variables_initializer())
-        descriptor_np = sess.run(descriptor)
+        descriptor_np = sess.run(descriptor, feed_dict={xyz_tf: xyzs, zs_tf: zs})
+        # # Uncomment to get memory and compute time in tensorboard
+        # descriptor_np = sess.run(descriptor, feed_dict={xyz_tf: xyzs, zs_tf: zs}, options=options, run_metadata=run_metadata)
+        # summary_writer = tf.summary.FileWriter(logdir="tensorboard", graph=sess.graph)
+        # summary_writer.add_run_metadata(run_metadata=run_metadata, tag="Descriptor", global_step=None)
+        sess.close()
 
         return descriptor_np, zs
 
