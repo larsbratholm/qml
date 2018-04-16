@@ -986,6 +986,8 @@ class ARMP(_NN):
         # This is the total number of batches in which the training set is divided
         n_batches = ceil(self.n_samples, batch_size)
 
+        tf.reset_default_graph()
+
         # Initial set up of the NN
         with tf.name_scope("Data"):
             x_ph = tf.placeholder(dtype=self.tf_dtype, shape=[None, self.n_atoms, self.n_features])
