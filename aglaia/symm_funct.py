@@ -22,8 +22,9 @@ def acsf_rad(xyzs, Zs, radial_cutoff, radial_rs, eta):
     """
 
     # Calculating the distance matrix between the atoms of each sample
-    dxyzs = tf.expand_dims(xyzs, axis=2) - tf.expand_dims(xyzs, axis=1)
-    dist_tensor = tf.cast(tf.norm(dxyzs, axis=3), dtype=tf.float32)  # (n_samples, n_atoms, n_atoms)
+    with tf.name_scope("Distances"):
+        dxyzs = tf.expand_dims(xyzs, axis=2) - tf.expand_dims(xyzs, axis=1)
+        dist_tensor = tf.cast(tf.norm(dxyzs, axis=3), dtype=tf.float32)  # (n_samples, n_atoms, n_atoms)
 
     # Indices of terms that need to be zero (diagonal elements)
     n_atoms = Zs.get_shape().as_list()[1]
@@ -37,25 +38,29 @@ def acsf_rad(xyzs, Zs, radial_cutoff, radial_rs, eta):
     where_eq_idx = tf.convert_to_tensor(zarray, dtype=tf.bool)
 
     # Calculating the exponential term
-    expanded_rs = tf.expand_dims(tf.expand_dims(tf.expand_dims(radial_rs, axis=0), axis=0), axis=0) # (1, 1, 1, n_rs)
-    expanded_dist = tf.expand_dims(dist_tensor, axis=-1) # (n_samples, n_atoms, n_atoms, 1)
-    exponent = - eta * tf.square(tf.subtract(expanded_dist, expanded_rs))
-    exp_term = tf.exp(exponent) # (n_samples, n_atoms, n_atoms, n_rs)
+    with tf.name_scope("Exponential_term"):
+        expanded_rs = tf.expand_dims(tf.expand_dims(tf.expand_dims(radial_rs, axis=0), axis=0), axis=0) # (1, 1, 1, n_rs)
+        expanded_dist = tf.expand_dims(dist_tensor, axis=-1) # (n_samples, n_atoms, n_atoms, 1)
+        exponent = - eta * tf.square(tf.subtract(expanded_dist, expanded_rs))
+        exp_term = tf.exp(exponent) # (n_samples, n_atoms, n_atoms, n_rs)
 
     # Calculating the fc terms
-    # Finding where the distances are less than the cutoff
-    where_less_cutoff = tf.less(dist_tensor, radial_cutoff)
-    # Calculating all of the fc function terms
-    fc = 0.5 * (tf.cos(3.14159265359 * dist_tensor / radial_cutoff) + 1.0)
-    # Setting to zero the terms where the distance is larger than the cutoff
-    zeros = tf.zeros(tf.shape(dist_tensor))
-    cut_off_fc = tf.where(where_less_cutoff, fc, zeros)  # (n_samples, n_atoms, n_atoms)
-    # Cleaning up diagonal terms
-    clean_fc_term = tf.where(where_eq_idx, zeros, cut_off_fc)
+    with tf.name_scope("fc_term"):
+        # Finding where the distances are less than the cutoff
+        where_less_cutoff = tf.less(dist_tensor, radial_cutoff)
+        # Calculating all of the fc function terms
+        fc = 0.5 * (tf.cos(3.14159265359 * dist_tensor / radial_cutoff) + 1.0)
+        # Setting to zero the terms where the distance is larger than the cutoff
+        zeros = tf.zeros(tf.shape(dist_tensor))
+        cut_off_fc = tf.where(where_less_cutoff, fc, zeros)  # (n_samples, n_atoms, n_atoms)
+        # Cleaning up diagonal terms
+        clean_fc_term = tf.where(where_eq_idx, zeros, cut_off_fc)
 
-    # Multiplying exponential and fc terms
-    expanded_fc = tf.expand_dims(clean_fc_term, axis=-1) # (n_samples, n_atoms, n_atoms, 1)
-    presum_term = tf.multiply(expanded_fc, exp_term) # (n_samples, n_atoms, n_atoms, n_rs)
+        # Multiplying exponential and fc terms
+        expanded_fc = tf.expand_dims(clean_fc_term, axis=-1) # (n_samples, n_atoms, n_atoms, 1)
+
+    with tf.name_scope("Rad_term"):
+        presum_term = tf.multiply(expanded_fc, exp_term) # (n_samples, n_atoms, n_atoms, n_rs)
 
     return presum_term
 
@@ -76,11 +81,12 @@ def acsf_ang(xyzs, Zs, angular_cutoff, angular_rs, theta_s, zeta, eta):
     """
 
     # Finding the R_ij + R_ik term
-    dxyzs = tf.expand_dims(xyzs, axis=2) - tf.expand_dims(xyzs, axis=1)
-    dist_tensor = tf.cast(tf.norm(dxyzs, axis=3), dtype=tf.float32)  # (n_samples, n_atoms, n_atoms)
+    with tf.name_scope("Sum_distances"):
+        dxyzs = tf.expand_dims(xyzs, axis=2) - tf.expand_dims(xyzs, axis=1)
+        dist_tensor = tf.cast(tf.norm(dxyzs, axis=3), dtype=tf.float32)  # (n_samples, n_atoms, n_atoms)
 
-    # This is the tensor where element sum_dist_tensor[0,1,2,3] is the R_12 + R_13 in the 0th data sample
-    sum_dist_tensor = tf.expand_dims(dist_tensor, axis=3) + tf.expand_dims(dist_tensor,
+        # This is the tensor where element sum_dist_tensor[0,1,2,3] is the R_12 + R_13 in the 0th data sample
+        sum_dist_tensor = tf.expand_dims(dist_tensor, axis=3) + tf.expand_dims(dist_tensor,
                                                                            axis=2)  # (n_samples, n_atoms, n_atoms, n_atoms)
 
     # Problem with the above tensor: we still have the R_ii + R_ik distances which are non zero and could be summed
@@ -107,71 +113,77 @@ def acsf_ang(xyzs, Zs, angular_cutoff, angular_rs, theta_s, zeta, eta):
     # (Maybe there is no need for this last step, because the terms will be zeroed once they are multiplied by the clean_fc_term)
 
     # Now finding the fc terms
-    # 1. Find where Rij and Rik are < cutoff
-    where_less_cutoff = tf.less(dist_tensor, angular_cutoff)
-    # 2. Calculate the fc on the Rij and Rik tensors
-    fc_1 = 0.5 * (tf.cos(3.14159265359 * dist_tensor / angular_cutoff) + 1.0)
-    # 3. Apply the mask calculated in 1.  to zero the values for where the distances are > than the cutoff
-    zeros_2 = tf.zeros(tf.shape(dist_tensor))
-    cut_off_fc = tf.where(where_less_cutoff, fc_1, zeros_2)  # (n_samples, n_atoms, n_atoms)
-    # 4. Multiply the two tensors elementwise
-    fc_term = tf.multiply(tf.expand_dims(cut_off_fc, axis=3),
-                          tf.expand_dims(cut_off_fc, axis=2))  # (n_samples,  n_atoms, n_atoms, n_atoms)
-    # 5. Cleaning up the terms that should be zero because there are equal indices
-    clean_fc_term = tf.where(where_eq_idx, zeros_1, fc_term)
+    with tf.name_scope("Fc_term"):
+        # 1. Find where Rij and Rik are < cutoff
+        where_less_cutoff = tf.less(dist_tensor, angular_cutoff)
+        # 2. Calculate the fc on the Rij and Rik tensors
+        fc_1 = 0.5 * (tf.cos(3.14159265359 * dist_tensor / angular_cutoff) + 1.0)
+        # 3. Apply the mask calculated in 1.  to zero the values for where the distances are > than the cutoff
+        zeros_2 = tf.zeros(tf.shape(dist_tensor))
+        cut_off_fc = tf.where(where_less_cutoff, fc_1, zeros_2)  # (n_samples, n_atoms, n_atoms)
+        # 4. Multiply the two tensors elementwise
+        fc_term = tf.multiply(tf.expand_dims(cut_off_fc, axis=3),
+                              tf.expand_dims(cut_off_fc, axis=2))  # (n_samples,  n_atoms, n_atoms, n_atoms)
+        # 5. Cleaning up the terms that should be zero because there are equal indices
+        clean_fc_term = tf.where(where_eq_idx, zeros_1, fc_term)
 
     # Now finding the theta_ijk term
-    # Finding the tensor with the vector distances between all the atoms
-    dxyzs = tf.expand_dims(xyzs, axis=2) - tf.expand_dims(xyzs, axis=1)
-    # Doing the dot products of all the possible vectors
-    dots_dxyzs = tf.cast(tf.reduce_sum(tf.multiply(tf.expand_dims(dxyzs, axis=3), tf.expand_dims(dxyzs, axis=2)),
-                               axis=4), dtype=tf.float32)  # (n_samples,  n_atoms, n_atoms, n_atoms)
-    # Doing the products of the magnitudes
-    dist_prod = tf.multiply(tf.expand_dims(dist_tensor, axis=3),
-                            tf.expand_dims(dist_tensor, axis=2))  # (n_samples,  n_atoms, n_atoms, n_atoms)
-    # Dividing the dot products by the magnitudes to obtain cos theta
-    cos_theta = tf.divide(dots_dxyzs, dist_prod)
-    # Applying arc cos to find the theta value
-    theta = tf.acos(cos_theta)  # (n_samples,  n_atoms, n_atoms, n_atoms)
-    # Removing the NaNs created by dividing by zero AND setting to zero the elements from angles created by R_ij x R_ij
-    clean_theta = tf.where(where_eq_idx, zeros_1, theta)
+    with tf.name_scope("Theta"):
+        # Finding the tensor with the vector distances between all the atoms
+        dxyzs = tf.expand_dims(xyzs, axis=2) - tf.expand_dims(xyzs, axis=1)
+        # Doing the dot products of all the possible vectors
+        dots_dxyzs = tf.cast(tf.reduce_sum(tf.multiply(tf.expand_dims(dxyzs, axis=3), tf.expand_dims(dxyzs, axis=2)),
+                                   axis=4), dtype=tf.float32)  # (n_samples,  n_atoms, n_atoms, n_atoms)
+        # Doing the products of the magnitudes
+        dist_prod = tf.multiply(tf.expand_dims(dist_tensor, axis=3),
+                                tf.expand_dims(dist_tensor, axis=2))  # (n_samples,  n_atoms, n_atoms, n_atoms)
+        # Dividing the dot products by the magnitudes to obtain cos theta
+        cos_theta = tf.divide(dots_dxyzs, dist_prod)
+        # Applying arc cos to find the theta value
+        theta = tf.acos(cos_theta)  # (n_samples,  n_atoms, n_atoms, n_atoms)
+        # Removing the NaNs created by dividing by zero AND setting to zero the elements from angles created by R_ij x R_ij
+        clean_theta = tf.where(where_eq_idx, zeros_1, theta)
 
     # Finding the (0.5 * clean_sum_dist - R_s) term
-    # Augmenting the dims of angular_rs
-    expanded_rs = tf.expand_dims(tf.expand_dims(tf.expand_dims(tf.expand_dims(angular_rs, axis=0), axis=0), axis=0),
-                                 axis=0)  # (1, 1, 1, 1, n_rs)
-    # Augmenting the dim of clean_sum_dist *0.5
-    expanded_sum = tf.expand_dims(clean_sum_dist * 0.5, axis=-1)
-    # Combining them
-    brac_term = tf.subtract(expanded_sum, expanded_rs)
-    # Finally making the exponential term
-    exponent = - eta * tf.square(brac_term)
-    exp_term = tf.exp(exponent)  # (n_samples,  n_atoms, n_atoms, n_atoms, n_rs)
+    with tf.name_scope("Exp_term"):
+        # Augmenting the dims of angular_rs
+        expanded_rs = tf.expand_dims(tf.expand_dims(tf.expand_dims(tf.expand_dims(angular_rs, axis=0), axis=0), axis=0),
+                                     axis=0)  # (1, 1, 1, 1, n_rs)
+        # Augmenting the dim of clean_sum_dist *0.5
+        expanded_sum = tf.expand_dims(clean_sum_dist * 0.5, axis=-1)
+        # Combining them
+        brac_term = tf.subtract(expanded_sum, expanded_rs)
+        # Finally making the exponential term
+        exponent = - eta * tf.square(brac_term)
+        exp_term = tf.exp(exponent)  # (n_samples,  n_atoms, n_atoms, n_atoms, n_rs)
 
     # Finding the cos(theta - theta_s) term
-    # Augmenting the dimensions of theta_s
-    expanded_theta_s = tf.expand_dims(tf.expand_dims(tf.expand_dims(tf.expand_dims(theta_s, axis=0), axis=0), axis=0),
-                                      axis=0)
-    # Augmenting the dimensions of theta
-    expanded_theta = tf.expand_dims(clean_theta, axis=-1)
-    # Subtracting them and do the cos
-    cos_theta_term = tf.cos(
-        tf.subtract(expanded_theta, expanded_theta_s))  # (n_samples,  n_atoms, n_atoms, n_atoms, n_theta_s)
-    # Make the whole cos term  of the sum
-    cos_term = tf.pow(tf.add(tf.ones(tf.shape(cos_theta_term)), cos_theta_term),
-                      zeta)  # (n_samples,  n_atoms, n_atoms, n_atoms, n_theta_s)
+    with tf.name_scope("Cos_term"):
+        # Augmenting the dimensions of theta_s
+        expanded_theta_s = tf.expand_dims(tf.expand_dims(tf.expand_dims(tf.expand_dims(theta_s, axis=0), axis=0), axis=0),
+                                          axis=0)
+        # Augmenting the dimensions of theta
+        expanded_theta = tf.expand_dims(clean_theta, axis=-1)
+        # Subtracting them and do the cos
+        cos_theta_term = tf.cos(
+            tf.subtract(expanded_theta, expanded_theta_s))  # (n_samples,  n_atoms, n_atoms, n_atoms, n_theta_s)
+        # Make the whole cos term  of the sum
+        cos_term = tf.pow(tf.add(tf.ones(tf.shape(cos_theta_term)), cos_theta_term),
+                          zeta)  # (n_samples,  n_atoms, n_atoms, n_atoms, n_theta_s)
 
     # Final product of terms inside the sum time by 2^(1-zeta)
-    expanded_fc = tf.expand_dims(tf.expand_dims(clean_fc_term, axis=-1), axis=-1)
-    expanded_cos = tf.expand_dims(cos_term, axis=-2)
-    expanded_exp = tf.expand_dims(exp_term, axis=-1)
+    expanded_fc = tf.expand_dims(tf.expand_dims(clean_fc_term, axis=-1), axis=-1, name="Expanded_fc")
+    expanded_cos = tf.expand_dims(cos_term, axis=-2, name="Expanded_cos")
+    expanded_exp = tf.expand_dims(exp_term, axis=-1, name="Expanded_exp")
 
     const = tf.pow(2.0, (1.0 - zeta))
-    prod_of_terms = const * tf.multiply(tf.multiply(expanded_cos, expanded_exp),
-                                        expanded_fc)  # (n_samples,  n_atoms, n_atoms, n_atoms, n_rs, n_theta_s)
 
-    # Reshaping to shape (n_samples,  n_atoms, n_atoms, n_atoms, n_rs*n_theta_s)
-    presum_term = tf.reshape(prod_of_terms,
+    with tf.name_scope("Ang_term"):
+        prod_of_terms = const * tf.multiply(tf.multiply(expanded_cos, expanded_exp),
+                                            expanded_fc)  # (n_samples,  n_atoms, n_atoms, n_atoms, n_rs, n_theta_s)
+
+        # Reshaping to shape (n_samples,  n_atoms, n_atoms, n_atoms, n_rs*n_theta_s)
+        presum_term = tf.reshape(prod_of_terms,
                              [n_samples, n_atoms, n_atoms, n_atoms, tf.shape(theta_s)[0] * tf.shape(angular_rs)[0]])
 
     return presum_term
@@ -213,7 +225,7 @@ def sum_rad(pre_sum, Zs, elements_list, radial_rs):
 
     # Concatenating the extracted terms and summing the ones corresponding to the same atom types.
     rad_acsf_presum = tf.concat(pre_sum_terms, axis=-1)
-    final_term = tf.reduce_sum(rad_acsf_presum, axis=[2])
+    final_term = tf.reduce_sum(rad_acsf_presum, axis=[2], name="sum_rad")
 
     return final_term
 
@@ -291,7 +303,7 @@ def sum_ang(pre_sumterm, Zs, element_pairs_list, angular_rs, theta_s):
     # Concatenating all of the terms corresponding to different pair neighbours
     angular_acsf_presum = tf.concat(presum_terms, axis=-1)
     # Summing over neighbouring pairs
-    final_term = 0.5 * tf.reduce_sum(angular_acsf_presum, axis=[2, 3])
+    final_term = 0.5 * tf.reduce_sum(angular_acsf_presum, axis=[2, 3], name="sum_ang")
 
     return final_term
 
@@ -318,29 +330,36 @@ def generate_parkhill_acsf(xyzs, Zs, elements, element_pairs, radial_cutoff, ang
     """
 
     # Turning the quantities into tensors
-    Zs_tf = tf.constant(Zs, dtype=tf.int32)
-    xyzs_tf = tf.constant(xyzs, dtype=tf.float32)
+    with tf.name_scope("Inputs"):
+        Zs_tf = tf.constant(Zs, dtype=tf.int32, name="zs")
+        xyzs_tf = tf.constant(xyzs, dtype=tf.float32, name="xyz")
 
-    rad_cutoff = tf.constant(radial_cutoff, dtype=tf.float32)
-    ang_cutoff = tf.constant(angular_cutoff, dtype=tf.float32)
-    rad_rs = tf.constant(radial_rs, dtype=tf.float32)
-    ang_rs = tf.constant(angular_rs, dtype=tf.float32)
-    theta_s = tf.constant(theta_s, dtype=tf.float32)
-    zeta_tf = tf.constant(zeta, dtype=tf.float32)
-    eta_tf = tf.constant(eta, dtype=tf.float32)
+    with tf.name_scope("acsf_params"):
+        rad_cutoff = tf.constant(radial_cutoff, dtype=tf.float32)
+        ang_cutoff = tf.constant(angular_cutoff, dtype=tf.float32)
+        rad_rs = tf.constant(radial_rs, dtype=tf.float32)
+        ang_rs = tf.constant(angular_rs, dtype=tf.float32)
+        theta_s = tf.constant(theta_s, dtype=tf.float32)
+        zeta_tf = tf.constant(zeta, dtype=tf.float32)
+        eta_tf = tf.constant(eta, dtype=tf.float32)
 
     ##  Calculating the radial part of the symmetry function
     # First obtaining all the terms in the sum
-    pre_sum_rad = acsf_rad(xyzs_tf, Zs_tf, rad_cutoff, rad_rs, eta_tf)  # (n_samples, n_atoms, n_atoms, n_rad_rs)
-    # Then summing based on the identity of the atoms interacting
-    rad_term = sum_rad(pre_sum_rad, Zs_tf, elements, rad_rs) # (n_samples, n_atoms, n_rad_rs*n_elements)
+    with tf.name_scope("Radial_part"):
+        pre_sum_rad = acsf_rad(xyzs_tf, Zs_tf, rad_cutoff, rad_rs, eta_tf)  # (n_samples, n_atoms, n_atoms, n_rad_rs)
+    with tf.name_scope("Sum_rad"):
+        # Then summing based on the identity of the atoms interacting
+        rad_term = sum_rad(pre_sum_rad, Zs_tf, elements, rad_rs) # (n_samples, n_atoms, n_rad_rs*n_elements)
 
     ## Calculating the angular part of the symmetry function
     # First obtaining all the terms in the sum
-    pre_sum_ang = acsf_ang(xyzs_tf, Zs_tf, ang_cutoff, ang_rs, theta_s, zeta_tf, eta_tf) # (n_samples, n_atoms, n_atoms, n_atoms, n_thetas * n_ang_rs)
-    # Then doing the sum based on the neighbrouing pair identity
-    ang_term = sum_ang(pre_sum_ang, Zs_tf, element_pairs, ang_rs, theta_s) # (n_samples, n_atoms, n_thetas * n_ang_rs*n_elementpairs)
+    with tf.name_scope("Angular_part"):
+        pre_sum_ang = acsf_ang(xyzs_tf, Zs_tf, ang_cutoff, ang_rs, theta_s, zeta_tf, eta_tf) # (n_samples, n_atoms, n_atoms, n_atoms, n_thetas * n_ang_rs)
+    with tf.name_scope("Sum_ang"):
+        # Then doing the sum based on the neighbrouing pair identity
+        ang_term = sum_ang(pre_sum_ang, Zs_tf, element_pairs, ang_rs, theta_s) # (n_samples, n_atoms, n_thetas * n_ang_rs*n_elementpairs)
 
-    acsf = tf.concat([rad_term, ang_term], axis=-1) # (n_samples, n_atoms, n_rad_rs*n_elements + n_thetas * n_ang_rs*n_elementpairs)
+    with tf.name_scope("ACSF"):
+        acsf = tf.concat([rad_term, ang_term], axis=-1, name="acsf") # (n_samples, n_atoms, n_rad_rs*n_elements + n_thetas * n_ang_rs*n_elementpairs)
 
     return acsf

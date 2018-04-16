@@ -9,6 +9,7 @@ import numpy as np
 from sklearn.base import BaseEstimator
 import aglaia.symm_funct as sf
 import tensorflow as tf
+from tensorflow.python.client import timeline
 
 try:
     from qml import Compound, representations
@@ -986,6 +987,9 @@ class OAMNN(ARMP, _ONN):
         zs = np.asarray(zs, dtype=np.int32)
         xyzs = np.asarray(xyzs, dtype=np.float32)
 
+        run_metadata = tf.RunMetadata()
+        options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
+
         descriptor = sf.generate_parkhill_acsf(xyzs=xyzs, Zs=zs, elements=elements, element_pairs=element_pairs,
                                                radial_cutoff=self.radial_cutoff, angular_cutoff=self.angular_cutoff,
                                                radial_rs=self.radial_rs, angular_rs=self.angular_rs, theta_s=self.theta_s,
@@ -993,7 +997,16 @@ class OAMNN(ARMP, _ONN):
 
         sess = tf.Session()
         sess.run(tf.global_variables_initializer())
-        descriptor_np = sess.run(descriptor)
+        descriptor_np = sess.run(descriptor, options=options, run_metadata=run_metadata)
+        summary_writer = tf.summary.FileWriter(logdir="tensorboard", graph=sess.graph)
+        summary_writer.add_run_metadata(run_metadata=run_metadata, tag="Descriptor", global_step=None)
+        # options = tf.profiler.ProfileOptionBuilder.time_and_memory()
+        # options["min_bytes"] = 0
+        # options["select"] = ("bytes", "peak_bytes", "output_bytes",
+        #                      "residual_bytes")
+        # tf.profiler.profile(sess.graph, run_meta=run_metadata, cmd="scope",
+        #                     options=options)
+        sess.close()
 
         return descriptor_np, zs
 
