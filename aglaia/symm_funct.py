@@ -279,7 +279,7 @@ def sum_ang(pre_sumterm, Zs, element_pairs_list, angular_rs, theta_s):
     where_self_int = tf.convert_to_tensor(oarray, dtype=tf.bool)
     exp_self_int = tf.expand_dims(where_self_int, axis=-1)  # (n_samples, n_atoms, n_atoms, n_atoms, 1)
 
-    zeros_large = tf.zeros(tf.shape(pre_sumterm), dtype=tf.float32)
+    zeros_large = tf.zeros(tf.shape(pre_sumterm), dtype=tf.float32, name="zero_large")
     presum_terms = []
 
     for i in range(n_pairs):
@@ -287,7 +287,7 @@ def sum_ang(pre_sumterm, Zs, element_pairs_list, angular_rs, theta_s):
         pair = tf.constant(element_pairs_list[i], dtype=tf.int32)
         expanded_pair = tf.tile(
             tf.expand_dims(tf.expand_dims(tf.expand_dims(pair, axis=0), axis=0), axis=0),
-            multiples=[n_samples, n_atoms, n_atoms, 1])  # (n_samples, n_atoms, n_atoms, 2)
+            multiples=[n_samples, n_atoms, n_atoms, 1], name="expand_pair")  # (n_samples, n_atoms, n_atoms, 2)
         # Comparing which neighbour pairs correspond to the pair under consideration
         equal_pair_mix = tf.equal(expanded_pair, sorted_pairs)
         equal_pair_split1, equal_pair_split2 = tf.split(equal_pair_mix, 2, axis=-1)
@@ -301,7 +301,7 @@ def sum_ang(pre_sumterm, Zs, element_pairs_list, angular_rs, theta_s):
         presum_terms.append(slice_presum)
 
     # Concatenating all of the terms corresponding to different pair neighbours
-    angular_acsf_presum = tf.concat(presum_terms, axis=-1)
+    angular_acsf_presum = tf.concat(presum_terms, axis=-1, name="concat_presum")
     # Summing over neighbouring pairs
     final_term = 0.5 * tf.reduce_sum(angular_acsf_presum, axis=[2, 3], name="sum_ang")
 
@@ -315,8 +315,8 @@ def generate_parkhill_acsf(xyzs, Zs, elements, element_pairs, radial_cutoff, ang
     charges for each atom (in the same order as the xyz), the overall elements and overall element pairs. Then it
     requires the parameters for the ACSF that are used in the Tensormol paper: https://arxiv.org/pdf/1711.06385.pdf
 
-    :param xyzs: np.array of shape (n_samples, n_atoms, 3)
-    :param Zs: np.array of shape (n_samples, n_atoms)
+    :param xyzs: tensor of shape (n_samples, n_atoms, 3)
+    :param Zs: tensor of shape (n_samples, n_atoms)
     :param elements: np.array of shape (n_elements,)
     :param element_pairs: np.array of shape (n_elementpairs, 2)
     :param radial_cutoff: scalar float
@@ -328,11 +328,6 @@ def generate_parkhill_acsf(xyzs, Zs, elements, element_pairs, radial_cutoff, ang
     :param eta: scalar float
     :return: a tf tensor of shape (n_samples, n_atoms, n_rad_rs * n_elements + n_ang_rs * n_thetas * n_elementpairs)
     """
-
-    # Turning the quantities into tensors
-    with tf.name_scope("Inputs"):
-        Zs_tf = tf.constant(Zs, dtype=tf.int32, name="zs")
-        xyzs_tf = tf.constant(xyzs, dtype=tf.float32, name="xyz")
 
     with tf.name_scope("acsf_params"):
         rad_cutoff = tf.constant(radial_cutoff, dtype=tf.float32)
@@ -346,18 +341,18 @@ def generate_parkhill_acsf(xyzs, Zs, elements, element_pairs, radial_cutoff, ang
     ##  Calculating the radial part of the symmetry function
     # First obtaining all the terms in the sum
     with tf.name_scope("Radial_part"):
-        pre_sum_rad = acsf_rad(xyzs_tf, Zs_tf, rad_cutoff, rad_rs, eta_tf)  # (n_samples, n_atoms, n_atoms, n_rad_rs)
+        pre_sum_rad = acsf_rad(xyzs, Zs, rad_cutoff, rad_rs, eta_tf)  # (n_samples, n_atoms, n_atoms, n_rad_rs)
     with tf.name_scope("Sum_rad"):
         # Then summing based on the identity of the atoms interacting
-        rad_term = sum_rad(pre_sum_rad, Zs_tf, elements, rad_rs) # (n_samples, n_atoms, n_rad_rs*n_elements)
+        rad_term = sum_rad(pre_sum_rad, Zs, elements, rad_rs) # (n_samples, n_atoms, n_rad_rs*n_elements)
 
     ## Calculating the angular part of the symmetry function
     # First obtaining all the terms in the sum
     with tf.name_scope("Angular_part"):
-        pre_sum_ang = acsf_ang(xyzs_tf, Zs_tf, ang_cutoff, ang_rs, theta_s, zeta_tf, eta_tf) # (n_samples, n_atoms, n_atoms, n_atoms, n_thetas * n_ang_rs)
+        pre_sum_ang = acsf_ang(xyzs, Zs, ang_cutoff, ang_rs, theta_s, zeta_tf, eta_tf) # (n_samples, n_atoms, n_atoms, n_atoms, n_thetas * n_ang_rs)
     with tf.name_scope("Sum_ang"):
         # Then doing the sum based on the neighbrouing pair identity
-        ang_term = sum_ang(pre_sum_ang, Zs_tf, element_pairs, ang_rs, theta_s) # (n_samples, n_atoms, n_thetas * n_ang_rs*n_elementpairs)
+        ang_term = sum_ang(pre_sum_ang, Zs, element_pairs, ang_rs, theta_s) # (n_samples, n_atoms, n_thetas * n_ang_rs*n_elementpairs)
 
     with tf.name_scope("ACSF"):
         acsf = tf.concat([rad_term, ang_term], axis=-1, name="acsf") # (n_samples, n_atoms, n_rad_rs*n_elements + n_thetas * n_ang_rs*n_elementpairs)

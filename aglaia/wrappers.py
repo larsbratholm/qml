@@ -987,25 +987,27 @@ class OAMNN(ARMP, _ONN):
         zs = np.asarray(zs, dtype=np.int32)
         xyzs = np.asarray(xyzs, dtype=np.float32)
 
-        run_metadata = tf.RunMetadata()
-        options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
+        # # Uncomment to get memory and compute time in tensorboard
+        # run_metadata = tf.RunMetadata()
+        # options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
 
-        descriptor = sf.generate_parkhill_acsf(xyzs=xyzs, Zs=zs, elements=elements, element_pairs=element_pairs,
+        # Turning the quantities into tensors
+        with tf.name_scope("Inputs"):
+            zs_tf = tf.placeholder(shape=[n_samples, max_n_atoms], dtype=tf.int32, name="zs")
+            xyz_tf = tf.placeholder(shape=[n_samples, max_n_atoms, 3], dtype=tf.float32, name="xyz")
+
+        descriptor = sf.generate_parkhill_acsf(xyzs=xyz_tf, Zs=zs_tf, elements=elements, element_pairs=element_pairs,
                                                radial_cutoff=self.radial_cutoff, angular_cutoff=self.angular_cutoff,
                                                radial_rs=self.radial_rs, angular_rs=self.angular_rs, theta_s=self.theta_s,
                                                eta=self.eta, zeta=self.zeta)
 
         sess = tf.Session()
         sess.run(tf.global_variables_initializer())
-        descriptor_np = sess.run(descriptor, options=options, run_metadata=run_metadata)
-        summary_writer = tf.summary.FileWriter(logdir="tensorboard", graph=sess.graph)
-        summary_writer.add_run_metadata(run_metadata=run_metadata, tag="Descriptor", global_step=None)
-        # options = tf.profiler.ProfileOptionBuilder.time_and_memory()
-        # options["min_bytes"] = 0
-        # options["select"] = ("bytes", "peak_bytes", "output_bytes",
-        #                      "residual_bytes")
-        # tf.profiler.profile(sess.graph, run_meta=run_metadata, cmd="scope",
-        #                     options=options)
+        descriptor_np = sess.run(descriptor, feed_dict={xyz_tf: xyzs, zs_tf: zs})
+        # # Uncomment to get memory and compute time in tensorboard
+        # descriptor_np = sess.run(descriptor, feed_dict={xyz_tf: xyzs, zs_tf: zs}, options=options, run_metadata=run_metadata)
+        # summary_writer = tf.summary.FileWriter(logdir="tensorboard", graph=sess.graph)
+        # summary_writer.add_run_metadata(run_metadata=run_metadata, tag="Descriptor", global_step=None)
         sess.close()
 
         return descriptor_np, zs
