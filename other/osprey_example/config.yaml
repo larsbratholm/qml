@@ -5,7 +5,7 @@ strategy:
   name: random
 
 search_space:
-  learning_rate:
+  l2_reg:
     min: 1e-4
     max: 1e-1
     type: float

@@ -19,7 +19,6 @@ start_time = time.time()
 data = joblib.load("/Volumes/Transcend/repositories/Aglaia/data/local_slatm_ch4cn_light.bz")
 descriptors = data['descriptor']
 zs = data["zs"]
-# test_zs = np.ones(zs.shape)
 energies = data["energies"]
 
 print("Loading the data took", str(time.time() - start_time), " to run")
