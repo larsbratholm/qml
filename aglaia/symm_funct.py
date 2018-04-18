@@ -77,7 +77,7 @@ def acsf_ang(xyzs, Zs, angular_cutoff, angular_rs, theta_s, zeta, eta):
     :param theta_s: tf tensor of shape (n_thetas,)
     :param zeta: tf tensor of shape (1,)
     :param eta: tf tensor of shape (1,)
-    :return: tf tensor of shape (n_samples, n_atoms, n_ang_rs * n_thetas)
+    :return: tf tensor of shape (n_samples, n_atoms, n_atoms, n_atoms, n_ang_rs * n_thetas)
     """
 
     # Finding the R_ij + R_ik term
@@ -282,28 +282,28 @@ def sum_ang(pre_sumterm, Zs, element_pairs_list, angular_rs, theta_s):
     zeros_large = tf.zeros(tf.shape(pre_sumterm), dtype=tf.float32, name="zero_large")
     presum_terms = []
 
-    for i in range(n_pairs):
-        # Making a tensor where all the elements are the pair under consideration
-        pair = tf.constant(element_pairs_list[i], dtype=tf.int32)
-        expanded_pair = tf.tile(
-            tf.expand_dims(tf.expand_dims(tf.expand_dims(pair, axis=0), axis=0), axis=0),
-            multiples=[n_samples, n_atoms, n_atoms, 1], name="expand_pair")  # (n_samples, n_atoms, n_atoms, 2)
-        # Comparing which neighbour pairs correspond to the pair under consideration
-        equal_pair_mix = tf.equal(expanded_pair, sorted_pairs)
-        equal_pair_split1, equal_pair_split2 = tf.split(equal_pair_mix, 2, axis=-1)
-        equal_pair = tf.tile(tf.expand_dims(tf.logical_and(equal_pair_split1, equal_pair_split2), axis=[1]),
-                             multiples=[1, n_atoms, 1, 1, 1])  # (n_samples, n_atoms, n_atoms, n_atoms, 1)
-        # Removing the pairs where the same atom is present more than once
-        int_to_keep = tf.logical_and(equal_pair, exp_self_int)
-        exp_int_to_keep = tf.tile(int_to_keep, multiples=[1, 1, 1, 1, n_rs * n_thetas])
-        # Extracting the terms that correspond to the pair under consideration
-        slice_presum = tf.where(exp_int_to_keep, pre_sumterm, zeros_large)
-        presum_terms.append(slice_presum)
+    with tf.name_scope("Extract"):
+        for i in range(n_pairs):
+            # Making a tensor where all the elements are the pair under consideration
+            pair = tf.constant(element_pairs_list[i], dtype=tf.int32)
+            expanded_pair = tf.tile(
+                tf.expand_dims(tf.expand_dims(tf.expand_dims(pair, axis=0), axis=0), axis=0),
+                multiples=[n_samples, n_atoms, n_atoms, 1], name="expand_pair")  # (n_samples, n_atoms, n_atoms, 2)
+            # Comparing which neighbour pairs correspond to the pair under consideration
+            equal_pair_mix = tf.equal(expanded_pair, sorted_pairs)
+            equal_pair_split1, equal_pair_split2 = tf.split(equal_pair_mix, 2, axis=-1)
+            equal_pair = tf.tile(tf.expand_dims(tf.logical_and(equal_pair_split1, equal_pair_split2), axis=[1]),
+                                 multiples=[1, n_atoms, 1, 1, 1])  # (n_samples, n_atoms, n_atoms, n_atoms, 1)
+            # Removing the pairs where the same atom is present more than once
+            int_to_keep = tf.logical_and(equal_pair, exp_self_int)
+            exp_int_to_keep = tf.tile(int_to_keep, multiples=[1, 1, 1, 1, n_rs * n_thetas])
+            # Extracting the terms that correspond to the pair under consideration
+            slice_presum = tf.where(exp_int_to_keep, pre_sumterm, zeros_large, name="sl_pr_s")
+            slice_sum = 0.5 * tf.reduce_sum(slice_presum, axis=[2, 3], name="sum_ang")
+            presum_terms.append(slice_sum)
 
     # Concatenating all of the terms corresponding to different pair neighbours
-    angular_acsf_presum = tf.concat(presum_terms, axis=-1, name="concat_presum")
-    # Summing over neighbouring pairs
-    final_term = 0.5 * tf.reduce_sum(angular_acsf_presum, axis=[2, 3], name="sum_ang")
+    final_term = tf.concat(presum_terms, axis=-1, name="concat_presum")
 
     return final_term
 

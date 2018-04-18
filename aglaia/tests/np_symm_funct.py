@@ -150,8 +150,8 @@ def acsf_ang(xyzs, Zs, element_pairs, angular_cutoff, angular_rs, theta_s, zeta,
 
     return np.asarray(total_descriptor)
 
-def generate_acsf(xyzs, Zs, elements, element_pairs, radial_cutoff=10.0, angular_cutoff=10.0, radial_rs=None,
-                  angular_rs=None, theta_s=None, zeta=3.0, eta=2.0):
+def generate_acsf(xyzs, Zs, elements, element_pairs, radial_cutoff, angular_cutoff, radial_rs,
+                  angular_rs, theta_s, zeta, eta):
     """
     This function calculates the symmetry functions used in the tensormol paper.
 
@@ -168,13 +168,6 @@ def generate_acsf(xyzs, Zs, elements, element_pairs, radial_cutoff=10.0, angular
     :param eta: parameter. scalar.
     :return: numpy array of shape (n_samples, n_atoms, n_rad_rs*n_elements + n_ang_rs*n_thetas*n_element_pairs)
     """
-
-    if type(radial_rs) == type(None):
-        radial_rs = [0.0, 0.1, 0.2]
-    if type(angular_rs) == type(None):
-        angular_rs = [0.0, 0.1, 0.2]
-    if type(theta_s) == type(None):
-        theta_s = [3.0, 2.0]
 
     rad_term = acsf_rad(xyzs, Zs, elements, radial_cutoff, radial_rs, eta)
     ang_term = acsf_ang(xyzs, Zs, element_pairs, angular_cutoff, angular_rs, theta_s, zeta, eta)

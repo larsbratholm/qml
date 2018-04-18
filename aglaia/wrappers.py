@@ -9,7 +9,7 @@ import numpy as np
 from sklearn.base import BaseEstimator
 import aglaia.symm_funct as sf
 import tensorflow as tf
-from tensorflow.python.client import timeline
+import aglaia.tests.tensormol_symm_funct as tm_sf
 
 try:
     from qml import Compound, representations
@@ -988,26 +988,32 @@ class OAMNN(ARMP, _ONN):
         xyzs = np.asarray(xyzs, dtype=np.float32)
 
         # # Uncomment to get memory and compute time in tensorboard
-        # run_metadata = tf.RunMetadata()
-        # options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
+        run_metadata = tf.RunMetadata()
+        options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
 
         # Turning the quantities into tensors
         with tf.name_scope("Inputs"):
             zs_tf = tf.placeholder(shape=[n_samples, max_n_atoms], dtype=tf.int32, name="zs")
             xyz_tf = tf.placeholder(shape=[n_samples, max_n_atoms, 3], dtype=tf.float32, name="xyz")
 
-        descriptor = sf.generate_parkhill_acsf(xyzs=xyz_tf, Zs=zs_tf, elements=elements, element_pairs=element_pairs,
+        # descriptor = sf.generate_parkhill_acsf(xyzs=xyz_tf, Zs=zs_tf, elements=elements, element_pairs=element_pairs,
+        #                                        radial_cutoff=self.radial_cutoff, angular_cutoff=self.angular_cutoff,
+        #                                        radial_rs=self.radial_rs, angular_rs=self.angular_rs, theta_s=self.theta_s,
+        #                                        eta=self.eta, zeta=self.zeta)
+
+        # # Uncomment to use the Parkhill implementation of ACSF
+        descriptor = tm_sf.tensormol_acsf(xyz_tf, zs_tf, elements=elements, element_pairs=element_pairs,
                                                radial_cutoff=self.radial_cutoff, angular_cutoff=self.angular_cutoff,
                                                radial_rs=self.radial_rs, angular_rs=self.angular_rs, theta_s=self.theta_s,
                                                eta=self.eta, zeta=self.zeta)
 
         sess = tf.Session()
         sess.run(tf.global_variables_initializer())
-        descriptor_np = sess.run(descriptor, feed_dict={xyz_tf: xyzs, zs_tf: zs})
+        # descriptor_np = sess.run(descriptor, feed_dict={xyz_tf: xyzs, zs_tf: zs})
         # # Uncomment to get memory and compute time in tensorboard
-        # descriptor_np = sess.run(descriptor, feed_dict={xyz_tf: xyzs, zs_tf: zs}, options=options, run_metadata=run_metadata)
-        # summary_writer = tf.summary.FileWriter(logdir="tensorboard", graph=sess.graph)
-        # summary_writer.add_run_metadata(run_metadata=run_metadata, tag="Descriptor", global_step=None)
+        descriptor_np = sess.run(descriptor, feed_dict={xyz_tf: xyzs, zs_tf: zs}, options=options, run_metadata=run_metadata)
+        summary_writer = tf.summary.FileWriter(logdir="tensorboard", graph=sess.graph)
+        summary_writer.add_run_metadata(run_metadata=run_metadata, tag="Descriptor", global_step=None)
         sess.close()
 
         return descriptor_np, zs
