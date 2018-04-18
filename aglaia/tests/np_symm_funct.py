@@ -71,20 +71,25 @@ def acsf_rad(xyzs, Zs, elements, radial_cutoff, radial_rs, eta):
         sample_descriptor = []
         for main_atom in range(n_atoms):
             atom_descriptor = np.zeros((n_rs* n_elements,))
-            for i, rs_value in enumerate(radial_rs):
-                for neighb_atom in range(n_atoms):
-                    if main_atom == neighb_atom:
-                        continue
-                    else:
-                        r_ij = distance(xyzs[sample, main_atom, :], xyzs[sample, neighb_atom, :])
-                        cut_off_term = fc(r_ij, radial_cutoff)
-                        exponent_term = np.exp(-eta * (r_ij - rs_value) ** 2)
-                        g2_term = exponent_term * cut_off_term
-                        # Compare the current neighbouring atom to the list of possible neighbouring atoms and then
-                        # split the terms accordingly
-                        for j in range(len(elements)):
-                            if Zs[sample][neighb_atom] == elements[j]:
-                                atom_descriptor[i*n_rs + j] += g2_term
+            if Zs[sample][main_atom] == 0:
+                continue
+            else:
+                for i, rs_value in enumerate(radial_rs):
+                    for neighb_atom in range(n_atoms):
+                        if main_atom == neighb_atom:
+                            continue
+                        elif Zs[sample][neighb_atom] == 0:
+                            continue
+                        else:
+                            r_ij = distance(xyzs[sample, main_atom, :], xyzs[sample, neighb_atom, :])
+                            cut_off_term = fc(r_ij, radial_cutoff)
+                            exponent_term = np.exp(-eta * (r_ij - rs_value) ** 2)
+                            g2_term = exponent_term * cut_off_term
+                            # Compare the current neighbouring atom to the list of possible neighbouring atoms and then
+                            # split the terms accordingly
+                            for j in range(len(elements)):
+                                if Zs[sample][neighb_atom] == elements[j]:
+                                    atom_descriptor[i*n_rs + j] += g2_term
 
             sample_descriptor.append(atom_descriptor)
         total_descriptor.append(sample_descriptor)
@@ -97,18 +102,18 @@ def acsf_ang(xyzs, Zs, element_pairs, angular_cutoff, angular_rs, theta_s, zeta,
     """
     This function calculates the angular part of the symmetry functions.
 
-    :param xyzs: cartesian coordinates of the atoms. Numpy array of shape (n_samples, n_atoms, 3)
-    :param Zs: atomic numpers of the atoms. Numpy array of shape (n_samples, n_atoms)
+    :param xyzs: cartesian coordinates of the atoms. Numpy array of shape (n_samples, max_n_atoms, 3)
+    :param Zs: atomic numpers of the atoms. Numpy array of shape (n_samples, max_n_atoms)
     :param element_pairs: array of all the possible pairs of atomic numbers, sorted in descending order. Numpy array of shape (n_element_pairs, 2)
     :param angular_cutoff: cut off length. scalar
     :param angular_rs: list of all the angular Rs parameters. Numpy array of shape (n_ang_rs,)
     :param theta_s: list of all the thetas parameters. Numpy array of shape (n_thetas,)
     :param zeta: parameter. scalar.
     :param eta: parameter. scalar.
-    :return: numpy array of shape (n_samples, n_atoms, n_ang_rs*n_thetas*n_element_pairs)
+    :return: numpy array of shape (n_samples, max_n_atoms, n_ang_rs*n_thetas*n_element_pairs)
     """
     n_samples = xyzs.shape[0]
-    n_atoms = xyzs.shape[1]
+    max_n_atoms = xyzs.shape[1]
     n_rs = len(angular_rs)
     n_theta = len(theta_s)
     n_elements_pairs = len(element_pairs)
@@ -117,33 +122,40 @@ def acsf_ang(xyzs, Zs, element_pairs, angular_cutoff, angular_rs, theta_s, zeta,
 
     for sample in range(n_samples):
         sample_descriptor = []
-        for i in range(n_atoms):  # Loop over main atom
+        for i in range(max_n_atoms):  # Loop over main atom
             atom_descriptor = np.zeros((n_rs*n_theta*n_elements_pairs, ))
-            counter = 0
-            for rs_value in angular_rs:  # Loop over parameters
-                for theta_value in theta_s:
-                    for j in range(n_atoms):  # Loop over 1st neighbour
-                        if j == i:
-                            continue
-                        for k in range(j+1, n_atoms):  # Loop over 2nd neighbour
-                            if k == j or k == i:
+            if Zs[sample][i] == 0:  # Making sure the main atom is not a dummy atom
+                continue
+            else:
+                counter = 0
+                for rs_value in angular_rs:  # Loop over parameters
+                    for theta_value in theta_s:
+                        for j in range(max_n_atoms):  # Loop over 1st neighbour
+                            if j == i:
                                 continue
+                            elif Zs[sample][j] == 0:    # Making sure the neighbours are not dummy atoms
+                                continue
+                            for k in range(j+1, max_n_atoms):  # Loop over 2nd neighbour
+                                if k == j or k == i:
+                                    continue
+                                elif Zs[sample][k] == 0: # Making sure the neighbours are not dummy atoms
+                                    continue
 
-                            r_ij = distance(xyzs[sample, i, :], xyzs[sample, j, :])
-                            r_ik = distance(xyzs[sample, i, :], xyzs[sample, k, :])
-                            cos_theta_ijk = get_costheta(xyzs[sample, i, :], xyzs[sample, j, :], xyzs[sample, k, :])
-                            theta_ijk = np.arccos(cos_theta_ijk)
+                                r_ij = distance(xyzs[sample, i, :], xyzs[sample, j, :])
+                                r_ik = distance(xyzs[sample, i, :], xyzs[sample, k, :])
+                                cos_theta_ijk = get_costheta(xyzs[sample, i, :], xyzs[sample, j, :], xyzs[sample, k, :])
+                                theta_ijk = np.arccos(cos_theta_ijk)
 
-                            term_1 = np.power((1.0 + np.cos(theta_ijk - theta_value)), zeta)
-                            term_2 = np.exp(- eta * np.power(0.5*(r_ij + r_ik) - rs_value, 2))
-                            term_3 = fc(r_ij, angular_cutoff) * fc(r_ik, angular_cutoff)
-                            g_term = term_1 * term_2 * term_3 * np.power(2.0, 1.0 - zeta)
-                            # Compare the pair of neighbours to all the possible element pairs, then summ accordingly
-                            current_pair = np.flip(np.sort([Zs[sample][j], Zs[sample][k]]), axis=0)     # Sorting the pair in descending order
-                            for m, pair in enumerate(element_pairs):
-                                if np.all(current_pair == pair):
-                                    atom_descriptor[counter * n_elements_pairs + m] += g_term
-                    counter += 1
+                                term_1 = np.power((1.0 + np.cos(theta_ijk - theta_value)), zeta)
+                                term_2 = np.exp(- eta * np.power(0.5*(r_ij + r_ik) - rs_value, 2))
+                                term_3 = fc(r_ij, angular_cutoff) * fc(r_ik, angular_cutoff)
+                                g_term = term_1 * term_2 * term_3 * np.power(2.0, 1.0 - zeta)
+                                # Compare the pair of neighbours to all the possible element pairs, then summ accordingly
+                                current_pair = np.flip(np.sort([Zs[sample][j], Zs[sample][k]]), axis=0)     # Sorting the pair in descending order
+                                for m, pair in enumerate(element_pairs):
+                                    if np.all(current_pair == pair):
+                                        atom_descriptor[counter * n_elements_pairs + m] += g_term
+                        counter += 1
 
             sample_descriptor.append(atom_descriptor)
         total_descriptor.append(sample_descriptor)
@@ -190,7 +202,8 @@ if __name__ == "__main__":
     # elements_list = [1, 2, 7]
     # element_pairs_list = [[1, 1], [2, 1], [7, 1], [7, 2]]
 
-    input_data = "/Volumes/Transcend/repositories/Aglaia/aglaia/tests/data_test_acsf.npz"
+    # input_data = "/Volumes/Transcend/repositories/Aglaia/aglaia/tests/data_test_acsf.npz"
+    input_data = "/Volumes/Transcend/repositories/Aglaia/aglaia/tests/qm7_testdata.npz"
     data = np.load(input_data)
 
     xyzs = data["arr_0"]
