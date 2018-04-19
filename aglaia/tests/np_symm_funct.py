@@ -72,6 +72,7 @@ def acsf_rad(xyzs, Zs, elements, radial_cutoff, radial_rs, eta):
         for main_atom in range(n_atoms):
             atom_descriptor = np.zeros((n_rs* n_elements,))
             if Zs[sample][main_atom] == 0:
+                sample_descriptor.append(atom_descriptor)
                 continue
             else:
                 for i, rs_value in enumerate(radial_rs):
@@ -89,7 +90,7 @@ def acsf_rad(xyzs, Zs, elements, radial_cutoff, radial_rs, eta):
                             # split the terms accordingly
                             for j in range(len(elements)):
                                 if Zs[sample][neighb_atom] == elements[j]:
-                                    atom_descriptor[i*n_rs + j] += g2_term
+                                    atom_descriptor[i * n_elements + j] += g2_term
 
             sample_descriptor.append(atom_descriptor)
         total_descriptor.append(sample_descriptor)
@@ -125,6 +126,7 @@ def acsf_ang(xyzs, Zs, element_pairs, angular_cutoff, angular_rs, theta_s, zeta,
         for i in range(max_n_atoms):  # Loop over main atom
             atom_descriptor = np.zeros((n_rs*n_theta*n_elements_pairs, ))
             if Zs[sample][i] == 0:  # Making sure the main atom is not a dummy atom
+                sample_descriptor.append(atom_descriptor)
                 continue
             else:
                 counter = 0
@@ -216,6 +218,9 @@ if __name__ == "__main__":
     radial_rs = [0.0, 0.1, 0.2]
     angular_rs = [0.0, 0.1, 0.2]
     theta_s = [3.0, 2.0]
+    # radial_rs = [0.0]
+    # angular_rs = [0.0]
+    # theta_s = [3.0]
     zeta = 3.0
     eta = 2.0
 
