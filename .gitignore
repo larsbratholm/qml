@@ -18,3 +18,4 @@ other/osprey_example/saved_model
 other/osprey_example/*.csv
 other/osprey_example/*.pickle
 other/osprey_example/*.db
+other/osprey_example/plugins/

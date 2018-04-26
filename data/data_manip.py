@@ -174,7 +174,7 @@ def molpro_to_qml_format(directory, key, kJmol=False, demean=False, xyz_write=Fa
     file_idxs = []
 
     # Properties file
-    prop_file = open("properties.txt", "w")
+    prop_file = open("properties_kjmol.txt", "w")
 
     # Iterating over all the files
     for item in file_list:
@@ -214,8 +214,9 @@ def molpro_to_qml_format(directory, key, kJmol=False, demean=False, xyz_write=Fa
             continue
         else:
             ref_energy = prop[reference_idx]
+    # ref_energy = -762501.4464388841
     print("The reference energy is: %s" % (ref_energy))
-    # ref_energy = -516891.5043706963
+
 
     # Make a folder in which to print the xyz
     if xyz_write:
@@ -392,6 +393,6 @@ def molpro_to_vmd(directory, key):
 
 if __name__ == "__main__":
 
-    molpro_to_qml_format("/Volumes/Transcend/data_sets/OH_squalane_model/training_Molpro/b3lyp", "b3lyp_tzvp_u.out", kJmol=True, demean=True, xyz_write=False)
+    molpro_to_qml_format("/Volumes/Transcend/data_sets/CN_isobutane_model/test_Molpro", "b3lyp_tzvp_u.out", kJmol=True, demean=True, xyz_write=False)
 
 
