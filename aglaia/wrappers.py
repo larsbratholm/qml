@@ -874,8 +874,8 @@ class OAMNN(ARMP, _ONN):
 
         if is_none(self.properties):
             raise InputError("Properties needs to be set in advance")
-        if is_none(self.compounds):
-            raise InputError("QML compounds needs to be created in advance")
+        if is_none(self.zs):
+            raise InputError("Nuclear charges have not been set yet.")
         if is_none(self.descriptor):
             raise InputError("The descriptors have to be made before being used.")
 
