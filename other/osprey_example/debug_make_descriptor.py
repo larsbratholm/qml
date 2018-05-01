@@ -28,14 +28,14 @@ estimator.generate_compounds(filenames)
 estimator.set_properties(energies)
 
 start_time = time.time()
-estimator.generate_descriptor()
+estimator.generate_descriptor(descriptor_batch_size=70)
 end_time = time.time()
 
-print("Generating the descriptor took %s." % (end_time-start_time) )
-
-idx = np.arange(0,len(filenames))
-
-idx_train, idx_test = modsel.train_test_split(idx, test_size=0.3)
+# print("Generating the descriptor took %s." % (end_time-start_time) )
+#
+# idx = np.arange(0,len(filenames))
+#
+# idx_train, idx_test = modsel.train_test_split(idx, test_size=0.3)
 
 # train_scores = []
 
@@ -49,9 +49,9 @@ idx_train, idx_test = modsel.train_test_split(idx, test_size=0.3)
 # #
 # #     train_scores.append(score_train)
 #
-estimator.fit(idx_train)
-y_pred = estimator.predict(idx_train)
-estimator.correlation_plot(np.squeeze(y_pred), energies[idx_train])
+# estimator.fit(idx_train)
+# y_pred = estimator.predict(idx_train)
+# estimator.correlation_plot(np.squeeze(y_pred), energies[idx_train])
 #
 #
 # # estimator.plot_cost()

@@ -10,6 +10,7 @@ from sklearn.base import BaseEstimator
 import aglaia.symm_funct as sf
 import tensorflow as tf
 import aglaia.tests.tensormol_symm_funct as tm_sf
+from .utils import ceil
 
 try:
     from qml import Compound, representations
@@ -829,10 +830,12 @@ class OAMNN(ARMP, _ONN):
         else:
             self.properties = None
 
-    def generate_descriptor(self):
+    def generate_descriptor(self, descriptor_batch_size=100):
         """
-        This function makes the descriptors for all the compounds.
+        This function makes the descriptors for all the compounds. If the descriptor is ACSF, one can do it in batches
+        to avoid runnning out of memory.
 
+        :param descriptor_batch_size: batch size for the descriptors. (int)
         :return: None
         """
 
@@ -840,6 +843,16 @@ class OAMNN(ARMP, _ONN):
             raise InputError("Properties needs to be set in advance")
         if is_none(self.compounds):
             raise InputError("QML compounds needs to be created in advance")
+        if not is_positive_integer(descriptor_batch_size):
+            raise InputError("Expected 'descriptor_batch_size' to be a positive integer. Got %s" % str(descriptor_batch_size))
+        if descriptor_batch_size > self.compounds.shape[0]:
+            print("Warning: descriptor_batch_size larger than sample size. It is going to be clipped")
+            descriptor_batch_size = min(self.compounds.shape[0], descriptor_batch_size)
+
+        # See if the batch size can be modified so that the last batch is not considerably smaller than the others
+        # This is always less that the requested batch size, so no memory issues should arise
+        better_batch_size = ceil(self.compounds.shape[0], ceil(self.compounds.shape[0], descriptor_batch_size))
+        print("The descriptor batch size is: %s" % better_batch_size)
 
         descriptor = None
         zs = None
@@ -854,7 +867,7 @@ class OAMNN(ARMP, _ONN):
 
         elif self.representation == 'acsf':
 
-            descriptor, zs = self._generate_acsf()
+            descriptor, zs = self._generate_acsf(better_batch_size)
 
         else:
 
@@ -938,9 +951,11 @@ class OAMNN(ARMP, _ONN):
 
         return padded_descriptors, zs
 
-    def _generate_acsf(self):
+    def _generate_acsf(self, batch_size):
         """
         This function generates the atom centred symmetry functions.
+
+        :param batch_size: int - the size of the batches in which to divide the dataset to make the descriptor
         :return: numpy array of shape (n_samples, n_max_atoms, n_features) and (n_samples, n_atoms)
         """
 
@@ -991,10 +1006,6 @@ class OAMNN(ARMP, _ONN):
         run_metadata = tf.RunMetadata()
         options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
 
-        # Adding a batch size
-        batch_size = 5
-        n_batches = int(n_samples / batch_size)
-
         # Turning the quantities into tensors
         with tf.name_scope("Inputs"):
             zs_tf = tf.placeholder(shape=[n_samples, max_n_atoms], dtype=tf.int32, name="zs")
@@ -1026,13 +1037,26 @@ class OAMNN(ARMP, _ONN):
         if self.tensorboard:
             summary_writer = tf.summary.FileWriter(logdir="tensorboard", graph=sess.graph)
 
-            for i in range(n_batches):
-                descriptor_np = sess.run(descriptor, options=options, run_metadata=run_metadata)
-                summary_writer.add_run_metadata(run_metadata=run_metadata, tag="batch %s" % i, global_step=None)
-                descriptor_slices.append(descriptor_np)
+            batch_counter = 0
+            while True:
+                try:
+                    descriptor_np = sess.run(descriptor, options=options, run_metadata=run_metadata)
+                    summary_writer.add_run_metadata(run_metadata=run_metadata, tag="batch %s" % batch_counter, global_step=None)
+                    descriptor_slices.append(descriptor_np)
+                    batch_counter += 1
+                except tf.errors.OutOfRangeError:
+                    print("Generated all the descriptors.")
+                    break
         else:
-            descriptor_np = sess.run(descriptor)
-            descriptor_slices.append(descriptor_np)
+            batch_counter = 0
+            while True:
+                try:
+                    descriptor_np = sess.run(descriptor)
+                    descriptor_slices.append(descriptor_np)
+                    batch_counter += 1
+                except tf.errors.OutOfRangeError:
+                    print("Generated all the descriptors.")
+                    break
 
         descriptor_conc = np.concatenate(descriptor_slices, axis=0)
         print(descriptor_conc.shape)
