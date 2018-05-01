@@ -20,7 +20,7 @@ def acsf_rad(xyzs, Zs, radial_cutoff, radial_rs, eta):
     :param radial_rs: tf tensor of shape (n_rs,) with the R_s values
     :param eta: tf scalar
 
-    :return: tf tensor of shape (n_samples, n_atoms, n_rs)
+    :return: tf tensor of shape (n_samples, n_atoms, n_atoms, n_rs)
     """
 
     # Calculating the distance matrix between the atoms of each sample
