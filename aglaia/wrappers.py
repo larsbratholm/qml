@@ -16,7 +16,7 @@ try:
 except ModuleNotFoundError:
     raise ModuleNotFoundError("The module qml is required")
 
-from .aglaia import _NN, NN, ARMP
+from .aglaia import _NN, MRMP, ARMP
 from .utils import InputError, is_array_like, is_numeric_array, is_positive_integer, is_positive_integer_or_zero, \
         is_non_zero_integer, is_positive_integer_or_zero_array, is_dict, is_none, is_string, is_positive, is_bool
 
@@ -361,7 +361,7 @@ class _ONN(BaseEstimator, _NN):
 #TODO slatm exception tests
 # TODO remove compounds argument and only keep it in _ONN
 # Osprey molecular neural network, molecular properties
-class OMNN(NN, _ONN):
+class OMNN(MRMP, _ONN):
     """
     Adds additional variables and functionality to the NN class that makes interfacing with
     Osprey for hyperparameter search easier.

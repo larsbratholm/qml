@@ -6,7 +6,7 @@ import tensorflow as tf
 import numpy as np
 
 # TODO relative imports
-from aglaia.aglaia import _NN, NN
+from aglaia.aglaia import _NN, MRMP
 from aglaia.wrappers import _ONN, OMNN
 from aglaia.utils import InputError
 
@@ -270,7 +270,7 @@ def scoringfunction(C):
 
 def test_input():
     # Additional test that inheritance is ok
-    for C in _NN, NN, _ONN, OMNN:
+    for C in _NN, MRMP, _ONN, OMNN:
         hidden_layer_sizes(C)
         l1_reg(C)
         l2_reg(C)
@@ -299,7 +299,7 @@ def test_l2_loss():
     weights = [tf.constant([2.0, 4.0], dtype=tf.float32)]
 
     # Creating object with known l2_reg parameter
-    obj = NN(l2_reg=0.1)
+    obj = MRMP(l2_reg=0.1)
     expected_result = [2.0]
 
     # Evaluating l2 term
@@ -321,7 +321,7 @@ def test_l1_loss():
     weights = [tf.constant([2.0, 4.0], dtype=tf.float32)]
 
     # Creating object with known l1_reg parameter
-    obj = NN(l1_reg=0.1)
+    obj = MRMP(l1_reg=0.1)
     expected_result = [0.6]
 
     # Evaluating l1 term
@@ -344,7 +344,7 @@ def test_get_batch_size():
     expected_batch_sizes = [100, 50, 17]
 
     for i, case in enumerate(possible_cases):
-        obj = NN(batch_size=case)
+        obj = MRMP(batch_size=case)
         obj.n_samples = example_data[i]
         actual_batch = obj._get_batch_size()
         actual_batch_sizes.append(actual_batch)
@@ -359,8 +359,8 @@ def test_fit1():
     X = np.reshape(x, (len(x), 1))
     y = x ** 3
 
-    estimator = NN(hidden_layer_sizes=(5, 5, 5), learning_rate=0.01, iterations=35000, l2_reg=0, tf_dtype=32,
-                            scoring_function="rmse")
+    estimator = MRMP(hidden_layer_sizes=(5, 5, 5), learning_rate=0.01, iterations=35000, l2_reg=0, tf_dtype=32,
+                     scoring_function="rmse")
     estimator.fit(X, y)
 
     x_test = np.linspace(-1.5, 1.5, 15)

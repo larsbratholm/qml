@@ -31,7 +31,7 @@ class _NN(object):
     Parent class for training multi-layered neural networks on molecular or atomic properties via Tensorflow
     """
 
-    def __init__(self, hidden_layer_sizes = [5], l1_reg = 0.0, l2_reg = 0.0001, batch_size = 'auto', learning_rate = 0.001,
+    def __init__(self, hidden_layer_sizes = (5,), l1_reg = 0.0, l2_reg = 0.0001, batch_size = 'auto', learning_rate = 0.001,
                  iterations = 500, tensorboard = False, store_frequency = 200, tf_dtype = tf.float32, scoring_function = 'mae',
                  activation_function = tf.sigmoid, optimiser=tf.train.AdamOptimizer, beta1=0.9, beta2=0.999, epsilon=1e-08,
                  rho=0.95, initial_accumulator_value=0.1, initial_gradient_squared_accumulator_value=0.1,
@@ -59,6 +59,22 @@ class _NN(object):
         :param activation_function: Activation function to use in the neural network. Currently 'sigmoid', 'tanh', 'elu', 'softplus',
             'softsign', 'relu', 'relu6', 'crelu' and 'relu_x' is supported.
         :type activation_function: Tensorflow datatype
+        :param beta1: parameter for AdamOptimizer
+        :type beta1: float
+        :param beta2: parameter for AdamOptimizer
+        :type beta2: float
+        :param epsilon: parameter for AdadeltaOptimizer
+        :type epsilon: float
+        :param rho: parameter for AdadeltaOptimizer
+        :type rho: float
+        :param initial_accumulator_value: parameter for AdagradOptimizer
+        :type initial_accumulator_value: float
+        :param initial_gradient_squared_accumulator_value: parameter for AdagradDAOptimizer
+        :type initial_gradient_squared_accumulator_value: float
+        :param l1_regularization_strength: parameter for AdagradDAOptimizer
+        :type l1_regularization_strength: float
+        :param l2_regularization_strength: parameter for AdagradDAOptimizer
+        :type l2_regularization_strength: float
         :param tensorboard: Store summaries to tensorboard or not
         :type tensorboard: boolean
         :param store_frequency: How often to store summaries to tensorboard.
@@ -102,6 +118,13 @@ class _NN(object):
         self.optimiser = self._set_optimiser_type(optimiser)
 
     def _set_activation_function(self, activation_function):
+        """
+        This function sets which activation function will be used in the model.
+
+        :param activation_function: name of the activation function to use
+        :type activation_function: string or tf class
+        :return: None
+        """
         if activation_function in ['sigmoid', tf.nn.sigmoid]:
             self.activation_function = tf.nn.sigmoid
         elif activation_function in ['tanh', tf.nn.tanh]:
@@ -124,16 +147,38 @@ class _NN(object):
             raise InputError("Unknown activation function. Got %s" % str(activation_function))
 
     def _set_l1_reg(self, l1_reg):
+        """
+        This function sets the value of the l1 regularisation that will be used on the weights in the model.
+
+        :param l1_reg: l1 regularisation on the weights
+        :type l1_reg: float
+        :return: None
+        """
         if not is_positive_or_zero(l1_reg):
             raise InputError("Expected positive float value for variable 'l1_reg'. Got %s" % str(l1_reg))
         self.l1_reg = l1_reg
 
     def _set_l2_reg(self, l2_reg):
+        """
+         This function sets the value of the l2 regularisation that will be used on the weights in the model.
+
+         :param l2_reg: l2 regularisation on the weights
+         :type l2_reg: float
+         :return: None
+         """
         if not is_positive_or_zero(l2_reg):
             raise InputError("Expected positive float value for variable 'l2_reg'. Got %s" % str(l2_reg))
         self.l2_reg = l2_reg
 
     def _set_batch_size(self, batch_size):
+        """
+        This function sets the value of the batch size. The value of the batch size will be checked again once the data
+        set is available, to make sure that it is sensible. This will be done by the function _get_batch_size.
+
+        :param batch_size: size of the batch size.
+        :type batch_size: float
+        :return: None
+        """
         if batch_size != "auto":
             if not is_positive_integer(batch_size):
                 raise InputError("Expected 'batch_size' to be a positive integer. Got %s" % str(batch_size))
@@ -144,16 +189,38 @@ class _NN(object):
             self.batch_size = batch_size
 
     def _set_learning_rate(self, learning_rate):
+        """
+        This function sets the value of the learning that will be used by the optimiser.
+
+        :param learning_rate: step size in the optimisation algorithms
+        :type l1_reg: float
+        :return: None
+        """
         if not is_positive(learning_rate):
             raise InputError("Expected positive float value for variable learning_rate. Got %s" % str(learning_rate))
         self.learning_rate = float(learning_rate)
 
     def _set_iterations(self, iterations):
+        """
+        This function sets the number of iterations that will be carried out by the optimiser.
+
+        :param iterations: number of iterations
+        :type l1_reg: int
+        :return: None
+        """
         if not is_positive_integer(iterations):
             raise InputError("Expected positive integer value for variable iterations. Got %s" % str(iterations))
         self.iterations = int(iterations)
 
+    # TODO check that the estimators actually use this
     def _set_tf_dtype(self, tf_dtype):
+        """
+        This sets what data type will be used in the model.
+
+        :param tf_dtype: data type
+        :type tf_dtype: string or tensorflow class or int
+        :return: None
+        """
         # 2 == tf.float64 and 1 == tf.float32 for some reason
         # np.float64 recognised as tf.float64 as well
         if tf_dtype in ['64', 64, 'float64', tf.float64]:
@@ -171,14 +238,22 @@ class _NN(object):
         This function sets all the parameters that are required by all the optimiser functions. In the end, only the parameters
         for the optimiser chosen will be used.
 
-        :param beta1:
-        :param beta2:
-        :param epsilon:
-        :param rho:
-        :param initial_accumulator_value:
-        :param initial_gradient_squared_accumulator_value:
-        :param l1_regularization_strength:
-        :param l2_regularization_strength:
+        :param beta1: parameter for AdamOptimizer
+        :type beta1: float
+        :param beta2: parameter for AdamOptimizer
+        :type beta2: float
+        :param epsilon: parameter for AdadeltaOptimizer
+        :type epsilon: float
+        :param rho: parameter for AdadeltaOptimizer
+        :type rho: float
+        :param initial_accumulator_value: parameter for AdagradOptimizer
+        :type initial_accumulator_value: float
+        :param initial_gradient_squared_accumulator_value: parameter for AdagradDAOptimizer
+        :type initial_gradient_squared_accumulator_value: float
+        :param l1_regularization_strength: parameter for AdagradDAOptimizer
+        :type l1_regularization_strength: float
+        :param l2_regularization_strength: parameter for AdagradDAOptimizer
+        :type l2_regularization_strength: float
         :return: None
         """
         if not is_positive(beta1) and not is_positive(beta2):
@@ -207,6 +282,14 @@ class _NN(object):
         self.l2_regularization_strength = float(l2_regularization_strength)
 
     def _set_optimiser_type(self, optimiser):
+        """
+        This function sets which numerical optimisation algorithm will be used for training.
+
+        :param optimiser: Optimiser
+        :type optimiser: string or tf class
+        :return: tf optimiser to use
+        :rtype: tf class
+        """
         self.AdagradDA = False
         if optimiser in ['AdamOptimizer', tf.train.AdamOptimizer]:
             optimiser_type = tf.train.AdamOptimizer
@@ -226,9 +309,11 @@ class _NN(object):
 
     def _set_optimiser(self):
         """
-        This function generates the object optimiser.
+        This function instantiates an object from the optimiser class that has been selected by the user. It also sets
+        the parameters for the optimiser.
 
-        :return: optimiser_obj: an object of the tensorflow optimiser class
+        :return: Optimiser with set parameters
+        :rtype: object of tf optimiser class
         """
         self.AdagradDA = False
         if self.optimiser in ['AdamOptimizer', tf.train.AdamOptimizer]:
@@ -254,6 +339,13 @@ class _NN(object):
         return optimiser_obj
 
     def _set_scoring_function(self, scoring_function):
+        """
+        This function sets which scoring metrics to use when scoring the results.
+
+        :param scoring_function: name of the scoring function to use
+        :type scoring_function: string
+        :return: None
+        """
         if not is_string(scoring_function):
             raise InputError("Expected a string for variable 'scoring_function'. Got %s" % str(scoring_function))
         if scoring_function.lower() not in ['mae', 'rmse', 'r2']:
@@ -262,19 +354,39 @@ class _NN(object):
         self.scoring_function = scoring_function
 
     def _set_hidden_layers_sizes(self, hidden_layer_sizes):
+        """
+        This function sets the number of hidden layers and the number of neurons in each hidden layer. The length of the
+        tuple tells the number of hidden layers (n_hidden_layers) while each element of the tuple specifies the number
+        of hidden neurons in that layer.
+
+        :param hidden_layer_sizes: number of hidden layers and hidden neurons.
+        :type hidden_layer_sizes: tuple of length n_hidden_layer
+        :return: None
+        """
         try:
             iterator = iter(hidden_layer_sizes)
         except TypeError:
-            raise InputError("'hidden_layer_sizes' must be an array of positive integers. Got a non-iterable object.")
+            raise InputError("'hidden_layer_sizes' must be a tuple of positive integers. Got a non-iterable object.")
 
         if None in hidden_layer_sizes:
-            raise InputError("'hidden_layer_sizes' must be an array of positive integers. Got None elements")
+            raise InputError("'hidden_layer_sizes' must be a tuple of positive integers. Got None elements")
         if not is_positive_integer_array(hidden_layer_sizes):
-            raise InputError("'hidden_layer_sizes' must be an array of positive integers")
+            raise InputError("'hidden_layer_sizes' must be a tuple of positive integers")
 
         self.hidden_layer_sizes = np.asarray(hidden_layer_sizes, dtype = int)
 
     def _set_tensorboard(self, tensorboard, store_frequency, tensorboard_subdir):
+        """
+        This function prepares all the things needed to use tensorboard when training the estimator.
+
+        :param tensorboard: whether to use tensorboard or not
+        :type tensorboard: boolean
+        :param store_frequency: Every how many steps to save data to tensorboard
+        :type store_frequency: int
+        :param tensorboard_subdir: directory where to save the tensorboard data
+        :type tensorboard_subdir: string
+        :return: None
+        """
 
         if not is_bool(tensorboard):
             raise InputError("Expected boolean value for variable tensorboard. Got %s" % str(tensorboard))
@@ -299,11 +411,20 @@ class _NN(object):
         else:
             self.tensorboard_logger.set_store_frequency(store_frequency)
 
-
     def _init_weight(self, n1, n2, name):
         """
-        Generate a tensor of weights of size (n1, n2)
+        This function generates a the matrix of weights to go from layer l to the next layer l+1. It initialises the
+        weights from a truncated normal distribution where the standard deviation is 1/sqrt(n2) and the mean is zero.
 
+        :param n1: size of the layer l+1
+        :type n1: int
+        :param n2: size of the layer l
+        :type n2: int
+        :param name: name to give to the tensor of weights to make tensorboard clear
+        :type name: string
+
+        :return: weights to go from layer l to layer l+1
+        :rtype: tf tensor of shape (n1, n2)
         """
 
         w = tf.Variable(tf.truncated_normal([n1,n2], stddev = 1.0 / np.sqrt(n2), dtype = self.tf_dtype),
@@ -313,8 +434,14 @@ class _NN(object):
 
     def _init_bias(self, n, name):
         """
-        Generate a tensor of biases of size n.
+        This function initialises the biases to go from layer l to layer l+1.
 
+        :param n: size of the layer l+1
+        :type n: int
+        :param name: name to give to the tensor of biases to make tensorboard clear
+        :type name: string
+        :return: biases
+        :rtype: tf tensor of shape (n, 1)
         """
 
         b = tf.Variable(tf.zeros([n], dtype = self.tf_dtype), name=name, dtype = self.tf_dtype)
@@ -358,7 +485,7 @@ class _NN(object):
         Creates the expression for L2-regularisation on the weights
 
         :param weights: tensorflow tensors representing the weights
-        :type weights: list
+        :type weights: list of tf tensors
         :return: tensorflow scalar representing the regularisation contribution to the cost function
         :rtype: tf.float32
         """
@@ -375,7 +502,7 @@ class _NN(object):
         Creates the expression for L1-regularisation on the weights
 
         :param weights: tensorflow tensors representing the weights
-        :type weights: list
+        :type weights: list of tf tensors
         :return: tensorflow scalar representing the regularisation contribution to the cost function
         :rtype: tf.float32
         """
@@ -387,18 +514,20 @@ class _NN(object):
 
         return self.l1_reg * reg_term
 
+    # TODO maybe move this directly to the child class MRMP since ARMP needs to overwrite this
     def model(self, x, weights, biases):
         """
-        Constructs the actual network.
+        Constructs the molecular neural network. This function has to be overwritten by ARMP to create the atomic
+        decomposed neural network.
 
-        :param x: Input
-        :type x: tf.placeholder of shape (None, n_features)
+        :param x: descriptor
+        :type x: tf.placeholder of shape (n_samples, n_features)
         :param weights: Weights used in the network.
         :type weights: list of tf.Variables of length hidden_layer_sizes.size + 1
         :param biases: Biases used in the network.
         :type biases: list of tf.Variables of length hidden_layer_sizes.size + 1
         :return: Output
-        :rtype: tf.Variable of size (None, n_targets)
+        :rtype: tf.Variable of size (n_samples, n_targets)
         """
 
         # Calculate the activation of the first hidden layer
@@ -425,7 +554,7 @@ class _NN(object):
         the last batch would be tiny compared to the rest.
 
         :return: Batch size
-        :rtype: integer
+        :rtype: int
         """
 
         if self.batch_size == 'auto':
@@ -476,14 +605,15 @@ class _NN(object):
         """
         Creates a correlation plot between predictions and true values.
 
-        :param y_predicted: Values predicted by the neural net
-        :type y_predicted: list
-        :param y_true: True values
-        :type y_true: list
+        :param y_predicted: Molecular properties predicted by the network
+        :type y_predicted: numpy array of shape (n_samples,)
+        :param y_true: True molecular properties
+        :type y_true: numpy array of shape (n_samples,)
         :param filename: File to save the plot to. If '' the plot is shown instead of saved.
                          If the dimensionality of y is higher than 1, the filename will be prefixed
                          by the dimension.
         :type filename: string
+        :return: None
         """
 
         try:
@@ -526,10 +656,42 @@ class _NN(object):
                     raise InputError("Wrong data type of variable 'filename'. Expected string")
 
     def score(self, *args):
+        """
+        This function calls the appropriate function to score the model. One needs to pass a descriptor and some
+        properties to it.
+
+        For MRMP, the parameters should be:
+        :param x: The molecular descriptor
+        :type x: array of shape (n_samples, n_features)
+        :param y: The target values for each sample in x.
+        :type y: array of shape (n_samples,)
+
+        For ARMP, the arguments should be:
+        :param xzs: List containing the descriptor and the nuclear charges [x, zs]
+        :type xzs: List of length 2 containing two numpy arrays [x, zs]
+        :type x: array of floats of shape (n_samples, n_atoms, n_features)
+        :type zs: array of floats of shape (n_samples, n_atoms)
+        :param y: The molecular properties
+        :type y: array of shape (n_samples,)
+
+        Both MRMP and ARMP can have:
+        :param sample_weight: Weights of the samples. None indicates that that each sample has the same weight.
+        :type sample_weight: array of shape (n_samples,)
+
+        :return: score
+        :rtype: float
+        """
         return self._score(*args)
 
     # TODO test
     def _score(self, *args):
+        """
+        This function calls the appropriate cost function selected by the user. The parameters required are the same as
+        for the score function.
+
+        :return: score
+        :rtype: float
+        """
         if self.scoring_function == 'mae':
             return self._score_mae(*args)
         if self.scoring_function == 'rmse':
@@ -538,6 +700,16 @@ class _NN(object):
             return self._score_r2(*args)
 
     def predict(self, x):
+        """
+        This function calls the predict function for either ARMP or MRMP.
+
+        :param x: descriptor
+        :rtype x: for MRMP this is a numpy array of shape (n_samples, n_features). For ARMP this is a numpy array of
+        shape (n_samples, n_atoms, n_features)
+
+        :return: predictions of the molecular properties.
+        :rtype: numpy array of shape (n_samples,)
+        """
         predictions = self._predict(x)
 
         if predictions.ndim > 1 and predictions.shape[1] == 1:
@@ -545,16 +717,17 @@ class _NN(object):
         else:
             return predictions
 
-    # TODO test
+    # TODO potentially move this to MRMP since ARMP needs to overwrite it.
     def _predict(self, x):
         """
-        Use the trained network to make predictions on the data x.
+        Use the trained network to make predictions on the descriptor x. This function has to be overwritten by ARMP
+        as it uses the atomic decomposed model.
 
-        :param x: The input data of shape (n_samples, n_features)
-        :type x: array
+        :param x: The descriptor
+        :type x: numpy array of shape (n_samples, n_features)
 
         :return: Predictions for the target values corresponding to the samples contained in x.
-        :rtype: array
+        :rtype: numpy array of shape (n_samples, )
 
         """
 
@@ -573,8 +746,7 @@ class _NN(object):
 
 ### --------------------- ** Molecular representation - molecular properties network ** --------------------------------
 
-# TODO: Rename to something more sensible
-class NN(_NN):
+class MRMP(_NN):
     """
     Neural network for either
     1) predicting global properties, such as energies, using molecular representations, or
@@ -589,23 +761,31 @@ class NN(_NN):
 
         """
 
-        super(NN,self).__init__(**kwargs)
+        super(MRMP, self).__init__(**kwargs)
 
     #TODO test
     def fit(self, x, y):
         """
         Fit the neural network to molecular descriptors x and target y.
 
-        :param x: Input data with samples in the rows and features in the columns.
-        :type x: array
-        :param y: Target values for each sample.
-        :type y: array
+        :param x: Molecular descriptor.
+        :type x: numpy array of shape (n_samples, n_atoms)
+        :param y: Molecular properties
+        :type y: numpy array of shape (n_samples, )
 
         """
 
         return self._fit(x, y)
 
     def _fit(self, x, y):
+        """
+        This function fits the estimator to the data provided.
+
+        :param x: Molecular descriptor.
+        :type x: numpy array of shape (n_samples, n_atoms)
+        :param y: Molecular properties
+        :type y: numpy array of shape (n_samples, )
+        """
 
         # Check that X and y have correct shape
         x, y = check_X_y(x, y, multi_output = False, y_numeric = True, warn_on_dtype = True)
@@ -616,7 +796,6 @@ class NN(_NN):
         # Useful quantities
         self.n_features = x.shape[1]
         self.n_samples = x.shape[0]
-        #self.n_atoms = int(X.shape[1]/3)
 
         # Set the batch size
         batch_size = self._get_batch_size()
@@ -648,7 +827,6 @@ class NN(_NN):
         optimisation_op = optimiser.minimize(cost)
         # Initialisation of the variables
         init = tf.global_variables_initializer()
-        #self.initialised = True
 
         if self.tensorboard:
             self.tensorboard_logger.initialise()
@@ -696,7 +874,7 @@ class NN(_NN):
         Calculate the coefficient of determination (R^2).
         Larger values corresponds to a better prediction.
 
-        :param x: The input data.
+        :param x: The molecular descriptor
         :type x: array of shape (n_samples, n_features)
         :param y: The target values for each sample in x.
         :type y: array of shape (n_samples,)
@@ -706,7 +884,6 @@ class NN(_NN):
 
         :return: R^2
         :rtype: float
-
         """
 
         y_pred = self.predict(x)
@@ -719,7 +896,7 @@ class NN(_NN):
         Calculate the mean absolute error.
         Smaller values corresponds to a better prediction.
 
-        :param x: The input data.
+        :param x: The molecular descriptor
         :type x: array of shape (n_samples, n_features)
         :param y: The target values for each sample in x.
         :type y: array of shape (n_samples,)
@@ -743,7 +920,7 @@ class NN(_NN):
         Calculate the root mean squared error.
         Smaller values corresponds to a better prediction.
 
-        :param x: The input data.
+        :param x: The molecular descriptor
         :type x: array of shape (n_samples, n_features)
         :param y: The target values for each sample in x.
         :type y: array of shape (n_samples,)
@@ -764,10 +941,10 @@ class NN(_NN):
         """
         Constructs the cost function
 
-        :param y_pred: Predicted output
-        :type y_pred: tf.Variable of size (None, 1)
-        :param y: True output
-        :type y: tf.placeholder of shape (None, 1)
+        :param y_pred: Predicted molecular properties
+        :type y_pred: tf.Variable of size (n_samples, 1)
+        :param y: True molecular properties
+        :type y: tf.placeholder of shape (n_samples, 1)
         :param weights: Weights used in the network.
         :type weights: list of tf.Variables of length hidden_layer_sizes.size + 1
         :return: Cost
@@ -791,12 +968,11 @@ class NN(_NN):
         This function saves the model to be used for later prediction.
 
         :param save_dir: name of the directory to create to save the model
+        :type save_dir: string
         :return: None
         """
         if self.session == None:
             raise InputError("Model needs to be fit before predictions can be made.")
-
-        check_array(x, warn_on_dtype = True)
 
         graph = tf.get_default_graph()
 
@@ -812,6 +988,7 @@ class NN(_NN):
         """
         This function reloads a model for predictions.
         :param save_dir: the name of the directory where the model is saved.
+        :type save_dir: string
         :return: None
         """
 
@@ -829,35 +1006,36 @@ class ARMP(_NN):
     def __init__(self, **kwargs):
         """
         To see what parameters are required, look at the description of the _NN class init.
-        This class inherits from the _NN class and all inputs not unique to the ARMP class is passed to the _NN
+        This class inherits from the _NN class and all inputs not unique to the ARMP class are passed to the _NN
         parent.
-
-        The additional parameter elements is alist of all the elements present in the molecules of the data.
-
-        :elements: numpy array of int with shape (n_elements,)
         """
 
         super(ARMP, self).__init__(**kwargs)
 
-    def fit(self, x, zs, y):
+    def fit(self, xzs, y):
         """
         This class fits the neural network to the data. x corresponds to the descriptors and y to the molecular
         property to predict. zs contains the atomic numbers of all the atoms in the data.
 
-        :param x: numpy array of shape (n_samples, n_atoms, n_features)
-        :param zs: numpy array of shape (n_samples, n_atoms)
-        :param y: numpy array of shape (n_samples, 1)
+        :param xzs: Atomic descriptor and nuclear charges combined in a list
+        :type xzs: list of size two containing two numpy arrays x and zs [x, zs]
+        :type x: numpy array of floats of shape (n_samples, n_atoms, n_features)
+        :type zs: numpy array of floats of shape (n_samples, n_atoms)
+        :param y: molecular properties
+        :type y: numpy array of floats of shape (n_samples, 1)
         :return: None
         """
+        if len(xzs) > 2:
+            raise InputError("xzs should be a list of size 2. Got %s" % (len(xzs)))
 
-        return self._fit(x, zs, y)
+        return self._fit(xzs[0], xzs[1], y)
 
     def _atomic_model(self, x, hidden_layer_sizes, weights, biases):
         """
         Constructs the atomic part of the network. It calculates the output for all atoms as if they all were the same
         element.
 
-        :param x: Input
+        :param x: Atomic descriptor
         :type x: tf tensor of shape (n_samples, n_atoms, n_features)
         :param weights: Weights used in the network for a particular element.
         :type weights: list of tf.Variables of length hidden_layer_sizes.size + 1
@@ -887,12 +1065,16 @@ class ARMP(_NN):
         """
         This generates the molecular model by combining all the outputs from the atomic networks.
 
-        :param x: tf tensor of shape (n_samples, n_atoms, n_features)
-        :param zs: tf tensor of shape (n_samples, n_atoms)
-        :param hidden_layer_sizes: np array of shape (n_hidden_layers,)
-        :param weights: list of tf.Variables of length hidden_layer_sizes.size + 1
-        :param biases: list of tf.Variables of length hidden_layer_sizes.size + 1
-        :return: tf tensor of shape (n_samples, 1)
+        :param x: Atomic descriptor
+        :type x: tf tensor of shape (n_samples, n_atoms, n_features)
+        :param zs: Nuclear charges of the systems
+        :type zs: tf tensor of shape (n_samples, n_atoms)
+        :param element_weights: Element specific weights
+        :type element_weights: list of tf.Variables of length hidden_layer_sizes.size + 1
+        :param element_biases: Element specific biases
+        :type element_biases: list of tf.Variables of length hidden_layer_sizes.size + 1
+        :return: Predicted properties for all samples
+        :rtype: tf tensor of shape (n_samples, 1)
         """
 
         atomic_energies = tf.zeros_like(zs)
@@ -923,10 +1105,14 @@ class ARMP(_NN):
         This function calculates the cost function during the training of the neural network.
 
         :param y_pred: the neural network predictions
+        :type y_pred: tensors of shape (n_samples, 1)
         :param y: the truth values
+        :type y: tensors of shape (n_samples, 1)
         :param weights_dict: the dictionary containing all of the weights
-
-        :return: tf.Variable of size (1,)
+        :type weights_dict: dictionary where the key is a nuclear charge and the value is a list of tensors of length
+        hidden_layer_sizes.size + 1
+        :return: value of the cost function
+        :rtype: tf.Variable of size (1,)
         """
 
         err =  tf.square(tf.subtract(y, y_pred))
@@ -949,8 +1135,10 @@ class ARMP(_NN):
         """
         This function finds the unique atomic numbers in Zs and returns them in a list.
 
-        :param zs: numpy array of shape (n_samples, n_atoms)
-        :return: numpy array of shape (n_elements,)
+        :param zs: nuclear charges
+        :type zs: numpy array of floats of shape (n_samples, n_atoms)
+        :return: unique nuclear charges
+        :rtype: numpy array of floats of shape (n_elements,)
         """
 
         # Obtaining the unique atomic numbers (but still includes the dummy atoms)
@@ -963,9 +1151,12 @@ class ARMP(_NN):
         """
         This function is present because the osprey wrapper needs to overwrite the fit function.
 
-        :param x: np array of shape (n_samples, n_atoms, n_features)
-        :param zs: np array of shape (n_samples, n_atoms)
-        :param y:  np array of shape (n_samples, 1)
+        :param x: Atomic descriptor
+        :type x: np array of floats of shape (n_samples, n_atoms, n_features)
+        :param zs: Nuclear charges
+        :type zs: np array of floats of shape (n_samples, n_atoms)
+        :param y: Molecular properties
+        :type y: np array of floats of shape (n_samples, 1)
         :return: None
         """
 
@@ -1074,14 +1265,19 @@ class ARMP(_NN):
 
     def _predict(self, xzs):
         """
-        This function overrites the _NN _predict function because the model is different
+        This function uses the trained model to predict the molecular properties.
+        It overrites the _NN _predict function because it uses the atomic decomposed model.
 
-        :param xzs: list containing x and zs. x is a np array of shape (n_samples, n_atoms, n_features), zs a np array of shape (n_samples, n_atoms)
-        :return: a np array of shape (n_samples,)
+        :param xzs: list containing x (atomic descriptor) and zs (nuclear charges).
+        :type xzs: [x, zs]
+        :type x: np array of floats of shape (n_samples, n_atoms, n_features)
+        :type zs: np array of floats of shape (n_samples, n_atoms)
+        :return: predicted molecular properties.
+        :rtype: a np array of floats of shape (n_samples,)
         """
 
-        x = xzs[0]
-        zs = xzs[1]
+        if len(xzs) > 2:
+            raise InputError("xzs should be a list of size 2. Got %s" % (len(xzs)))
 
         if self.session == None:
             raise InputError("Model needs to be fit before predictions can be made.")
@@ -1092,18 +1288,20 @@ class ARMP(_NN):
             tf_x = graph.get_tensor_by_name("Data/Descriptors:0")
             tf_zs = graph.get_tensor_by_name("Data/Atomic-numbers:0")
             model = graph.get_tensor_by_name("Model/output:0")
-            y_pred = self.session.run(model, feed_dict={tf_x: x, tf_zs:zs})
+            y_pred = self.session.run(model, feed_dict={tf_x: xzs[0], tf_zs:xzs[1]})
 
         return y_pred
 
-    def _score_r2(self, x, y, sample_weight=None):
+    def _score_r2(self, xzs, y, sample_weight=None):
         """
         Calculate the coefficient of determination (R^2).
         Larger values corresponds to a better prediction.
 
-        :param x: The input data.
-        :type x: array of shape (n_samples, n_features)
-        :param y: The target values for each sample in x.
+        :param xzs: List containing the descriptor and the nuclear charges [x, zs]
+        :type xzs: List of length 2 containing two numpy arrays [x, zs]
+        :type x: array of floats of shape (n_samples, n_atoms, n_features)
+        :type zs: array of floats of shape (n_samples, n_atoms)
+        :param y: The molecular properties
         :type y: array of shape (n_samples,)
 
         :param sample_weight: Weights of the samples. None indicates that that each sample has the same weight.
@@ -1114,18 +1312,20 @@ class ARMP(_NN):
 
         """
 
-        y_pred = self.predict(x)
+        y_pred = self.predict(xzs)
         r2 = r2_score(y, y_pred, sample_weight = sample_weight)
         return r2
 
-    def _score_mae(self, x, y, sample_weight=None):
+    def _score_mae(self, xzs, y, sample_weight=None):
         """
         Calculate the mean absolute error.
         Smaller values corresponds to a better prediction.
 
-        :param x: The input data.
-        :type x: array of shape (n_samples, n_features)
-        :param y: The target values for each sample in x.
+        :param xzs: List containing the descriptor and the nuclear charges [x, zs]
+        :type xzs: List of length 2 containing two numpy arrays [x, zs]
+        :type x: array of floats of shape (n_samples, n_atoms, n_features)
+        :type zs: array of floats of shape (n_samples, n_atoms)
+        :param y: The molecular properties
         :type y: array of shape (n_samples,)
 
         :param sample_weight: Weights of the samples. None indicates that that each sample has the same weight.
@@ -1136,17 +1336,19 @@ class ARMP(_NN):
 
         """
 
-        y_pred = self.predict(x)
+        y_pred = self.predict(xzs)
         return mean_absolute_error(y, y_pred, sample_weight = sample_weight)
 
-    def _score_rmse(self, x, y, sample_weight=None):
+    def _score_rmse(self, xzs, y, sample_weight=None):
         """
         Calculate the root mean squared error.
         Smaller values corresponds to a better prediction.
 
-        :param x: The input data.
-        :type x: array of shape (n_samples, n_features)
-        :param y: The target values for each sample in x.
+        :param xzs: List containing the descriptor and the nuclear charges [x, zs]
+        :type xzs: List of length 2 containing two numpy arrays [x, zs]
+        :type x: array of floats of shape (n_samples, n_atoms, n_features)
+        :type zs: array of floats of shape (n_samples, n_atoms)
+        :param y: The molecular properties
         :type y: array of shape (n_samples,)
 
         :param sample_weight: Weights of the samples. None indicates that that each sample has the same weight.
@@ -1157,7 +1359,7 @@ class ARMP(_NN):
 
         """
 
-        y_pred = self.predict(x)
+        y_pred = self.predict(xzs)
         rmse = np.sqrt(mean_squared_error(y, y_pred, sample_weight = sample_weight))
         return rmse
 
@@ -1165,7 +1367,8 @@ class ARMP(_NN):
         """
         This function saves the trained model to be used for later prediction.
 
-        :param save_dir: directory in which to save the model (string)
+        :param save_dir: directory in which to save the model
+        :type save_dir: string
         :return: None
         """
 
@@ -1188,6 +1391,7 @@ class ARMP(_NN):
         This function reloads a model for predictions.
 
         :param save_dir: the name of the directory where the model is saved.
+        :type save_dir: string
         :return: None
         """
 

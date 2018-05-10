@@ -6,7 +6,7 @@ import tensorflow as tf
 import numpy as np
 
 # TODO relative imports
-from aglaia.aglaia import _NN, NN
+from aglaia.aglaia import _NN, MRMP
 from aglaia.wrappers import _ONN, OMNN, OAMNN
 from aglaia.utils import InputError
 from sklearn.base import clone

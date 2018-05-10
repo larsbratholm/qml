@@ -31,7 +31,7 @@ Provides
 """
 from __future__ import absolute_import
 
-from .aglaia import NN
+from .aglaia import MRMP
 
 __author__ = "Silvia Amabilino, Lars Andersen Bratholm"
 __copyright__ = "Copyright 2017"
