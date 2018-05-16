@@ -430,20 +430,19 @@ class OMNN(MRMP, _ONN):
 
         self._set_slatm(*args)
 
-    def get_descriptors_from_indices(self, indices):
+    def generate_descriptor(self):
+        """
+        This function makes the descriptors for all the compounds.
 
-        n_samples = indices.shape[0]
+        :return: None
+        """
 
         if is_none(self.properties):
             raise InputError("Properties needs to be set in advance")
         if is_none(self.compounds):
             raise InputError("QML compounds needs to be created in advance")
 
-        if not is_positive_integer_or_zero_array(indices):
-            raise InputError("Expected input to be indices")
-
-        # Convert to 1d
-        idx = np.asarray(indices, dtype=int).ravel()
+        n_samples = len(self.compounds)
 
         if self.representation == 'unsorted_coulomb_matrix':
 
@@ -473,8 +472,8 @@ class OMNN(MRMP, _ONN):
 
         elif self.representation == "slatm":
             mbtypes = self._get_slatm_mbtypes([mol.nuclear_charges for mol in self.compounds])
-            x = np.empty(idx.size, dtype=object)
-            for i, mol in enumerate(self.compounds[idx]):
+            x = np.empty(n_samples, dtype=object)
+            for i, mol in enumerate(self.compounds):
                 mol.generate_slatm(mbtypes, local = False, sigmas = [self.slatm_sigma1, self.slatm_sigma2],
                         dgrids = [self.slatm_dgrid1, self.slatm_dgrid2], rcut = self.slatm_rcut, alchemy = self.slatm_alchemy,
                         rpower = self.slatm_rpower)
@@ -487,7 +486,7 @@ class OMNN(MRMP, _ONN):
 
         self.descriptor = x
 
-    def get_representation(self, indices):
+    def get_descriptors_from_indices(self, indices):
         """
         This function takes as input a list of indices and it returns a n_samples by n_features matrix containing all
         the descriptors of the samples that are specified by the indices.
@@ -502,7 +501,9 @@ class OMNN(MRMP, _ONN):
         if len(self.descriptor) == 0:
             raise InputError("Descriptors needs to be created in advance")
 
-        if not is_positive_integer_or_zero(indices[0]):
+
+
+        if not is_positive_integer_or_zero_array(indices):
             raise InputError("Expected input to be indices")
 
         try:
@@ -514,11 +515,8 @@ class OMNN(MRMP, _ONN):
         except InputError:
             raise InputError("Expected input to be indices")
 
-        x_desc = self.descriptor[idx, :]
+        return self.descriptor[idx]
 
-        return x_desc
-
-    # TODO test
     def fit(self, indices, y = None):
         """
         Fit the neural network to a set of molecular descriptors and targets. It is assumed that QML compounds and
@@ -885,22 +883,7 @@ class OAMNN(ARMP, _ONN):
         # Convert to 1d
         idx = np.asarray(indices, dtype=int).ravel()
 
-        if self.representation == 'slatm':
-
-            return self.descriptor[idx], self.zs[idx]
-
-        elif self.representation == 'atomic_coulomb_matrix':
-
-            print("I still haven't implemented the atomic coulomb matrix. Use slatm for now.")
-            return None
-
-        elif self.representation == 'acsf':
-
-            return self.descriptor[idx], self.zs[idx]
-
-        else:
-
-            raise InputError("This should never happen. Unrecognised representation. Got %s." % str(self.representation))
+        return self.descriptor[idx], self.zs[idx]
 
     def _generate_slatm(self):
         """
