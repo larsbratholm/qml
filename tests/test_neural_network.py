@@ -9,7 +9,7 @@ import glob
 import random
 
 # TODO relative imports
-from aglaia import NN
+from aglaia import MRMP
 from aglaia.aglaia import _NN
 from aglaia.wrappers import _ONN, OMNN, OANN
 from aglaia.utils import InputError
@@ -204,7 +204,7 @@ def representations():
 
 def test_input():
     # Additional test that inheritance is ok
-    for C in _NN, NN, _ONN, OMNN, OANN:
+    for C in _NN, MRMP, _ONN, OMNN, OANN:
         hidden_layer_sizes(C)
         l1_reg(C)
         l2_reg(C)
@@ -222,7 +222,7 @@ def test_input():
 def test_NN():
 
     # Simple example of fitting a quadratic function
-    estimator = NN(hidden_layer_sizes=(5, 5, 5), learning_rate=0.01, iterations=5000, l2_reg = 0, tf_dtype = 32, scoring_function="rmse")
+    estimator = MRMP(hidden_layer_sizes=(5, 5, 5), learning_rate=0.01, iterations=5000, l2_reg = 0, tf_dtype = 32, scoring_function="rmse")
     x = np.arange(-2.0, 2.0, 0.05)[:,None]
     y = (x ** 3).ravel()
 
