@@ -1019,7 +1019,7 @@ class OAMNN(ARMP, _ONN):
         descriptor = sf.generate_parkhill_acsf(xyzs=batch_xyz, Zs=batch_zs, elements=elements, element_pairs=element_pairs,
                                                radial_cutoff=self.radial_cutoff, angular_cutoff=self.angular_cutoff,
                                                radial_rs=self.radial_rs, angular_rs=self.angular_rs, theta_s=self.theta_s,
-                                               eta=self.eta, zeta=self.zeta, batch_size=batch_size)
+                                               eta=self.eta, zeta=self.zeta)
 
         # Uncomment to use the Parkhill implementation of ACSF
         # descriptor = tm_sf.tensormol_acsf(xyz_tf, zs_tf, elements=elements, element_pairs=element_pairs,

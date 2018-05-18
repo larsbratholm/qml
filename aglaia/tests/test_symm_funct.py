@@ -152,4 +152,4 @@ def test_acsf_3():
                 np.testing.assert_array_almost_equal(acsf_np_sort, acsf_tf_sort, decimal=4)
 
 if __name__ == "__main__":
-    test_acsf_3()
+    test_acsf_2()
