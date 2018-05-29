@@ -158,7 +158,7 @@ def pad_filename(filenumber, n_of_zeros=5):
     file_idx = n*padding + str_file_n
     return file_idx
 
-def molpro_to_qml_format(directory, key, kJmol=False, demean=False, xyz_write=False):
+def molpro_to_qml_format(directory, key, new_dir, n_atoms, kJmol=False, demean=False, xyz_write=False):
 
     # Obtaining the list of files to mine
     file_list = list_files(directory, key)
@@ -173,16 +173,25 @@ def molpro_to_qml_format(directory, key, kJmol=False, demean=False, xyz_write=Fa
     # List of file numbers (some numbers are missing)
     file_idxs = []
 
+    if not os.path.exists(new_dir):
+        os.makedirs(new_dir)
+
     # Properties file
-    prop_file = open("properties_kjmol.txt", "w")
+    if kJmol:
+        name = new_dir + "properties_kjmol.txt"
+        prop_file = open(name, "w")
+    else:
+        name = new_dir + "properties_Ha.txt"
+        prop_file = open(name, "w")
 
     # Iterating over all the files
     for item in file_list:
         # Extracting the geometry and the energy from a Molpro out file
-        geom, ene, partial_ch = extract_molpro(item)
+        geom, ene, partial_ch = extract_molpro(item, n_atoms)
 
-        if len(geom) != 68 or ene == "0" or len(partial_ch) != 34:
+        if len(geom) != n_atoms*4 or ene == "0" or len(partial_ch) != n_atoms*2:
             print("The following file couldn't be read properly:" + str(item) + "\n")
+            continue
 
         file_number = get_file_number(item)    # Unpadded file number
         file_idxs.append(file_number)
@@ -208,25 +217,20 @@ def molpro_to_qml_format(directory, key, kJmol=False, demean=False, xyz_write=Fa
     sorted_idx = np.sort(file_idxs, kind="mergesort")
 
     # Chose a sample to use as the zero of energy
-    ref_energy = 0.0
-    for reference_idx in sorted_idx:
-        if len(xyz[reference_idx]) != 68 or prop[reference_idx] == 0.0:
-            continue
-        else:
-            ref_energy = prop[reference_idx]
-    # ref_energy = -762501.4464388841
+    # ref_energy = 0.0
+    # for reference_idx in sorted_idx:
+    #     if len(xyz[reference_idx]) != 76 or prop[reference_idx] == 0.0:
+    #         continue
+    #     else:
+    #         ref_energy = prop[reference_idx]
+    #         break
+    ref_energy = -762129.9819317751
     print("The reference energy is: %s" % (ref_energy))
 
 
-    # Make a folder in which to print the xyz
-    if xyz_write:
-        dir = os.path.join(os.getcwd(), "geoms/test")
-        if not os.path.exists(dir):
-            os.makedirs(dir)
-
     for idx in sorted_idx:
 
-        if len(xyz[idx]) != 68 or prop[idx] == 0.0:
+        if len(xyz[idx]) != n_atoms*4 or prop[idx] == 0.0:
             continue
 
         file_ind = pad_filename(idx)   # Padded file number
@@ -237,7 +241,7 @@ def molpro_to_qml_format(directory, key, kJmol=False, demean=False, xyz_write=Fa
 
         if xyz_write:
             f_name = str(file_ind) + ".xyz"
-            f = open(os.path.join(dir, f_name), "w")
+            f = open(os.path.join(new_dir, f_name), "w")
             write_xyz(f, xyz[idx])
             f.close()
 
@@ -295,7 +299,7 @@ def list_files(dir, key):
                 r.append(subdir + "/" + file)
     return r
 
-def extract_molpro(MolproInput):
+def extract_molpro(MolproInput, n_atoms):
     """
     This function takes one Molpro .out file and returns the geometry, the energy and the partial charges on the atoms.
     :MolproInput: the molpro .out file (string)
@@ -316,7 +320,7 @@ def extract_molpro(MolproInput):
     for line in inputFile:
         # The geometry is found on the line after the keyword "geometry={"
         if "geometry={" in line:
-            for i in range(17):
+            for i in range(n_atoms):
                 line = next(inputFile)
                 line = line.strip()
                 line = line.strip(",")
@@ -330,7 +334,7 @@ def extract_molpro(MolproInput):
         elif "Total charge composition:" in line:
             line = next(inputFile)
             line = next(inputFile)
-            for i in range(17):
+            for i in range(n_atoms):
                 line = next(inputFile)
                 lineSplit = line.rstrip().split(" ")
                 lineSplit = list(filter(None, lineSplit))
@@ -393,6 +397,6 @@ def molpro_to_vmd(directory, key):
 
 if __name__ == "__main__":
 
-    molpro_to_qml_format("/Volumes/Transcend/data_sets/CN_isobutane_model/test_Molpro", "b3lyp_tzvp_u.out", kJmol=True, demean=True, xyz_write=False)
+    molpro_to_qml_format("/Volumes/Transcend/data_sets/CN_isobutane_model/test_Molpro", "b3lyp_tzvp_u.out", "/Volumes/Transcend/data_sets/CN_isobutane_model/geoms_2/test/", 19,kJmol=True, demean=True, xyz_write=False)
 
 
