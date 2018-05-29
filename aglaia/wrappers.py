@@ -10,6 +10,7 @@ from sklearn.base import BaseEstimator
 import aglaia.symm_funct as sf
 import tensorflow as tf
 import aglaia.tests.tensormol_symm_funct as tm_sf
+from .utils import ceil
 
 try:
     from qml import Compound, representations
@@ -827,10 +828,12 @@ class OAMNN(ARMP, _ONN):
         else:
             self.properties = None
 
-    def generate_descriptor(self):
+    def generate_descriptor(self, descriptor_batch_size=100):
         """
-        This function makes the descriptors for all the compounds.
+        This function makes the descriptors for all the compounds. If the descriptor is ACSF, one can do it in batches
+        to avoid runnning out of memory.
 
+        :param descriptor_batch_size: batch size for the descriptors. (int)
         :return: None
         """
 
@@ -838,6 +841,16 @@ class OAMNN(ARMP, _ONN):
             raise InputError("Properties needs to be set in advance")
         if is_none(self.compounds):
             raise InputError("QML compounds needs to be created in advance")
+        if not is_positive_integer(descriptor_batch_size):
+            raise InputError("Expected 'descriptor_batch_size' to be a positive integer. Got %s" % str(descriptor_batch_size))
+        if descriptor_batch_size > self.compounds.shape[0]:
+            print("Warning: descriptor_batch_size larger than sample size. It is going to be clipped")
+            descriptor_batch_size = min(self.compounds.shape[0], descriptor_batch_size)
+
+        # See if the batch size can be modified so that the last batch is not considerably smaller than the others
+        # This is always less that the requested batch size, so no memory issues should arise
+        better_batch_size = ceil(self.compounds.shape[0], ceil(self.compounds.shape[0], descriptor_batch_size))
+        print("The descriptor batch size is: %s" % better_batch_size)
 
         descriptor = None
         zs = None
@@ -852,7 +865,7 @@ class OAMNN(ARMP, _ONN):
 
         elif self.representation == 'acsf':
 
-            descriptor, zs = self._generate_acsf()
+            descriptor, zs = self._generate_acsf(better_batch_size)
 
         else:
 
@@ -921,9 +934,11 @@ class OAMNN(ARMP, _ONN):
 
         return padded_descriptors, zs
 
-    def _generate_acsf(self):
+    def _generate_acsf(self, batch_size):
         """
         This function generates the atom centred symmetry functions.
+
+        :param batch_size: int - the size of the batches in which to divide the dataset to make the descriptor
         :return: numpy array of shape (n_samples, n_max_atoms, n_features) and (n_samples, n_atoms)
         """
 
@@ -979,7 +994,12 @@ class OAMNN(ARMP, _ONN):
             zs_tf = tf.placeholder(shape=[n_samples, max_n_atoms], dtype=tf.int32, name="zs")
             xyz_tf = tf.placeholder(shape=[n_samples, max_n_atoms, 3], dtype=tf.float32, name="xyz")
 
-        descriptor = sf.generate_parkhill_acsf(xyzs=xyz_tf, Zs=zs_tf, elements=elements, element_pairs=element_pairs,
+            dataset = tf.data.Dataset.from_tensor_slices((xyz_tf, zs_tf))
+            dataset = dataset.batch(batch_size)
+            iterator = tf.data.Iterator.from_structure(dataset.output_types, dataset.output_shapes)
+            batch_xyz, batch_zs = iterator.get_next()
+
+        descriptor = sf.generate_parkhill_acsf(xyzs=batch_xyz, Zs=batch_zs, elements=elements, element_pairs=element_pairs,
                                                radial_cutoff=self.radial_cutoff, angular_cutoff=self.angular_cutoff,
                                                radial_rs=self.radial_rs, angular_rs=self.angular_rs, theta_s=self.theta_s,
                                                eta=self.eta, zeta=self.zeta)
@@ -992,17 +1012,41 @@ class OAMNN(ARMP, _ONN):
 
         sess = tf.Session()
         sess.run(tf.global_variables_initializer())
+        sess.run(iterator.make_initializer(dataset), feed_dict={xyz_tf: xyzs, zs_tf: zs})
+
+        descriptor_slices=[]
+
+
         if self.tensorboard:
-            descriptor_np = sess.run(descriptor, feed_dict={xyz_tf: xyzs, zs_tf: zs}, options=options,
-                                     run_metadata=run_metadata)
             summary_writer = tf.summary.FileWriter(logdir="tensorboard", graph=sess.graph)
-            summary_writer.add_run_metadata(run_metadata=run_metadata, tag="Descriptor", global_step=None)
+
+            batch_counter = 0
+            while True:
+                try:
+                    descriptor_np = sess.run(descriptor, options=options, run_metadata=run_metadata)
+                    summary_writer.add_run_metadata(run_metadata=run_metadata, tag="batch %s" % batch_counter, global_step=None)
+                    descriptor_slices.append(descriptor_np)
+                    batch_counter += 1
+                except tf.errors.OutOfRangeError:
+                    print("Generated all the descriptors.")
+                    break
         else:
-            descriptor_np = sess.run(descriptor, feed_dict={xyz_tf: xyzs, zs_tf: zs})
+            batch_counter = 0
+            while True:
+                try:
+                    descriptor_np = sess.run(descriptor)
+                    descriptor_slices.append(descriptor_np)
+                    batch_counter += 1
+                except tf.errors.OutOfRangeError:
+                    print("Generated all the descriptors.")
+                    break
+
+        descriptor_conc = np.concatenate(descriptor_slices, axis=0)
+        print(descriptor_conc.shape)
 
         sess.close()
 
-        return descriptor_np, zs
+        return descriptor_conc, zs
 
     def fit(self, indices, zs = None, y = None):
         """

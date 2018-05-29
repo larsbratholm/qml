@@ -29,15 +29,9 @@ def acsf_rad(xyzs, Zs, radial_cutoff, radial_rs, eta):
         dist_tensor = tf.cast(tf.norm(dxyzs, axis=3), dtype=tf.float32)  # (n_samples, n_atoms, n_atoms)
 
     # Indices of terms that need to be zero (diagonal elements)
-    n_atoms = Zs.get_shape().as_list()[1]
-    n_samples = Zs.get_shape().as_list()[0]
-
-    zarray = np.zeros((n_samples, n_atoms, n_atoms))
-
-    for i in range(n_atoms):
-                    zarray[:, i, i] = 1
-
-    where_eq_idx = tf.convert_to_tensor(zarray, dtype=tf.bool)
+    mask_0 = tf.zeros(tf.shape(dist_tensor))
+    mask_1 = tf.ones(tf.shape(Zs))
+    where_eq_idx = tf.cast(tf.matrix_set_diag(mask_0, mask_1), dtype=tf.bool)
 
     # Calculating the exponential term
     with tf.name_scope("Exponential_term"):
@@ -97,20 +91,18 @@ def acsf_ang(xyzs, Zs, angular_cutoff, angular_rs, theta_s, zeta, eta):
     # Problem with the above tensor: we still have the R_ii + R_ik distances which are non zero and could be summed
     # These need to be set to zero
     n_atoms = Zs.get_shape().as_list()[1]
-    n_samples = Zs.get_shape().as_list()[0]
 
-    # Make an array of zero and turn all the elements where two indices are the same to 1
-    zarray = np.zeros((n_samples, n_atoms, n_atoms, n_atoms))
+    zarray = np.zeros((n_atoms, n_atoms, n_atoms))
 
-    # Find a vectorised way of doing this
     for i in range(n_atoms):
         for j in range(n_atoms):
             for k in range(n_atoms):
                 if i == j or i == k or j == k:
-                    zarray[:, i, j, k] = 1
+                    zarray[i, j, k] = 1
 
     # Make a bool tensor of the indices
-    where_eq_idx = tf.convert_to_tensor(zarray, dtype=tf.bool)
+    where_eq_idx = tf.tile(tf.expand_dims(tf.convert_to_tensor(zarray, dtype=tf.bool), axis=0),
+                           multiples=[tf.shape(sum_dist_tensor)[0], 1, 1, 1])
 
     # For all the elements that are true in where_eq_idx, turn the elements of sum_dist_tensor to zero
     zeros_1 = tf.zeros(tf.shape(sum_dist_tensor), dtype=tf.float32)
@@ -201,7 +193,8 @@ def acsf_ang(xyzs, Zs, angular_cutoff, angular_rs, theta_s, zeta, eta):
 
         # Reshaping to shape (n_samples,  n_atoms, n_atoms, n_atoms, n_rs*n_theta_s)
         presum_term = tf.reshape(prod_of_terms,
-                             [n_samples, n_atoms, n_atoms, n_atoms, tf.shape(theta_s)[0] * tf.shape(angular_rs)[0]])
+                                 [tf.shape(prod_of_terms)[0], n_atoms, n_atoms, n_atoms,
+                                  theta_s.shape[0] * angular_rs.shape[0]])
 
     return presum_term
 
@@ -242,7 +235,8 @@ def sum_rad(pre_sum, Zs, elements_list, radial_rs):
     # Cleaning up the dummy atoms descriptors
     dummy_atoms = tf.logical_not(tf.equal(Zs, tf.constant(0, dtype=tf.int32)))  # False where there are dummy atoms
     mask = tf.tile(tf.expand_dims(dummy_atoms, axis=-1), multiples=[1, 1, n_elements*n_rs])
-    clean_final_term = tf.where(mask, final_term, tf.zeros(final_term.shape, dtype=tf.float32))
+    # clean_final_term = tf.where(mask, final_term, tf.zeros(final_term.shape, dtype=tf.float32))
+    clean_final_term = tf.where(mask, final_term, tf.zeros(tf.shape(final_term), dtype=tf.float32))
 
     return clean_final_term
 
@@ -260,7 +254,6 @@ def sum_ang(pre_sumterm, Zs, element_pairs_list, angular_rs, theta_s):
     """
 
     n_atoms = Zs.get_shape().as_list()[1]
-    n_samples = Zs.get_shape().as_list()[0]
     n_pairs = len(element_pairs_list)
     n_rs = angular_rs.get_shape().as_list()[0]
     n_thetas = theta_s.get_shape().as_list()[0]
@@ -271,12 +264,15 @@ def sum_ang(pre_sumterm, Zs, element_pairs_list, angular_rs, theta_s):
     neighb_pairs = tf.concat([Zs_exp_1, Zs_exp_2], axis=-1)  # (n_samples, n_atoms, n_atoms, 2)
 
     # Cleaning up diagonal elements
-    zarray = np.zeros((n_samples, n_atoms, n_atoms, 2))
+    zarray = np.zeros((n_atoms, n_atoms, 2))
 
     for i in range(n_atoms):
-        zarray[:, i, i, :] = 1
+        zarray[i, i, :] = 1
 
-    where_eq_idx = tf.convert_to_tensor(zarray, dtype=tf.bool)
+    # Make a bool tensor of the indices
+    where_eq_idx = tf.tile(tf.expand_dims(tf.convert_to_tensor(zarray, dtype=tf.bool), axis=0),
+                           multiples=[tf.shape(Zs)[0], 1, 1, 1]) # (n_samples, n_atoms, n_atoms, 2)
+
     zeros = tf.zeros(tf.shape(neighb_pairs), dtype=tf.int32)
     clean_pairs = tf.where(where_eq_idx, zeros, neighb_pairs)
 
@@ -284,16 +280,18 @@ def sum_ang(pre_sumterm, Zs, element_pairs_list, angular_rs, theta_s):
     sorted_pairs, _ = tf.nn.top_k(clean_pairs, k=2, sorted=True)  # (n_samples, n_atoms, n_atoms, 2)
 
     # Preparing to clean the sorted pairs from where there will be self interactions in the three-body-terms
-    oarray = np.ones((n_samples, n_atoms, n_atoms, n_atoms))
+    oarray = np.ones((n_atoms, n_atoms, n_atoms))
 
-    # Find a vectorised way of doing this
     for i in range(n_atoms):
         for j in range(n_atoms):
             for k in range(n_atoms):
                 if i == j or i == k or j == k:
-                    oarray[:, i, j, k] = 0
+                    oarray[i, j, k] = 0
 
-    where_self_int = tf.convert_to_tensor(oarray, dtype=tf.bool)
+    # Make a bool tensor of the indices
+    where_self_int = tf.tile(tf.expand_dims(tf.convert_to_tensor(oarray, dtype=tf.bool), axis=0),
+                       multiples=[tf.shape(Zs)[0], 1, 1, 1]) # (n_samples, n_atoms, n_atoms, n_atoms)
+
     exp_self_int = tf.expand_dims(where_self_int, axis=-1)  # (n_samples, n_atoms, n_atoms, n_atoms, 1)
 
     zeros_large = tf.zeros(tf.shape(pre_sumterm), dtype=tf.float32, name="zero_large")
@@ -305,7 +303,7 @@ def sum_ang(pre_sumterm, Zs, element_pairs_list, angular_rs, theta_s):
             pair = tf.constant(element_pairs_list[i], dtype=tf.int32)
             expanded_pair = tf.tile(
                 tf.expand_dims(tf.expand_dims(tf.expand_dims(pair, axis=0), axis=0), axis=0),
-                multiples=[n_samples, n_atoms, n_atoms, 1], name="expand_pair")  # (n_samples, n_atoms, n_atoms, 2)
+                multiples=[tf.shape(Zs)[0], n_atoms, n_atoms, 1], name="expand_pair")  # (n_samples, n_atoms, n_atoms, 2)
             # Comparing which neighbour pairs correspond to the pair under consideration
             equal_pair_mix = tf.equal(expanded_pair, sorted_pairs)
             equal_pair_split1, equal_pair_split2 = tf.split(equal_pair_mix, 2, axis=-1)
@@ -325,7 +323,7 @@ def sum_ang(pre_sumterm, Zs, element_pairs_list, angular_rs, theta_s):
     # Cleaning up the dummy atoms descriptors
     dummy_atoms = tf.logical_not(tf.equal(Zs, tf.constant(0, dtype=tf.int32)))  # False where there are dummy atoms
     mask = tf.tile(tf.expand_dims(dummy_atoms, axis=-1), multiples=[1, 1, n_thetas * n_rs * n_pairs])
-    clean_final_term = tf.where(mask, final_term, tf.zeros(final_term.shape))
+    clean_final_term = tf.where(mask, final_term, tf.zeros(tf.shape(final_term)))
 
     return clean_final_term
 

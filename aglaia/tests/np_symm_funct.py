@@ -191,39 +191,36 @@ def generate_acsf(xyzs, Zs, elements, element_pairs, radial_cutoff, angular_cuto
     return acsf
 
 if __name__ == "__main__":
-    # xyzs = np.array([[[0.0, 0.0, 0.0],
-    #                   [1.0, 0.0, 0.0],
-    #                   [0.0, 1.0, 0.0],
-    #                   [0.0, 0.0, 1.0]], [[0.0, 0.0, 0.0],
-    #                   [1.0, 0.0, 0.0],
-    #                   [0.0, 1.0, 0.0],
-    #                   [0.0, 0.0, 1.0]]])
+    xyzs = np.array([[[0.0, 0.0, 0.0],
+                      [1.0, 0.0, 0.0],
+                      [0.0, 1.0, 0.0],
+                      [0.0, 0.0, 1.0]]])
+
+    zs = [[7, 2, 1, 1]]
+
+    elements = [1, 2, 7]
+    element_pairs = [[1, 1], [2, 1], [7, 1], [7, 2]]
+
+    # # input_data = "/Volumes/Transcend/repositories/Aglaia/aglaia/tests/data_test_acsf.npz"
+    # input_data = "/Volumes/Transcend/repositories/Aglaia/aglaia/tests/qm7_testdata.npz"
+    # data = np.load(input_data)
     #
-    # Zs_list = [[7, 2, 1, 1], [7, 2, 1, 1]]
-    #
-    # elements_list = [1, 2, 7]
-    # element_pairs_list = [[1, 1], [2, 1], [7, 1], [7, 2]]
+    # xyzs = data["arr_0"]
+    # zs = data["arr_1"]
+    # elements = data["arr_2"]
+    # element_pairs = data["arr_3"]
 
-    # input_data = "/Volumes/Transcend/repositories/Aglaia/aglaia/tests/data_test_acsf.npz"
-    input_data = "/Volumes/Transcend/repositories/Aglaia/aglaia/tests/qm7_testdata.npz"
-    data = np.load(input_data)
-
-    xyzs = data["arr_0"]
-    zs = data["arr_1"]
-    elements = data["arr_2"]
-    element_pairs = data["arr_3"]
-
-    radial_cutoff = 500.0
-    angular_cutoff = 500.0
-    radial_rs = [0.0, 0.1, 0.2]
-    angular_rs = [0.0, 0.1, 0.2]
-    theta_s = [3.0, 2.0]
+    radial_cutoff = 1000.0
+    angular_cutoff = 1000.0
+    radial_rs = [0.0, 1.0]
+    angular_rs = [0.0, 1.0]
+    theta_s = [np.pi, np.pi * 0.5]
     # radial_rs = [0.0]
     # angular_rs = [0.0]
     # theta_s = [3.0]
-    zeta = 3.0
-    eta = 2.0
+    zeta = 0.0
+    eta = 1.0
 
     rad_term = acsf_rad(xyzs, zs, elements, radial_cutoff, radial_rs, eta)
     ang_term = acsf_ang(xyzs, zs, element_pairs, angular_cutoff, angular_rs, theta_s, zeta, eta)
-    print(ang_term)
+    print(rad_term)
