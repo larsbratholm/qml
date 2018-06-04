@@ -22,7 +22,7 @@ import matplotlib.pyplot as plt
 #from .utils import is_positive, is_positive_integer, is_positive_integer_or_zero, \
 #       is_bool, is_string, is_positive_or_zero, InputError, ceil
 from .utils import InputError, ceil, is_positive_or_zero, is_positive_integer, is_positive, \
-        is_bool, is_positive_integer_or_zero, is_string, is_positive_integer_array
+        is_bool, is_positive_integer_or_zero, is_string, is_positive_integer_array, is_array_like
 from .tf_utils import TensorBoardLogger
 
 class _NN(object):
@@ -669,6 +669,21 @@ class _NN(object):
         if self.scoring_function == 'r2':
             return self._score_r2(*args)
 
+    def fit(self, x, y):
+        """
+        This function calls the specific fit method of the child classes.
+
+        :param x: The x part of the data
+        :type x: for the MRMP class it should be a numpy array of shape (n_samples, n_features), for ARMP it should be a
+        list containinf a numpy array of shape (n_samples, n_atoms, n_features) and a numpy array of shape
+        (n_samples, n_atoms)
+        :param y: the y part of the data
+        :type y: a numpy array of shape (n_samples,)
+        :return:
+        """
+
+        return self._fit(x, y)
+
     def predict(self, x):
         """
         This function calls the predict function for either ARMP or MRMP.
@@ -705,20 +720,6 @@ class MRMP(_NN):
         """
 
         super(MRMP, self).__init__(**kwargs)
-
-    #TODO test
-    def fit(self, x, y):
-        """
-        Fit the neural network to molecular descriptors x and target y.
-
-        :param x: Molecular descriptor.
-        :type x: numpy array of shape (n_samples, n_atoms)
-        :param y: Molecular properties
-        :type y: numpy array of shape (n_samples, )
-
-        """
-
-        return self._fit(x, y)
 
     #TODO upgrade so that this uses tf.Dataset like the ARMP class
     def _fit(self, x, y):
@@ -1010,24 +1011,6 @@ class ARMP(_NN):
 
         super(ARMP, self).__init__(**kwargs)
 
-    def fit(self, xzs, y):
-        """
-        This class fits the neural network to the data. x corresponds to the descriptors and y to the molecular
-        property to predict. zs contains the atomic numbers of all the atoms in the data.
-
-        :param xzs: Atomic descriptor and nuclear charges combined in a list
-        :type xzs: list of size two containing two numpy arrays x and zs [x, zs]
-        :type x: numpy array of floats of shape (n_samples, n_atoms, n_features)
-        :type zs: numpy array of floats of shape (n_samples, n_atoms)
-        :param y: molecular properties
-        :type y: numpy array of floats of shape (n_samples, 1)
-        :return: None
-        """
-        if len(xzs) > 2:
-            raise InputError("xzs should be a list of size 2. Got %s" % (len(xzs)))
-
-        return self._fit(xzs[0], xzs[1], y)
-
     def _atomic_model(self, x, hidden_layer_sizes, weights, biases):
         """
         Constructs the atomic part of the network. It calculates the output for all atoms as if they all were the same
@@ -1145,18 +1128,25 @@ class ARMP(_NN):
         # Removing the dummy
         return np.trim_zeros(elements)
 
-    def _fit(self, x, zs, y):
+    def _fit(self, xzs, y):
         """
-        This function is present because the osprey wrapper needs to overwrite the fit function.
+        This class fits the neural network to the data. x corresponds to the descriptors and y to the molecular
+        property to predict. zs contains the atomic numbers of all the atoms in the data.
 
-        :param x: Atomic descriptor
-        :type x: np array of floats of shape (n_samples, n_atoms, n_features)
-        :param zs: Nuclear charges
-        :type zs: np array of floats of shape (n_samples, n_atoms)
-        :param y: Molecular properties
-        :type y: np array of floats of shape (n_samples, 1)
+        :param xzs: Atomic descriptor and nuclear charges combined in a list
+        :type xzs: list of size two containing two numpy arrays x and zs [x, zs]
+        :type x: numpy array of floats of shape (n_samples, n_atoms, n_features)
+        :type zs: numpy array of floats of shape (n_samples, n_atoms)
+        :param y: molecular properties
+        :type y: numpy array of floats of shape (n_samples, 1)
         :return: None
         """
+
+        if len(xzs) != 2:
+            raise InputError("xzs should be a list of size 2. Got %s" % (len(xzs)))
+
+        x = xzs[0]
+        zs = xzs[1]
 
         # reshape to tensorflow friendly shape
         y = np.atleast_2d(y).T
