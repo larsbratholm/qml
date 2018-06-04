@@ -720,6 +720,7 @@ class MRMP(_NN):
 
         return self._fit(x, y)
 
+    #TODO upgrade so that this uses tf.Dataset like the ARMP class
     def _fit(self, x, y):
         """
         This function fits the estimator to the data provided.
