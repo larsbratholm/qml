@@ -63,8 +63,17 @@ class _ONN(BaseEstimator, _NN):
         self._set_properties(properties)
 
     def _set_properties(self, properties):
+        """
+       Set properties. Needed to be called before fitting.
+
+       :param y: array of properties of size (nsamples,)
+       :type y: array
+       """
         if not is_none(properties):
-            self.properties = properties
+            if is_numeric_array(properties) and np.asarray(properties).ndim == 1:
+                self.properties = np.asarray(properties)
+            else:
+                raise InputError('Variable "properties" expected to be array like of dimension 1. Got %s' % str(properties))
         else:
             self.properties = None
 
@@ -405,21 +414,6 @@ class OMNN(MRMP, _ONN):
 
         self._set_representation(representation, slatm_sigma1, slatm_sigma2, slatm_dgrid1, slatm_dgrid2, slatm_rcut,
                 slatm_rpower, slatm_alchemy)
-
-    def _set_properties(self, properties):
-        """
-        Set properties. Needed to be called before fitting.
-
-        :param y: array of properties of size (nsamples,)
-        :type y: array
-        """
-        if not is_none(properties):
-            if is_numeric_array(properties) and np.asarray(properties).ndim == 1:
-                self.properties = np.asarray(properties)
-            else:
-                raise InputError('Variable "properties" expected to be array like of dimension 1. Got %s' % str(properties))
-        else:
-            self.properties = None
 
     def _set_representation(self, representation, *args):
 
@@ -812,21 +806,6 @@ class OAMNN(ARMP, _ONN):
         if representation.lower() not in ['atomic_coulomb_matrix', 'slatm', 'acsf']:
             raise InputError("Unknown representation %s" % representation)
         self.representation = representation.lower()
-
-    def _set_properties(self, properties):
-        """
-        Sets the properties. Needs to be called before fitting.
-
-        :param y: array of properties of size (n_samples,)
-        :type y: array
-        """
-        if not is_none(properties):
-            if is_numeric_array(properties) and np.asarray(properties).ndim == 1:
-                self.properties = np.asarray(properties)
-            else:
-                raise InputError('Variable "properties" expected to be array like of dimension 1. Got %s' % str(properties))
-        else:
-            self.properties = None
 
     def generate_descriptor(self, descriptor_batch_size=100):
         """
