@@ -189,7 +189,11 @@ def molpro_to_qml_format(directory, key, new_dir, n_atoms, kJmol=False, demean=F
         # Extracting the geometry and the energy from a Molpro out file
         geom, ene, partial_ch = extract_molpro(item, n_atoms)
 
-        if len(geom) != n_atoms*4 or ene == "0" or len(partial_ch) != n_atoms*2:
+        # if len(geom) != n_atoms*4 or ene == "0" or len(partial_ch) != n_atoms*2:
+        #     print("The following file couldn't be read properly:" + str(item) + "\n")
+        #     continue
+
+        if len(geom) != n_atoms*4 or ene == "0":
             print("The following file couldn't be read properly:" + str(item) + "\n")
             continue
 
@@ -397,6 +401,6 @@ def molpro_to_vmd(directory, key):
 
 if __name__ == "__main__":
 
-    molpro_to_qml_format("/Volumes/Transcend/data_sets/CN_isobutane_model/test_Molpro", "b3lyp_tzvp_u.out", "/Volumes/Transcend/data_sets/CN_isobutane_model/geoms_2/test/", 19,kJmol=True, demean=True, xyz_write=False)
+    molpro_to_qml_format("/Volumes/Transcend/data_sets/CN_isobutane_model/training_Molpro", "b3lyp_tzvp_u.out", "/Volumes/Transcend/data_sets/CN_isobutane_model/", 19, kJmol=True, demean=True, xyz_write=False)
 
 
