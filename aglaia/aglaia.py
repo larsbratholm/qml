@@ -514,36 +514,6 @@ class _NN(object):
 
         return self.l1_reg * reg_term
 
-    # TODO maybe move this directly to the child class MRMP since ARMP needs to overwrite this
-    def model(self, x, weights, biases):
-        """
-        Constructs the molecular neural network. This function has to be overwritten by ARMP to create the atomic
-        decomposed neural network.
-
-        :param x: descriptor
-        :type x: tf.placeholder of shape (n_samples, n_features)
-        :param weights: Weights used in the network.
-        :type weights: list of tf.Variables of length hidden_layer_sizes.size + 1
-        :param biases: Biases used in the network.
-        :type biases: list of tf.Variables of length hidden_layer_sizes.size + 1
-        :return: Output
-        :rtype: tf.Variable of size (n_samples, n_targets)
-        """
-
-        # Calculate the activation of the first hidden layer
-        z = tf.add(tf.matmul(x, tf.transpose(weights[0])), biases[0])
-        h = self.activation_function(z)
-
-        # Calculate the activation of the remaining hidden layers
-        for i in range(self.hidden_layer_sizes.size-1):
-            z = tf.add(tf.matmul(h, tf.transpose(weights[i+1])), biases[i+1])
-            h = self.activation_function(z)
-
-        # Calculating the output of the last layer
-        z = tf.add(tf.matmul(h, tf.transpose(weights[-1])), biases[-1], name = "output")
-
-        return z
-
     def _get_batch_size(self):
         """
         Determines the actual batch size. If set to auto, the batch size will be set to 100.
@@ -717,33 +687,6 @@ class _NN(object):
         else:
             return predictions
 
-    # TODO potentially move this to MRMP since ARMP needs to overwrite it.
-    def _predict(self, x):
-        """
-        Use the trained network to make predictions on the descriptor x. This function has to be overwritten by ARMP
-        as it uses the atomic decomposed model.
-
-        :param x: The descriptor
-        :type x: numpy array of shape (n_samples, n_features)
-
-        :return: Predictions for the target values corresponding to the samples contained in x.
-        :rtype: numpy array of shape (n_samples, )
-
-        """
-
-        if self.session == None:
-            raise InputError("Model needs to be fit before predictions can be made.")
-
-        check_array(x, warn_on_dtype = True)
-
-        graph = tf.get_default_graph()
-
-        with graph.as_default():
-            tf_x = graph.get_tensor_by_name("Data/Descriptors:0")
-            model = graph.get_tensor_by_name("Model/output:0")
-            y_pred = self.session.run(model, feed_dict = {tf_x : x})
-            return y_pred
-
 ### --------------------- ** Molecular representation - molecular properties network ** --------------------------------
 
 class MRMP(_NN):
@@ -814,7 +757,7 @@ class MRMP(_NN):
                 self.tensorboard_logger.write_weight_histogram(weights)
 
         with tf.name_scope("Model"):
-            y_pred = self.model(tf_x, weights, biases)
+            y_pred = self._model(tf_x, weights, biases)
 
         with tf.name_scope("Cost_func"):
             cost = self.cost(y_pred, tf_y, weights)
@@ -867,6 +810,34 @@ class MRMP(_NN):
 
             # Shuffle the dataset at each iteration
             np.random.shuffle(indices)
+
+    def _model(self, x, weights, biases):
+        """
+        Constructs the molecular neural network.
+
+        :param x: descriptor
+        :type x: tf.placeholder of shape (n_samples, n_features)
+        :param weights: Weights used in the network.
+        :type weights: list of tf.Variables of length hidden_layer_sizes.size + 1
+        :param biases: Biases used in the network.
+        :type biases: list of tf.Variables of length hidden_layer_sizes.size + 1
+        :return: Output
+        :rtype: tf.Variable of size (n_samples, n_targets)
+        """
+
+        # Calculate the activation of the first hidden layer
+        z = tf.add(tf.matmul(x, tf.transpose(weights[0])), biases[0])
+        h = self.activation_function(z)
+
+        # Calculate the activation of the remaining hidden layers
+        for i in range(self.hidden_layer_sizes.size - 1):
+            z = tf.add(tf.matmul(h, tf.transpose(weights[i + 1])), biases[i + 1])
+            h = self.activation_function(z)
+
+        # Calculating the output of the last layer
+        z = tf.add(tf.matmul(h, tf.transpose(weights[-1])), biases[-1], name="output")
+
+        return z
 
     # TODO test
     def _score_r2(self, x, y, sample_weight=None):
@@ -962,6 +933,32 @@ class MRMP(_NN):
             cost = cost + l1_loss
 
         return cost
+
+    def _predict(self, x):
+        """
+        Use the trained network to make predictions on the descriptor x. This function has to be overwritten by ARMP
+        as it uses the atomic decomposed model.
+
+        :param x: The descriptor
+        :type x: numpy array of shape (n_samples, n_features)
+
+        :return: Predictions for the target values corresponding to the samples contained in x.
+        :rtype: numpy array of shape (n_samples, )
+
+        """
+
+        if self.session == None:
+            raise InputError("Model needs to be fit before predictions can be made.")
+
+        check_array(x, warn_on_dtype = True)
+
+        graph = tf.get_default_graph()
+
+        with graph.as_default():
+            tf_x = graph.get_tensor_by_name("Data/Descriptors:0")
+            model = graph.get_tensor_by_name("Model/output:0")
+            y_pred = self.session.run(model, feed_dict = {tf_x : x})
+            return y_pred
 
     def save_nn(self, save_dir="saved_model"):
         """
