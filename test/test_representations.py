@@ -29,8 +29,6 @@ import numpy as np
 import os
 
 import qml
-import qml.ml.representations
-import qml.ml.representations.data
 
 from qml.ml.representations import *
 from qml.ml.representations.data import NUCLEAR_CHARGE

@@ -3,7 +3,6 @@ import os
 import numpy as np
 
 import qml
-import qml.data
 from qml.ml.representations import get_slatm_mbtypes
 
 
