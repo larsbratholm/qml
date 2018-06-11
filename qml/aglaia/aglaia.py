@@ -1,28 +1,19 @@
 """
-Main module where all the neural network magic happens
+Module containing the general neural network class and the child classes for the molecular and atomic neural networks.
 """
 
 from __future__ import print_function
-#from __future__ import absolute_import
 import os
-import sys
-#sys.path.insert(0,os.path.join(os.path.dirname(os.path.realpath(__file__)), ".."))
 import numpy as np
 import tensorflow as tf
-#from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.utils.validation import check_X_y, check_array
 from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
 import matplotlib.pyplot as plt
-#import inverse_dist as inv
-#from tensorflow.python.framework import ops
-#from tensorflow.python.training import saver as saver_lib
-#from tensorflow.python.framework import graph_io
-#from tensorflow.python.tools import freeze_graph
+from abc import ABCMeta
 
-#from .utils import is_positive, is_positive_integer, is_positive_integer_or_zero, \
-#       is_bool, is_string, is_positive_or_zero, InputError, ceil
 from .utils import InputError, ceil, is_positive_or_zero, is_positive_integer, is_positive, \
-        is_bool, is_positive_integer_or_zero, is_string, is_positive_integer_array, is_array_like
+        is_bool, is_positive_integer_or_zero, is_string, is_positive_integer_array, is_array_like, is_none, \
+        check_x, check_y, check_sizes, check_dy, check_classes, check_dy_classes
 from .tf_utils import TensorBoardLogger
 
 class _NN(object):
@@ -31,12 +22,12 @@ class _NN(object):
     Parent class for training multi-layered neural networks on molecular or atomic properties via Tensorflow
     """
 
-    def __init__(self, hidden_layer_sizes = (5,), l1_reg = 0.0, l2_reg = 0.0001, batch_size = 'auto', learning_rate = 0.001,
-                 iterations = 500, tensorboard = False, store_frequency = 200, tf_dtype = tf.float32, scoring_function = 'mae',
-                 activation_function = tf.sigmoid, optimiser=tf.train.AdamOptimizer, beta1=0.9, beta2=0.999, epsilon=1e-08,
-                 rho=0.95, initial_accumulator_value=0.1, initial_gradient_squared_accumulator_value=0.1,
-                 l1_regularization_strength=0.0,l2_regularization_strength=0.0,
-                 tensorboard_subdir = os.getcwd() + '/tensorboard', **kwargs):
+    def __init__(self, hidden_layer_sizes, l1_reg, l2_reg, batch_size, learning_rate,
+                 iterations, tensorboard, store_frequency, tf_dtype, scoring_function,
+                 activation_function, optimiser, beta1, beta2, epsilon,
+                 rho, initial_accumulator_value, initial_gradient_squared_accumulator_value,
+                 l1_regularization_strength,l2_regularization_strength, tensorboard_subdir):
+
         """
         :param hidden_layer_sizes: Number of hidden layers. The n'th element represents the number of neurons in the n'th
             hidden layer.
@@ -86,10 +77,10 @@ class _NN(object):
         super(_NN,self).__init__()
 
         # Catch unrecognised passed variables
-        if len(kwargs) > 0:
-            msg = "Warning: unrecognised input variable(s): "
-            msg += ", ".join([str(x for x in kwargs.keys())])
-            print(msg)
+        # if len(kwargs) > 0:
+        #     msg = "Warning: unrecognised input variable(s): "
+        #     msg += ", ".join([str(x for x in kwargs.keys())])
+        #     print(msg)
 
 
         # Initialising the parameters
@@ -669,7 +660,7 @@ class _NN(object):
         if self.scoring_function == 'r2':
             return self._score_r2(*args)
 
-    def fit(self, x, y):
+    def fit(self, x, y=None, dy=None, classes=None):
         """
         This function calls the specific fit method of the child classes.
 
@@ -682,7 +673,98 @@ class _NN(object):
         :return:
         """
 
-        return self._fit(x, y)
+        return self._fit(x, y, dy, classes)
+
+    def _check_inputs(self, x, y, dy, classes):
+        """
+        This function checks whether x contains indices or data. If it contains indices, the data is extracted by the
+        appropriate compound objects. Otherwise it checks what data is passed through the arguments.
+
+        :param x: indices or data
+        :type x: numpy array of ints of shape (n_samples,) or floats of shape (n_samples, n_atoms, 3)
+        :param y: None or energies
+        :type y: None or numpy array of floats of shape (n_samples,)
+        :param dy: None or forces
+        :type dy: None or floats of shape (n_samples, n_atoms, 3)
+        :param classes: None or different NN classes available
+        :type classes: None or numpy array of ints of shape (n_samples, n_atoms)
+        :return:
+        """
+
+        if not is_array_like(x):
+            raise InputError("x should be an array either containing indices or data.")
+
+        # Check if x is made up of indices or data
+        if is_positive_integer_array(x):
+
+            if is_none(self.compounds):
+                raise InputError("QML compounds needs to be created in advance")
+            if is_none(self.properties):
+                raise InputError("The properties need to be set in advance.")
+
+            approved_x = self._get_xyz_from_compounds(x)
+            approved_y = self._get_properties(x)
+
+            #TODO need to check if compoundspass indices!!
+            approved_dy, approved_classes = check_dy_classes(dy, classes)
+
+            check_sizes(approved_x, approved_y, approved_dy, approved_classes)
+
+        else:
+
+            if is_none(y):
+                raise InputError("y cannot be of None type.")
+
+            approved_x = check_x(x)
+            approved_y = check_y(y)
+
+            approved_dy, approved_classes = check_dy_classes(dy, classes)
+
+            check_sizes(approved_x, approved_y, approved_dy, approved_classes)
+
+        return approved_x, approved_y, approved_dy, approved_classes
+
+    def _get_xyz_from_compounds(self, indices):
+        """
+        This function takes some indices and returns the xyz of the compounds corresponding to those indices.
+
+        :param indices: indices of the compounds to use for training
+        :type indices: numpy array of ints of shape (n_samples, )
+        :return: numpy array of shape (n_samples, n_atoms, 3)
+        """
+
+        xyzs = []
+        zs = []
+        max_n_atoms = 0
+
+        for compound in self.compounds[indices]:
+            xyzs.append(compound.coordinates)
+            zs.append(compound.nuclear_charges)
+            if len(compound.nuclear_charges) > max_n_atoms:
+                max_n_atoms = len(compound.nuclear_charges)
+
+        # Padding so that all the samples have the same shape
+        n_samples = len(zs)
+        for i in range(n_samples):
+            current_n_atoms = len(zs[i])
+            missing_n_atoms = max_n_atoms - current_n_atoms
+            xyz_padding = np.zeros((missing_n_atoms, 3))
+            xyzs[i] = np.concatenate((xyzs[i], xyz_padding))
+
+        xyzs = np.asarray(xyzs, dtype=np.float32)
+
+        return xyzs
+
+    def _get_properties(self, indices):
+        """
+        This returns the properties that have been set through QML.
+
+        :param indices: The indices of the properties to return
+        :type indices: numpy array of ints of shape (n_samples, )
+        :return: numpy array of shape (n_samples, 1)
+        """
+
+        return np.atleast_2d(self.properties[indices]).T
 
     def predict(self, x):
         """
@@ -711,7 +793,12 @@ class MRMP(_NN):
     2) predicting local properties, such as chemical shieldings, using atomic representations.
     """
 
-    def __init__(self, **kwargs):
+    def __init__(self, hidden_layer_sizes = (5,), l1_reg = 0.0, l2_reg = 0.0001, batch_size = 'auto', learning_rate = 0.001,
+        iterations = 500, tensorboard = False, store_frequency = 200, tf_dtype = tf.float32, scoring_function = 'mae',
+        activation_function = tf.sigmoid, optimiser = tf.train.AdamOptimizer, beta1 = 0.9, beta2 = 0.999, epsilon = 1e-08,
+        rho = 0.95, initial_accumulator_value = 0.1, initial_gradient_squared_accumulator_value = 0.1,
+        l1_regularization_strength = 0.0, l2_regularization_strength = 0.0,
+        tensorboard_subdir = os.getcwd() + '/tensorboard'):
         """
         Descriptors is used as input to a single or multi layered feed-forward neural network with a single output.
         This class inherits from the _NN class and all inputs not unique to the NN class is passed to the _NN
@@ -719,10 +806,14 @@ class MRMP(_NN):
 
         """
 
-        super(MRMP, self).__init__(**kwargs)
+        super(MRMP, self).__init__(hidden_layer_sizes, l1_reg, l2_reg, batch_size, learning_rate,
+                 iterations, tensorboard, store_frequency, tf_dtype, scoring_function,
+                 activation_function, optimiser, beta1, beta2, epsilon,
+                 rho, initial_accumulator_value, initial_gradient_squared_accumulator_value,
+                 l1_regularization_strength,l2_regularization_strength, tensorboard_subdir)
 
     #TODO upgrade so that this uses tf.Dataset like the ARMP class
-    def _fit(self, x, y):
+    def _fit(self, x, y, dy, classes):
         """
         This function fits the estimator to the data provided.
 
@@ -731,6 +822,9 @@ class MRMP(_NN):
         :param y: Molecular properties
         :type y: numpy array of shape (n_samples, )
         """
+
+        # Checking the inputs
+        self._check_inputs(x, y, dy, classes)
 
         # Check that X and y have correct shape
         x, y = check_X_y(x, y, multi_output = False, y_numeric = True, warn_on_dtype = True)
