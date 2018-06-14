@@ -5,7 +5,6 @@ import sys
 import time
 import numpy as np
 import qml
-import qml.data
 
 from qml.ml.math import cho_solve
 from qml.ml.arad import generate_arad_representation

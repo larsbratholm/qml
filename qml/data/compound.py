@@ -33,7 +33,7 @@ from ..ml.representations import generate_bob
 from ..ml.representations import generate_eigenvalue_coulomb_matrix
 from ..ml.representations import generate_slatm
 
-from ..ml.fchl import generate_representation as generate_fchl_representation
+from ..ml.representations.fchl import generate_representation as generate_fchl_representation
 
 class Compound(object):
     """ The ``Compound`` class is used to store data from  
