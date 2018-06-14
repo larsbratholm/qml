@@ -9,12 +9,17 @@ import tensorflow as tf
 from sklearn.utils.validation import check_X_y, check_array
 from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
 import matplotlib.pyplot as plt
-from abc import ABCMeta
+from .symm_funct import generate_parkhill_acsf
 
 from .utils import InputError, ceil, is_positive_or_zero, is_positive_integer, is_positive, \
         is_bool, is_positive_integer_or_zero, is_string, is_positive_integer_array, is_array_like, is_none, \
-        check_x, check_y, check_sizes, check_dy, check_classes, check_dy_classes
+        check_x, check_y, check_sizes, check_dy, check_classes, is_numeric_array, is_non_zero_integer
 from .tf_utils import TensorBoardLogger
+
+try:
+    from qml import Compound, representations
+except ModuleNotFoundError:
+    raise ModuleNotFoundError("The module qml is required")
 
 class _NN(object):
 
@@ -107,6 +112,12 @@ class _NN(object):
                                   l2_regularization_strength)
 
         self.optimiser = self._set_optimiser_type(optimiser)
+
+        # Placholder variables for data
+        self.descriptor = None
+        self.properties = None
+        self.gradients = None
+        self.classes = None
 
     def _set_activation_function(self, activation_function):
         """
@@ -660,6 +671,121 @@ class _NN(object):
         if self.scoring_function == 'r2':
             return self._score_r2(*args)
 
+    def generate_compounds(self, filenames):
+        """
+        Creates QML compounds. Needs to be called before fitting.
+
+        :param filenames: path of xyz-files
+        :type filenames: list
+        """
+
+        # Check that the number of properties match the number of compounds if the properties have already been set
+        if is_none(self.properties):
+            pass
+        else:
+            if self.properties.size == len(filenames):
+                pass
+            else:
+                raise InputError("Number of properties (%d) does not match number of compounds (%d)"
+                                 % (self.properties.size, len(filenames)))
+
+        self.compounds = np.empty(len(filenames), dtype=object)
+        for i, filename in enumerate(filenames):
+            self.compounds[i] = Compound(filename)
+
+    def generate_descriptors(self, xyz=None, classes=None):
+        """
+        This function can generate descriptors either from the data contained in the compounds or from xyz data passed
+        through the argument. If the Compounds have already being set and xyz data is given, it complains.
+
+        :param xyz: cartesian coordinates
+        :type xyz: numpy array of shape (n_samples, n_atoms, 3)
+        :param classes: The chemical identity of the atoms in the xyz
+        :type classes: numpy array of shape (n_samples, n_atoms)
+        :return: None
+        """
+
+        if is_none(self.compounds) and is_none(xyz) and is_none(classes):
+            raise InputError("QML compounds needs to be created in advance or Cartesian coordinates need to be passed.")
+
+        if is_none(self.compounds):
+            # Make descriptors from xyz
+            if is_none(classes):
+                raise InputError("Nuclear charges are also needed to make the descriptors")
+
+            self.descriptor = self._generate_descriptors_from_data(xyz, classes)
+
+        elif is_none(xyz):
+            # Make descriptors from compounds
+
+            self.descriptor, self.classes = self._generate_descriptors_from_compounds()
+        else:
+            raise InputError("Compounds have already been set but new xyz data is being passed.")
+
+    def set_properties(self, properties):
+        """
+        Set properties. Needed to be called before fitting.
+
+        :param y: array of properties of size (nsamples,)
+        :type y: array
+        """
+        if is_none(properties):
+            raise InputError("Properties cannot be set to none.")
+        else:
+            if is_numeric_array(properties) and np.asarray(properties).ndim == 1:
+                self.properties = np.asarray(properties)
+            else:
+                raise InputError(
+                    'Variable "properties" expected to be array like of dimension 1. Got %s' % str(properties))
+
+    def set_descriptors(self, descriptors):
+        """
+        This function takes descriptors as input and stores them inside the class.
+
+        :param descriptors: global or local descriptors
+        :type descriptors: numpy array of shape (n_samples, n_features) or (n_samples, n_atoms, n_features)
+        """
+        if is_none(descriptors):
+            raise InputError("Descriptor cannot be set to none.")
+        else:
+            if is_numeric_array(descriptors):
+                self.descriptor = np.asarray(descriptors)
+            else:
+                raise InputError('Variable "descriptor" expected to be array like.')
+
+    def set_gradients(self, gradients):
+        """
+        This function enables to set the gradient information.
+
+        :param gradients: The gradients of the properties with respect to the input. For example, forces.
+        :type gradients: numpy array
+        :return: None
+        """
+
+        if is_none(gradients):
+            raise InputError("Gradients cannot be set to none.")
+        else:
+            if is_numeric_array(gradients):
+                self.gradients = np.asarray(gradients)
+            else:
+                raise InputError('Variable "gradients" expected to be array like.')
+
+    def set_classes(self, classes):
+        """
+        This function stores the classes to be used during training for local networks.
+
+        :param classes: what class does each atom belong to.
+        :type classes: numpy array of shape (n_samples, n_atoms) of ints
+        :return: None
+        """
+        if is_none(classes):
+            raise InputError("Classes cannot be set to none.")
+        else:
+            if is_positive_integer_array(classes):
+                self.classes = np.asarray(classes)
+            else:
+                raise InputError('Variable "gradients" expected to be array like of positive integers.')
+
     def fit(self, x, y=None, dy=None, classes=None):
         """
         This function calls the specific fit method of the child classes.
@@ -674,6 +800,120 @@ class _NN(object):
         """
 
         return self._fit(x, y, dy, classes)
+
+    def _check_slatm_values(self):
+        """
+        This function checks that the parameters passed to slatm make sense.
+        :return: None
+        """
+        if not is_positive(self.slatm_parameters['slatm_sigma1']):
+            raise InputError("Expected positive float for variable 'slatm_sigma1'. Got %s." % str(self.slatm_parameters['slatm_sigma1']))
+
+        if not is_positive(self.slatm_parameters['slatm_sigma2']):
+            raise InputError("Expected positive float for variable 'slatm_sigma2'. Got %s." % str(self.slatm_parameters['slatm_sigma2']))
+
+        if not is_positive(self.slatm_parameters['slatm_dgrid1']):
+            raise InputError("Expected positive float for variable 'slatm_dgrid1'. Got %s." % str(self.slatm_parameters['slatm_dgrid1']))
+
+        if not is_positive(self.slatm_parameters['slatm_dgrid2']):
+            raise InputError("Expected positive float for variable 'slatm_dgrid2'. Got %s." % str(self.slatm_parameters['slatm_dgrid2']))
+
+        if not is_positive(self.slatm_parameters['slatm_rcut']):
+            raise InputError("Expected positive float for variable 'slatm_rcut'. Got %s." % str(self.slatm_parameters['slatm_rcut']))
+
+        if not is_non_zero_integer(self.slatm_parameters['slatm_rpower']):
+            raise InputError("Expected non-zero integer for variable 'slatm_rpower'. Got %s." % str(self.slatm_parameters['slatm_rpower']))
+
+        if not is_bool(self.slatm_parameters['slatm_alchemy']):
+            raise InputError("Expected boolean value for variable 'slatm_alchemy'. Got %s." % str(self.slatm_parameters['slatm_alchemy']))
+
+    def _check_acsf_values(self):
+        """
+        This function checks that the user input values to acsf make sense.
+        :return: None
+        """
+
+        if not is_positive(self.acsf_parameters['radial_cutoff']):
+            raise InputError("Expected positive float for variable 'radial_cutoff'. Got %s." % str(self.acsf_parameters['radial_cutoff']))
+
+        if not is_positive(self.acsf_parameters['angular_cutoff']):
+            raise InputError("Expected positive float for variable 'angular_cutoff'. Got %s." % str(self.acsf_parameters['angular_cutoff']))
+
+        if not is_numeric_array(self.acsf_parameters['radial_rs']):
+            raise InputError("Expecting an array like radial_rs. Got %s." % (self.acsf_parameters['radial_rs']) )
+        if not len(self.acsf_parameters['radial_rs'])>0:
+            raise InputError("No radial_rs values were given." )
+
+        if not is_numeric_array(self.acsf_parameters['angular_rs']):
+            raise InputError("Expecting an array like angular_rs. Got %s." % (self.acsf_parameters['angular_rs']) )
+        if not len(self.acsf_parameters['angular_rs'])>0:
+            raise InputError("No angular_rs values were given." )
+
+        if not is_numeric_array(self.acsf_parameters['theta_s']):
+            raise InputError("Expecting an array like theta_s. Got %s." % (self.acsf_parameters['theta_s']) )
+        if not len(self.acsf_parameters['theta_s'])>0:
+            raise InputError("No theta_s values were given. " )
+
+        if is_numeric_array(self.acsf_parameters['eta']):
+            raise InputError("Expecting a scalar value for eta. Got %s." % (self.acsf_parameters['eta']))
+
+        if is_numeric_array(self.acsf_parameters['zeta']):
+            raise InputError("Expecting a scalar value for zeta. Got %s." % (self.acsf_parameters['zeta']))
+
+    def _get_msize(self, pad = 0):
+        """
+        Gets the maximum number of atoms in a single molecule. To support larger molecules
+        an optional padding can be added by the ``pad`` variable.
+
+        :param pad: Add an integer padding to the returned dictionary
+        :type pad: integer
+
+        :return: largest molecule with respect to number of atoms.
+        :rtype: integer
+
+        """
+
+        if self.compounds.size == 0:
+            raise RuntimeError("QML compounds have not been generated")
+        if not is_positive_integer_or_zero(pad):
+            raise InputError("Expected variable 'pad' to be a positive integer or zero. Got %s" % str(pad))
+
+        nmax = max(mol.natoms for mol in self.compounds)
+
+        return nmax + pad
+
+    def _get_asize(self, pad = 0):
+        """
+        Gets the maximum occurrences of each element in a single molecule. To support larger molecules
+        an optional padding can be added by the ``pad`` variable.
+
+        :param pad: Add an integer padding to the returned dictionary
+        :type pad: integer
+
+        :return: dictionary of the maximum number of occurences of each element in a single molecule.
+        :rtype: dictionary
+
+        """
+
+        if self.compounds.size == 0:
+            raise RuntimeError("QML compounds have not been generated")
+        if not is_positive_integer_or_zero(pad):
+            raise InputError("Expected variable 'pad' to be a positive integer or zero. Got %s" % str(pad))
+
+        asize = {}
+
+        for mol in self.compounds:
+            for key, value in mol.natypes.items():
+                if key not in asize:
+                    asize[key] = value + pad
+                    continue
+                asize[key] = max(asize[key], value + pad)
+
+        return asize
+
+    def _get_slatm_mbtypes(self, arr):
+        from qml.representations import get_slatm_mbtypes
+        return get_slatm_mbtypes(arr)
 
     def _check_inputs(self, x, y, dy, classes):
         """
@@ -690,7 +930,7 @@ class _NN(object):
         :type classes: None or numpy array of ints of shape (n_samples, n_atoms)
         :return:
         """
-
+        
         if not is_array_like(x):
             raise InputError("x should be an array either containing indices or data.")
 
@@ -704,9 +944,8 @@ class _NN(object):
 
             approved_x = self._get_xyz_from_compounds(x)
             approved_y = self._get_properties(x)
-
-            #TODO need to check if compoundspass indices!!
-            approved_dy, approved_classes = check_dy_classes(dy, classes)
+            approved_classes = self._get_classes(x)
+            approved_dy = check_dy(dy)
 
             check_sizes(approved_x, approved_y, approved_dy, approved_classes)
 
@@ -717,8 +956,8 @@ class _NN(object):
 
             approved_x = check_x(x)
             approved_y = check_y(y)
-
-            approved_dy, approved_classes = check_dy_classes(dy, classes)
+            approved_dy = check_dy(dy)
+            approved_classes = check_classes(classes)
 
             check_sizes(approved_x, approved_y, approved_dy, approved_classes)
 
@@ -766,6 +1005,33 @@ class _NN(object):
 
         return np.atleast_2d(self.properties[indices]).T
 
+    def _get_classes(self, indices):
+        """
+        This returns the classes that have been set through QML.
+
+        :param indices: The indices of the properties to return
+        :type indices: numpy array of ints of shape (n_samples, )
+        :return: numpy array of shape (n_samples, n_atoms)
+        """
+
+        zs = []
+        max_n_atoms = 0
+
+        for compound in self.compounds[indices]:
+            zs.append(compound.nuclear_charges)
+            if len(compound.nuclear_charges) > max_n_atoms:
+                max_n_atoms = len(compound.nuclear_charges)
+
+        # Padding so that all the samples have the same shape
+        n_samples = len(zs)
+        for i in range(n_samples):
+            current_n_atoms = len(zs[i])
+            missing_n_atoms = max_n_atoms - current_n_atoms
+            zs_padding = np.zeros(missing_n_atoms)
+            zs[i] = np.concatenate((zs[i], zs_padding))
+
+        return np.asarray(zs, dtype=np.float32)
+
     def predict(self, x):
         """
         This function calls the predict function for either ARMP or MRMP.
@@ -798,7 +1064,7 @@ class MRMP(_NN):
         activation_function = tf.sigmoid, optimiser = tf.train.AdamOptimizer, beta1 = 0.9, beta2 = 0.999, epsilon = 1e-08,
         rho = 0.95, initial_accumulator_value = 0.1, initial_gradient_squared_accumulator_value = 0.1,
         l1_regularization_strength = 0.0, l2_regularization_strength = 0.0,
-        tensorboard_subdir = os.getcwd() + '/tensorboard'):
+        tensorboard_subdir = os.getcwd() + '/tensorboard', representation='coulomb_matrix', descriptor_params=None):
         """
         Descriptors is used as input to a single or multi layered feed-forward neural network with a single output.
         This class inherits from the _NN class and all inputs not unique to the NN class is passed to the _NN
@@ -811,6 +1077,110 @@ class MRMP(_NN):
                  activation_function, optimiser, beta1, beta2, epsilon,
                  rho, initial_accumulator_value, initial_gradient_squared_accumulator_value,
                  l1_regularization_strength,l2_regularization_strength, tensorboard_subdir)
+
+        self._set_representation(representation, descriptor_params)
+
+    def _set_representation(self, representation, parameters):
+        """
+        This function sets the representation and the parameters of the representation.
+
+        :param representation: the name of the representation
+        :type representation: string
+        :param parameters: all the parameters of the descriptor.
+        :type parameters: dictionary
+        :return: None
+        """
+
+        if not is_string(representation):
+            raise InputError("Expected string for variable 'representation'. Got %s" % str(representation))
+        if representation.lower() not in ['sorted_coulomb_matrix', 'unsorted_coulomb_matrix', 'bag_of_bonds', 'slatm']:
+            raise InputError("Unknown representation %s" % representation)
+        self.representation = representation.lower()
+
+        if not is_none(parameters):
+            if not type(parameters) is dict:
+                raise InputError("The descriptor parameters passed should be either None or a dictionary.")
+
+        if self.representation == 'slatm':
+
+            self.slatm_parameters = {'slatm_sigma1': 0.05, 'slatm_sigma2': 0.05, 'slatm_dgrid1': 0.03, 'slatm_dgrid2': 0.03,
+                                'slatm_rcut': 4.8, 'slatm_rpower': 6, 'slatm_alchemy': False}
+
+            if not is_none(parameters):
+                for key, value in parameters.items():
+                    if key in self.slatm_parameters:
+                        self.slatm_parameters[key] = value
+
+                self._check_slatm_values()
+
+    def _generate_descriptors_from_data(self, xyz, nuclear_charges):
+        """
+        This function makes the descriptor from xyz data and nuclear charges.
+        :param xyz: cartesian coordinates
+        :type xyz: numpy array of shape (n_samples, n_atoms, 3)
+        :param nuclear_charges: nuclear charges
+        :type nuclear_charges: numpy array of shape (n_samples, n_atoms)
+        :return: None
+        """
+        # TODO implement
+        raise InputError("Not implemented yet. Use compounds.")
+
+    # TODO Modify so that it also works for data set with different molecules
+    def _generate_descriptors_from_compounds(self):
+        """
+        This function generates the descriptors from the compounds.
+        :return: None
+        """
+
+        if is_none(self.compounds):
+            raise InputError("QML compounds needs to be created in advance")
+
+        n_samples = len(self.compounds)
+
+        if self.representation == 'unsorted_coulomb_matrix':
+
+            nmax = self._get_msize()
+            representation_size = (nmax*(nmax+1))//2
+            x = np.empty((n_samples, representation_size), dtype=float)
+            for i, mol in enumerate(self.compounds):
+                mol.generate_coulomb_matrix(size = nmax, sorting = "unsorted")
+                x[i] = mol.representation
+
+        elif self.representation == 'sorted_coulomb_matrix':
+
+            nmax = self._get_msize()
+            representation_size = (nmax*(nmax+1))//2
+            x = np.empty((n_samples, representation_size), dtype=float)
+            for i, mol in enumerate(self.compounds):
+                mol.generate_coulomb_matrix(size = nmax, sorting = "row-norm")
+                x[i] = mol.representation
+
+        elif self.representation == "bag_of_bonds":
+            asize = self._get_asize()
+            x = np.empty(n_samples, dtype=object)
+            for i, mol in enumerate(self.compounds):
+                mol.generate_bob(asize = asize)
+                x[i] = mol.representation
+            x = np.asarray(list(x), dtype=float)
+
+        elif self.representation == "slatm":
+            mbtypes = self._get_slatm_mbtypes([mol.nuclear_charges for mol in self.compounds])
+            x = np.empty(n_samples, dtype=object)
+            for i, mol in enumerate(self.compounds):
+                mol.generate_slatm(mbtypes, local = False, sigmas = [self.slatm_parameters['slatm_sigma1'],
+                                                                     self.slatm_parameters['slatm_sigma2']],
+                        dgrids = [self.slatm_parameters['slatm_dgrid1'], self.slatm_parameters['slatm_dgrid2']],
+                                   rcut = self.slatm_parameters['slatm_rcut'],
+                                   alchemy = self.slatm_parameters['slatm_alchemy'],
+                        rpower = self.slatm_parameters['slatm_rpower'])
+                x[i] = mol.representation
+            x = np.asarray(list(x), dtype=float)
+
+        else:
+
+            raise InputError("This should never happen. Unrecognised representation. Got %s." % str(self.representation))
+
+        self.descriptor = x
 
     #TODO upgrade so that this uses tf.Dataset like the ARMP class
     def _fit(self, x, y, dy, classes):
@@ -1096,14 +1466,336 @@ class ARMP(_NN):
     such as the energies.
     """
 
-    def __init__(self, **kwargs):
+    def __init__(self, hidden_layer_sizes = (5,), l1_reg = 0.0, l2_reg = 0.0001, batch_size = 'auto', learning_rate = 0.001,
+        iterations = 500, tensorboard = False, store_frequency = 200, tf_dtype = tf.float32, scoring_function = 'mae',
+        activation_function = tf.sigmoid, optimiser = tf.train.AdamOptimizer, beta1 = 0.9, beta2 = 0.999, epsilon = 1e-08,
+        rho = 0.95, initial_accumulator_value = 0.1, initial_gradient_squared_accumulator_value = 0.1,
+        l1_regularization_strength = 0.0, l2_regularization_strength = 0.0,
+        tensorboard_subdir = os.getcwd() + '/tensorboard', representation='coulomb_matrix', descriptor_params=None):
         """
         To see what parameters are required, look at the description of the _NN class init.
         This class inherits from the _NN class and all inputs not unique to the ARMP class are passed to the _NN
         parent.
         """
 
-        super(ARMP, self).__init__(**kwargs)
+        super(ARMP, self).__init__(hidden_layer_sizes, l1_reg, l2_reg, batch_size, learning_rate,
+                 iterations, tensorboard, store_frequency, tf_dtype, scoring_function,
+                 activation_function, optimiser, beta1, beta2, epsilon,
+                 rho, initial_accumulator_value, initial_gradient_squared_accumulator_value,
+                 l1_regularization_strength,l2_regularization_strength, tensorboard_subdir)
+
+        self._set_representation(representation, descriptor_params)
+
+    def _set_representation(self, representation, parameters):
+        """
+        This function sets the representation and the parameters of the representation.
+
+        :param representation: the name of the representation
+        :type representation: string
+        :param parameters: all the parameters of the descriptor.
+        :type parameters: dictionary
+        :return: None
+        """
+
+        if not is_string(representation):
+            raise InputError("Expected string for variable 'representation'. Got %s" % str(representation))
+        if representation.lower() not in ['slatm', 'acsf']:
+            raise InputError("Unknown representation %s" % representation)
+        self.representation = representation.lower()
+
+        if not is_none(parameters):
+            if not type(parameters) is dict:
+                raise InputError("The descriptor parameters passed should be either None or a dictionary.")
+
+        if self.representation == 'slatm':
+
+            self.slatm_parameters = {'slatm_sigma1': 0.05, 'slatm_sigma2': 0.05, 'slatm_dgrid1': 0.03, 'slatm_dgrid2': 0.03,
+                                'slatm_rcut': 4.8, 'slatm_rpower': 6, 'slatm_alchemy': False}
+
+            if not is_none(parameters):
+                for key, value in parameters.items():
+                    if key in self.slatm_parameters:
+                        self.slatm_parameters[key] = value
+
+                self._check_slatm_values()
+
+        elif self.representation == 'acsf':
+
+            self.acsf_parameters = {'radial_cutoff': 10.0, 'angular_cutoff':10.0, 'radial_rs':(0.0, 0.1, 0.2),
+                                    'angular_rs':(0.0, 0.1, 0.2), 'theta_s':(3.0, 2.0), 'zeta':3.0, 'eta':2.0}
+
+            if not is_none(parameters):
+                for key, value in parameters.items():
+                    if key in self.acsf_parameters:
+                        self.acsf_parameters[key] = value
+
+                self._check_acsf_values()
+
+    def _generate_descriptors_from_data(self, xyz, classes):
+        """
+        This function generate the slatm and the acsf from xyz data and classes data
+        :param xyz:
+        :param classes:
+        :return:
+        """
+
+        descriptor = None
+
+        if self.representation == 'slatm':
+            # TODO implement
+            raise InputError("Slatm from data has not been implemented yet. Use Compounds.")
+
+        elif self.representation == 'acsf':
+
+            descriptor = self._generate_acsf_from_data(xyz, classes)
+
+        return descriptor
+
+    def _generate_acsf_from_data(self, xyz, nuclear_charges):
+        mbtypes = representations.get_slatm_mbtypes([nuclear_charges[i] for i in range(nuclear_charges.shape[0])])
+
+        elements = []
+        element_pairs = []
+
+        # Splitting the one and two body interactions in mbtypes
+        for item in mbtypes:
+            if len(item) == 1:
+                elements.append(item[0])
+            if len(item) == 2:
+                element_pairs.append(list(item))
+            if len(item) == 3:
+                break
+
+        # Need the element pairs in descending order for TF
+        for item in element_pairs:
+            item.reverse()
+
+        run_metadata = tf.RunMetadata()
+        options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
+
+        n_samples = xyz.shape[0]
+        max_n_atoms = xyz.shape[1]
+
+        # Turning the quantities into tensors
+        with tf.name_scope("Inputs"):
+            zs_tf = tf.placeholder(shape=[n_samples, max_n_atoms], dtype=tf.int32, name="zs")
+            xyz_tf = tf.placeholder(shape=[n_samples, max_n_atoms, 3], dtype=tf.float32, name="xyz")
+
+            dataset = tf.data.Dataset.from_tensor_slices((xyz_tf, zs_tf))
+            dataset = dataset.batch(20)
+            iterator = tf.data.Iterator.from_structure(dataset.output_types, dataset.output_shapes)
+            batch_xyz, batch_zs = iterator.get_next()
+
+        descriptor = generate_parkhill_acsf(xyzs=batch_xyz, Zs=batch_zs, elements=elements, element_pairs=element_pairs,
+                                            radial_cutoff=self.acsf_parameters['radial_cutoff'],
+                                            angular_cutoff=self.acsf_parameters['angular_cutoff'],
+                                            radial_rs=self.acsf_parameters['radial_rs'],
+                                            angular_rs=self.acsf_parameters['angular_rs'],
+                                            theta_s=self.acsf_parameters['theta_s'], eta=self.acsf_parameters['eta'],
+                                            zeta=self.acsf_parameters['zeta'])
+
+        sess = tf.Session()
+        sess.run(tf.global_variables_initializer())
+        sess.run(iterator.make_initializer(dataset), feed_dict={xyz_tf: xyz, zs_tf: nuclear_charges})
+
+        descriptor_slices = []
+
+        if self.tensorboard:
+            summary_writer = tf.summary.FileWriter(logdir="tensorboard", graph=sess.graph)
+
+            batch_counter = 0
+            while True:
+                try:
+                    descriptor_np = sess.run(descriptor, options=options, run_metadata=run_metadata)
+                    summary_writer.add_run_metadata(run_metadata=run_metadata, tag="batch %s" % batch_counter,
+                                                    global_step=None)
+                    descriptor_slices.append(descriptor_np)
+                    batch_counter += 1
+                except tf.errors.OutOfRangeError:
+                    print("Generated all the descriptors.")
+                    break
+        else:
+            batch_counter = 0
+            while True:
+                try:
+                    descriptor_np = sess.run(descriptor)
+                    descriptor_slices.append(descriptor_np)
+                    batch_counter += 1
+                except tf.errors.OutOfRangeError:
+                    print("Generated all the descriptors.")
+                    break
+
+        descriptor_conc = np.concatenate(descriptor_slices, axis=0)
+        print(descriptor_conc.shape)
+
+        sess.close()
+
+        return descriptor_conc
+
+    def _generate_descriptor_from_compounds(self):
+        """
+        This function generates the descriptors from the compounds.
+        :return: None
+        """
+
+        if is_none(self.compounds):
+            raise InputError("QML compounds needs to be created in advance")
+
+        if self.representation == 'slatm':
+
+            self.descriptor, self.classes = self._generate_slatm_from_compounds()
+
+        if self.representation == 'acsf':
+
+            self.descriptor, self.classes = self._generate_acsf_from_compounds()
+
+    def _generate_acsf_from_compounds(self):
+        """
+        This function generates the atom centred symmetry functions.
+
+        :param batch_size: int - the size of the batches in which to divide the dataset to make the descriptor
+        :return: numpy array of shape (n_samples, n_max_atoms, n_features) and (n_samples, n_atoms)
+        """
+
+        # Obtaining the total elements and the element pairs
+        mbtypes = representations.get_slatm_mbtypes([mol.nuclear_charges for mol in self.compounds])
+
+        elements = []
+        element_pairs = []
+
+        # Splitting the one and two body interactions in mbtypes
+        for item in mbtypes:
+            if len(item) == 1:
+                elements.append(item[0])
+            if len(item) == 2:
+                element_pairs.append(list(item))
+            if len(item) == 3:
+                break
+
+        # Need the element pairs in descending order for TF
+        for item in element_pairs:
+            item.reverse()
+
+        # Obtaining the xyz and the nuclear charges
+        xyzs = []
+        zs = []
+        max_n_atoms = 0
+
+        for compound in self.compounds:
+            xyzs.append(compound.coordinates)
+            zs.append(compound.nuclear_charges)
+            if len(compound.nuclear_charges) > max_n_atoms:
+                max_n_atoms = len(compound.nuclear_charges)
+
+        # Padding so that all the samples have the same shape
+        n_samples = len(zs)
+        for i in range(n_samples):
+            current_n_atoms = len(zs[i])
+            missing_n_atoms = max_n_atoms - current_n_atoms
+            zs_padding = np.zeros(missing_n_atoms)
+            zs[i] = np.concatenate((zs[i], zs_padding))
+            xyz_padding = np.zeros((missing_n_atoms, 3))
+            xyzs[i] = np.concatenate((xyzs[i], xyz_padding))
+
+        zs = np.asarray(zs, dtype=np.int32)
+        xyzs = np.asarray(xyzs, dtype=np.float32)
+
+        # # Uncomment to get memory and compute time in tensorboard
+        run_metadata = tf.RunMetadata()
+        options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
+
+        # Turning the quantities into tensors
+        with tf.name_scope("Inputs"):
+            zs_tf = tf.placeholder(shape=[n_samples, max_n_atoms], dtype=tf.int32, name="zs")
+            xyz_tf = tf.placeholder(shape=[n_samples, max_n_atoms, 3], dtype=tf.float32, name="xyz")
+
+            dataset = tf.data.Dataset.from_tensor_slices((xyz_tf, zs_tf))
+            dataset = dataset.batch(20)
+            iterator = tf.data.Iterator.from_structure(dataset.output_types, dataset.output_shapes)
+            batch_xyz, batch_zs = iterator.get_next()
+
+        descriptor = generate_parkhill_acsf(xyzs=batch_xyz, Zs=batch_zs, elements=elements, element_pairs=element_pairs,
+                                            radial_cutoff=self.acsf_parameters['radial_cutoff'],
+                                            angular_cutoff=self.acsf_parameters['angular_cutoff'],
+                                            radial_rs=self.acsf_parameters['radial_rs'],
+                                            angular_rs=self.acsf_parameters['angular_rs'],
+                                            theta_s=self.acsf_parameters['theta_s'], eta=self.acsf_parameters['eta'],
+                                            zeta=self.acsf_parameters['zeta'])
+
+        sess = tf.Session()
+        sess.run(tf.global_variables_initializer())
+        sess.run(iterator.make_initializer(dataset), feed_dict={xyz_tf: xyzs, zs_tf: zs})
+
+        descriptor_slices = []
+
+        if self.tensorboard:
+            summary_writer = tf.summary.FileWriter(logdir="tensorboard", graph=sess.graph)
+
+            batch_counter = 0
+            while True:
+                try:
+                    descriptor_np = sess.run(descriptor, options=options, run_metadata=run_metadata)
+                    summary_writer.add_run_metadata(run_metadata=run_metadata, tag="batch %s" % batch_counter,
+                                                    global_step=None)
+                    descriptor_slices.append(descriptor_np)
+                    batch_counter += 1
+                except tf.errors.OutOfRangeError:
+                    print("Generated all the descriptors.")
+                    break
+        else:
+            batch_counter = 0
+            while True:
+                try:
+                    descriptor_np = sess.run(descriptor)
+                    descriptor_slices.append(descriptor_np)
+                    batch_counter += 1
+                except tf.errors.OutOfRangeError:
+                    print("Generated all the descriptors.")
+                    break
+
+        descriptor_conc = np.concatenate(descriptor_slices, axis=0)
+        print(descriptor_conc.shape)
+
+        sess.close()
+
+        return descriptor_conc, zs
+
+    def _generate_slatm_from_compounds(self):
+        """
+        This function generates the slatm using the data in the compounds
+        :return: descriptor and classes
+        """
+        mbtypes = representations.get_slatm_mbtypes([mol.nuclear_charges for mol in self.compounds])
+        list_descriptors = []
+        max_n_atoms = 0
+
+        # Generating the descriptor in the shape that ARMP requires it
+        for compound in self.compounds:
+            compound.generate_slatm(mbtypes, local=False, sigmas=[self.slatm_parameters['slatm_sigma1'],
+                                                                  self.slatm_parameters['slatm_sigma2']],
+                                    dgrids=[self.slatm_parameters['slatm_dgrid1'],
+                                            self.slatm_parameters['slatm_dgrid2']],
+                                    rcut=self.slatm_parameters['slatm_rcut'],
+                                    alchemy=self.slatm_parameters['slatm_alchemy'],
+                                    rpower=self.slatm_parameters['slatm_rpower'])
+            descriptor = compound.representation
+            if max_n_atoms < descriptor.shape[0]:
+                max_n_atoms = descriptor.shape[0]
+            list_descriptors.append(descriptor)
+
+        # Padding the descriptors of the molecules that have fewer atoms
+        n_samples = len(list_descriptors)
+        n_features = list_descriptors[0].shape[1]
+        padded_descriptors = np.zeros((n_samples, max_n_atoms, n_features))
+        for i, item in enumerate(list_descriptors):
+            padded_descriptors[i, :item.shape[0], :] = item
+
+        # Generating zs in the shape that ARMP requires it
+        zs = np.zeros((n_samples, max_n_atoms))
+        for i, mol in enumerate(self.compounds):
+            zs[i, :mol.nuclear_charges.shape[0]] = mol.nuclear_charges
+
+        return padded_descriptors, zs
 
     def _atomic_model(self, x, hidden_layer_sizes, weights, biases):
         """

@@ -118,13 +118,15 @@ def check_sizes(x, y, dy, classes):
     :return: None
     """
 
-    if x.shape[0] != y.shape[0] or x.shape[0] != dy.shape[0] or x.shape[0] != classes.shape[0]:
-        raise InputError("All x, y, dy and classes should have the first number of elements in the first dimension. Got "
-                         "%s, %s, %s and %s" % (x.shape[0], y.shape[0], dy.shape[0], classes.shape[0]))
+    if is_none(dy) and is_none(classes):
 
-    if x.shape[1] != dy.shape[1] or x.shape[1] != classes.shape[1]:
-        raise InputError("x, dy and classes should have the same number of elements in the 2nd dimension. Got %s, %s "
-                         "and %s" % (x.shape[1], dy.shape[1], classes.shape[1]))
+        if x.shape[0] != y.shape[0] or x.shape[0] != dy.shape[0] or x.shape[0] != classes.shape[0]:
+            raise InputError("All x, y, dy and classes should have the first number of elements in the first dimension. Got "
+                             "%s, %s, %s and %s" % (x.shape[0], y.shape[0], dy.shape[0], classes.shape[0]))
+
+        if x.shape[1] != dy.shape[1] or x.shape[1] != classes.shape[1]:
+            raise InputError("x, dy and classes should have the same number of elements in the 2nd dimension. Got %s, %s "
+                             "and %s" % (x.shape[1], dy.shape[1], classes.shape[1]))
 
 def check_dy(dy):
     """
@@ -134,18 +136,23 @@ def check_dy(dy):
     :return: numpy array of floats of shape (n_samples, n_atoms, 3)
     """
 
-    if not is_array_like(dy):
-        raise InputError("dy should be array like.")
+    if is_none(dy):
+        approved_dy = dy
+    else:
+        if not is_array_like(dy):
+            raise InputError("dy should be array like.")
 
-    dy = np.asarray(dy)
+        dy = np.asarray(dy)
 
-    if len(dy.shape) != 3:
-        raise InputError("dy should be an array with 3 dimensions. Got %s" % (len(dy.shape)))
+        if len(dy.shape) != 3:
+            raise InputError("dy should be an array with 3 dimensions. Got %s" % (len(dy.shape)))
 
-    if dy.shape[-1] != 3:
-        raise InputError("The last dimension of the array dy should be 3. Got %s" % (dy.shape[-1]))
+        if dy.shape[-1] != 3:
+            raise InputError("The last dimension of the array dy should be 3. Got %s" % (dy.shape[-1]))
 
-    return dy
+        approved_dy = dy
+
+    return approved_dy
 
 def check_classes(classes):
     """
@@ -154,44 +161,22 @@ def check_classes(classes):
     :return: numpy array of ints of shape (n_samples, n_atoms)
     """
 
-    # TODO modify so that you can chose if you want to use the nuclear charges as classes or another property
-
-    if not is_array_like(classes):
-        raise InputError("classes should be array like.")
-
-    if not is_positive_integer_array(classes):
-        raise InputError("classes should be an array of ints.")
-
-    classes = np.asarray(classes)
-
-    if len(classes.shape) != 2:
-        raise InputError("classes should be an array with 2 dimensions. Got %s" % (len(classes.shape)))
-
-    return classes
-
-def check_dy_classes(dy, classes):
-    """
-    This function checks whether dy and classes are none. If they are not none, then it checks their dimensions.
-
-    :param dy: array like or None
-    :param classes: array like or None
-    :return: array like or None x2
-    """
-    if is_none(dy):
-        approved_dy = dy
-    else:
-        check_dy(dy)
-        approved_dy = dy
-
     if is_none(classes):
         approved_classes = classes
     else:
-        check_classes(classes)
+        if not is_array_like(classes):
+            raise InputError("classes should be array like.")
+
+        if not is_positive_integer_array(classes):
+            raise InputError("classes should be an array of ints.")
+
+        classes = np.asarray(classes)
+
+        if len(classes.shape) != 2:
+            raise InputError("classes should be an array with 2 dimensions. Got %s" % (len(classes.shape)))
         approved_classes = classes
 
-    return approved_dy, approved_classes
-
-
+    return approved_classes
 
 
 
