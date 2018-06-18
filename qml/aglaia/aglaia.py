@@ -9,12 +9,16 @@ import tensorflow as tf
 from sklearn.utils.validation import check_X_y, check_array
 from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
 import matplotlib.pyplot as plt
-from .symm_funct import generate_parkhill_acsf
-
-from .utils import InputError, ceil, is_positive_or_zero, is_positive_integer, is_positive, \
+# from .symm_funct import generate_parkhill_acsf
+from symm_funct import generate_parkhill_acsf
+# from .utils import InputError, ceil, is_positive_or_zero, is_positive_integer, is_positive, \
+#         is_bool, is_positive_integer_or_zero, is_string, is_positive_integer_array, is_array_like, is_none, \
+#         check_x, check_y, check_sizes, check_dy, check_classes, is_numeric_array, is_non_zero_integer
+from utils import InputError, ceil, is_positive_or_zero, is_positive_integer, is_positive, \
         is_bool, is_positive_integer_or_zero, is_string, is_positive_integer_array, is_array_like, is_none, \
         check_x, check_y, check_sizes, check_dy, check_classes, is_numeric_array, is_non_zero_integer
-from .tf_utils import TensorBoardLogger
+
+from tf_utils import TensorBoardLogger
 
 try:
     from qml import Compound, representations
@@ -114,6 +118,7 @@ class _NN(object):
         self.optimiser = self._set_optimiser_type(optimiser)
 
         # Placholder variables for data
+        self.compounds = None
         self.descriptor = None
         self.properties = None
         self.gradients = None
@@ -706,7 +711,8 @@ class _NN(object):
         """
 
         if is_none(self.compounds) and is_none(xyz) and is_none(classes):
-            raise InputError("QML compounds needs to be created in advance or Cartesian coordinates need to be passed.")
+            raise InputError("QML compounds need to be created in advance or Cartesian coordinates need to be passed in "
+                             "order to generate the descriptor.")
 
         if is_none(self.compounds):
             # Make descriptors from xyz
@@ -749,7 +755,7 @@ class _NN(object):
             raise InputError("Descriptor cannot be set to none.")
         else:
             if is_numeric_array(descriptors):
-                self.descriptor = np.asarray(descriptors)
+                self._set_descriptor(descriptors)
             else:
                 raise InputError('Variable "descriptor" expected to be array like.')
 
@@ -1064,7 +1070,7 @@ class MRMP(_NN):
         activation_function = tf.sigmoid, optimiser = tf.train.AdamOptimizer, beta1 = 0.9, beta2 = 0.999, epsilon = 1e-08,
         rho = 0.95, initial_accumulator_value = 0.1, initial_gradient_squared_accumulator_value = 0.1,
         l1_regularization_strength = 0.0, l2_regularization_strength = 0.0,
-        tensorboard_subdir = os.getcwd() + '/tensorboard', representation='coulomb_matrix', descriptor_params=None):
+        tensorboard_subdir = os.getcwd() + '/tensorboard', representation='unsorted_coulomb_matrix', descriptor_params=None):
         """
         Descriptors is used as input to a single or multi layered feed-forward neural network with a single output.
         This class inherits from the _NN class and all inputs not unique to the NN class is passed to the _NN
@@ -1113,6 +1119,13 @@ class MRMP(_NN):
 
                 self._check_slatm_values()
 
+    def _set_descriptor(self, descriptor):
+
+        if len(descriptor.shape) != 2:
+            raise InputError("The descriptor should have a shape (n_samples, n_features). Got %s" % (str(descriptor.shape)))
+
+        self.descriptor = descriptor
+
     def _generate_descriptors_from_data(self, xyz, nuclear_charges):
         """
         This function makes the descriptor from xyz data and nuclear charges.
@@ -1133,7 +1146,7 @@ class MRMP(_NN):
         """
 
         if is_none(self.compounds):
-            raise InputError("QML compounds needs to be created in advance")
+            raise InputError("This should never happen.")
 
         n_samples = len(self.compounds)
 
@@ -1180,7 +1193,7 @@ class MRMP(_NN):
 
             raise InputError("This should never happen. Unrecognised representation. Got %s." % str(self.representation))
 
-        self.descriptor = x
+        return x, None
 
     #TODO upgrade so that this uses tf.Dataset like the ARMP class
     def _fit(self, x, y, dy, classes):
@@ -1471,7 +1484,7 @@ class ARMP(_NN):
         activation_function = tf.sigmoid, optimiser = tf.train.AdamOptimizer, beta1 = 0.9, beta2 = 0.999, epsilon = 1e-08,
         rho = 0.95, initial_accumulator_value = 0.1, initial_gradient_squared_accumulator_value = 0.1,
         l1_regularization_strength = 0.0, l2_regularization_strength = 0.0,
-        tensorboard_subdir = os.getcwd() + '/tensorboard', representation='coulomb_matrix', descriptor_params=None):
+        tensorboard_subdir = os.getcwd() + '/tensorboard', representation='acsf', descriptor_params=None):
         """
         To see what parameters are required, look at the description of the _NN class init.
         This class inherits from the _NN class and all inputs not unique to the ARMP class are passed to the _NN
@@ -1530,6 +1543,14 @@ class ARMP(_NN):
                         self.acsf_parameters[key] = value
 
                 self._check_acsf_values()
+
+    def _set_descriptor(self, descriptor):
+
+        if len(descriptor.shape) != 3:
+            raise InputError(
+                "The descriptor should have a shape (n_samples, n_atoms, n_features). Got %s" % (str(descriptor.shape)))
+
+        self.descriptor = descriptor
 
     def _generate_descriptors_from_data(self, xyz, classes):
         """
