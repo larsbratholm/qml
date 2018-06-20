@@ -71,7 +71,7 @@ def is_positive_integer_or_zero_array(x):
 
 # ------------- ** Checking inputs ** --------------------------
 
-def check_x(x):
+def check_global_descriptor(x):
     """
     This function checks that the data passed through x corresponds to xyz coordinates in a numpy array of shape
     (n_samples, n_atoms, 3) containing floats.
@@ -85,11 +85,8 @@ def check_x(x):
 
     x = np.asarray(x)
 
-    if len(x.shape) != 3:
-        raise InputError("x should be an array with 3 dimensions. Got %s" % (len(x.shape)))
-
-    if x.shape[-1] != 3:
-        raise InputError("The last dimension of the array x should be 3. Got %s" % (x.shape[-1]))
+    if len(x.shape) != 2:
+        raise InputError("x should be an array with 2 dimensions. Got %s" % (len(x.shape)))
 
     return x
 
@@ -119,6 +116,11 @@ def check_sizes(x, y, dy, classes):
     """
 
     if is_none(dy) and is_none(classes):
+
+        if x.shape[0] != y.shape[0]:
+            raise InputError("The descriptor and the properties should have the same first number of elements in the "
+                             "first dimension. Got %s and %s" % (x.shape[0], y.shape[0]))
+    else:
 
         if x.shape[0] != y.shape[0] or x.shape[0] != dy.shape[0] or x.shape[0] != classes.shape[0]:
             raise InputError("All x, y, dy and classes should have the first number of elements in the first dimension. Got "

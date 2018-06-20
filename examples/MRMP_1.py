@@ -16,9 +16,30 @@ filenames.sort()
 
 ## ------------- ** Setting up the estimator ** ---------------
 
-estimator = aglaia.MRMP(representation='unsorted_coulomb_matrix')
+estimator = aglaia.MRMP(representation='slatm', descriptor_params={'slatm_dgrid2': 0.06, 'slatm_dgrid1': 0.06})
 
 estimator.generate_compounds(filenames[:100])
 estimator.set_properties(energies[:100])
 
 estimator.generate_descriptors()
+
+##  ------------- ** Fitting to the data ** ---------------
+
+idx = np.arange(0,100)
+
+estimator.fit(idx)
+
+##  ------------- ** Predicting and scoring ** ---------------
+
+score = estimator.score(idx)
+
+print("The mean absolute error is %s kJ/mol." % (str(-score)))
+
+energies_predict = estimator.predict(idx)
+
+## ------------- ** Correlation plot ** ---------------
+
+import matplotlib.pyplot as plt
+
+plt.scatter(energies[:100], energies_predict)
+plt.show()

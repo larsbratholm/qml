@@ -1,5 +1,5 @@
 """
-This script shows how to set up the MRMP estimator where the descriptor is set directly and stored in the class.
+This script shows how to set up the MRMP estimator where the data to be fitted is passed directly to the fit function.
 """
 
 import aglaia
@@ -15,29 +15,23 @@ energies = data["arr_1"]
 
 ## ------------- ** Setting up the estimator ** ---------------
 
-estimator = aglaia.MRMP(iterations=7000, l2_reg=0.0)
-
-estimator.set_descriptors(descriptors=descriptor)
-estimator.set_properties(energies)
+estimator = aglaia.MRMP()
 
 ##  ------------- ** Fitting to the data ** ---------------
 
-idx = np.arange(0,100)
-
-estimator.fit(idx)
+estimator.fit(descriptor, energies)
 
 ##  ------------- ** Predicting and scoring ** ---------------
 
-score = estimator.score(idx)
+score = estimator.score(descriptor, energies)
 
 print("The mean absolute error is %s kJ/mol." % (str(-score)))
 
-energies_predict = estimator.predict(idx)
+energies_predict = estimator.predict(descriptor)
 
 ## ------------- ** Correlation plot ** ---------------
 
 import matplotlib.pyplot as plt
 
-plt.scatter(energies[:100], energies_predict)
+plt.scatter(energies, energies_predict)
 plt.show()
-

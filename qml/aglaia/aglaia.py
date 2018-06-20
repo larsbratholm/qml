@@ -16,7 +16,8 @@ from symm_funct import generate_parkhill_acsf
 #         check_x, check_y, check_sizes, check_dy, check_classes, is_numeric_array, is_non_zero_integer
 from utils import InputError, ceil, is_positive_or_zero, is_positive_integer, is_positive, \
         is_bool, is_positive_integer_or_zero, is_string, is_positive_integer_array, is_array_like, is_none, \
-        check_x, check_y, check_sizes, check_dy, check_classes, is_numeric_array, is_non_zero_integer
+        check_global_descriptor, check_y, check_sizes, check_dy, check_classes, is_numeric_array, is_non_zero_integer, \
+    is_positive_integer_or_zero_array
 
 from tf_utils import TensorBoardLogger
 
@@ -632,49 +633,51 @@ class _NN(object):
                 else:
                     raise InputError("Wrong data type of variable 'filename'. Expected string")
 
-    def score(self, *args):
+    def score(self, x, y=None, dy=None, classes=None):
         """
         This function calls the appropriate function to score the model. One needs to pass a descriptor and some
-        properties to it.
+        properties to it or alternatively if the compounds/descriptors and the properties are stored in the class one
+        can pass indices.
 
-        For MRMP, the parameters should be:
-        :param x: The molecular descriptor
-        :type x: array of shape (n_samples, n_features)
-        :param y: The target values for each sample in x.
-        :type y: array of shape (n_samples,)
-
-        For ARMP, the arguments should be:
-        :param xzs: List containing the descriptor and the nuclear charges [x, zs]
-        :type xzs: List of length 2 containing two numpy arrays [x, zs]
-        :type x: array of floats of shape (n_samples, n_atoms, n_features)
-        :type zs: array of floats of shape (n_samples, n_atoms)
-        :param y: The molecular properties
-        :type y: array of shape (n_samples,)
-
-        Both MRMP and ARMP can have:
-        :param sample_weight: Weights of the samples. None indicates that that each sample has the same weight.
-        :type sample_weight: array of shape (n_samples,)
+        :param x: either the descriptors or the indices to the descriptors
+        :type x: either a numpy array of shape (n_samples, n_features) or (n_samples, n_atoms, n_features) or a numpy array of ints
+        :param y: either the properties or None
+        :type y: either a numpy array of shape (n_samples,) or None
+        :param dy: either the gradients of the properties or none
+        :type dy: either a numpy array of shape (n_samples, n_atoms, 3) or None
+        :param classes: either the classes to do the NN decomposition or None
+        :type classes: either a numpy array of shape (n_samples, n_atoms) or None
 
         :return: score
         :rtype: float
         """
-        return self._score(*args)
+        return self._score(x, y, dy, classes)
 
     # TODO test
-    def _score(self, *args):
+    def _score(self, x, y=None, dy=None, classes=None):
         """
-        This function calls the appropriate cost function selected by the user. The parameters required are the same as
-        for the score function.
+        This function calls the appropriate function to score the model. One needs to pass a descriptor and some
+        properties to it or alternatively if the compounds/descriptors and the properties are stored in the class one
+        can pass indices.
+
+        :param x: either the descriptors or the indices to the descriptors
+        :type x: either a numpy array of shape (n_samples, n_features) or (n_samples, n_atoms, n_features) or a numpy array of ints
+        :param y: either the properties or None
+        :type y: either a numpy array of shape (n_samples,) or None
+        :param dy: either the gradients of the properties or none
+        :type dy: either a numpy array of shape (n_samples, n_atoms, 3) or None
+        :param classes: either the classes to do the NN decomposition or None
+        :type classes: either a numpy array of shape (n_samples, n_atoms) or None
 
         :return: score
         :rtype: float
         """
         if self.scoring_function == 'mae':
-            return self._score_mae(*args)
+            return self._score_mae(x, y, dy, classes)
         if self.scoring_function == 'rmse':
-            return self._score_rmse(*args)
+            return self._score_rmse(x, y, dy, classes)
         if self.scoring_function == 'r2':
-            return self._score_r2(*args)
+            return self._score_r2(x, y, dy, classes)
 
     def generate_compounds(self, filenames):
         """
@@ -705,7 +708,7 @@ class _NN(object):
 
         :param xyz: cartesian coordinates
         :type xyz: numpy array of shape (n_samples, n_atoms, 3)
-        :param classes: The chemical identity of the atoms in the xyz
+        :param classes: The classes to do the atomic decomposition of the networks (most commonly nuclear charges)
         :type classes: numpy array of shape (n_samples, n_atoms)
         :return: None
         """
@@ -714,12 +717,12 @@ class _NN(object):
             raise InputError("QML compounds need to be created in advance or Cartesian coordinates need to be passed in "
                              "order to generate the descriptor.")
 
-        if is_none(self.compounds):
-            # Make descriptors from xyz
-            if is_none(classes):
-                raise InputError("Nuclear charges are also needed to make the descriptors")
+        if not is_none(self.descriptor):
+            raise InputError("The descriptors have already been set!")
 
-            self.descriptor = self._generate_descriptors_from_data(xyz, classes)
+        if is_none(self.compounds):
+
+            self.descriptor, self. classes = self._generate_descriptors_from_data(xyz, classes)
 
         elif is_none(xyz):
             # Make descriptors from compounds
@@ -751,6 +754,10 @@ class _NN(object):
         :param descriptors: global or local descriptors
         :type descriptors: numpy array of shape (n_samples, n_features) or (n_samples, n_atoms, n_features)
         """
+
+        if not is_none(self.descriptor):
+            raise InputError("The descriptors have already been set!")
+
         if is_none(descriptors):
             raise InputError("Descriptor cannot be set to none.")
         else:
@@ -764,7 +771,7 @@ class _NN(object):
         This function enables to set the gradient information.
 
         :param gradients: The gradients of the properties with respect to the input. For example, forces.
-        :type gradients: numpy array
+        :type gradients: numpy array (for example, numpy array of shape (n_samples, n_atoms, 3))
         :return: None
         """
 
@@ -776,6 +783,7 @@ class _NN(object):
             else:
                 raise InputError('Variable "gradients" expected to be array like.')
 
+    # TODO move to ARMP? MRMP does not neet this function
     def set_classes(self, classes):
         """
         This function stores the classes to be used during training for local networks.
@@ -796,13 +804,16 @@ class _NN(object):
         """
         This function calls the specific fit method of the child classes.
 
-        :param x: The x part of the data
-        :type x: for the MRMP class it should be a numpy array of shape (n_samples, n_features), for ARMP it should be a
-        list containinf a numpy array of shape (n_samples, n_atoms, n_features) and a numpy array of shape
-        (n_samples, n_atoms)
-        :param y: the y part of the data
-        :type y: a numpy array of shape (n_samples,)
-        :return:
+        :param x: either the descriptors or the indices to the descriptors
+        :type x: either a numpy array of shape (n_samples, n_features) or (n_samples, n_atoms, n_features) or a numpy array of ints
+        :param y: either the properties or None
+        :type y: either a numpy array of shape (n_samples,) or None
+        :param dy: either the gradients of the properties or none
+        :type dy: either a numpy array of shape (n_samples, n_atoms, 3) or None
+        :param classes: either the classes to do the NN decomposition or None
+        :type classes: either a numpy array of shape (n_samples, n_atoms) or None
+
+        :return: None
         """
 
         return self._fit(x, y, dy, classes)
@@ -835,7 +846,7 @@ class _NN(object):
 
     def _check_acsf_values(self):
         """
-        This function checks that the user input values to acsf make sense.
+        This function checks that the user input parameters to acsf make sense.
         :return: None
         """
 
@@ -918,56 +929,17 @@ class _NN(object):
         return asize
 
     def _get_slatm_mbtypes(self, arr):
+        """
+        This function takes an array containing all the classes that are present in a data set and returns a list of all
+        the unique classes present, all the possible pairs and triplets of classes.
+
+        :param arr: classes for each atom in a data set
+        :type arr: numpy array of shape (n_samples, n_atoms)
+        :return: unique single, pair and triplets of classes
+        :rtype: list of lists
+        """
         from qml.representations import get_slatm_mbtypes
         return get_slatm_mbtypes(arr)
-
-    def _check_inputs(self, x, y, dy, classes):
-        """
-        This function checks whether x contains indices or data. If it contains indices, the data is extracted by the
-        appropriate compound objects. Otherwise it checks what data is passed through the arguments.
-
-        :param x: indices or data
-        :type x: numpy array of ints of shape (n_samples,) or floats of shape (n_samples, n_atoms, 3)
-        :param y: None or energies
-        :type y: None or numpy array of floats of shape (n_samples,)
-        :param dy: None or forces
-        :type dy: None or floats of shape (n_samples, n_atoms, 3)
-        :param classes: None or different NN classes available
-        :type classes: None or numpy array of ints of shape (n_samples, n_atoms)
-        :return:
-        """
-        
-        if not is_array_like(x):
-            raise InputError("x should be an array either containing indices or data.")
-
-        # Check if x is made up of indices or data
-        if is_positive_integer_array(x):
-
-            if is_none(self.compounds):
-                raise InputError("QML compounds needs to be created in advance")
-            if is_none(self.properties):
-                raise InputError("The properties need to be set in advance.")
-
-            approved_x = self._get_xyz_from_compounds(x)
-            approved_y = self._get_properties(x)
-            approved_classes = self._get_classes(x)
-            approved_dy = check_dy(dy)
-
-            check_sizes(approved_x, approved_y, approved_dy, approved_classes)
-
-        else:
-
-            if is_none(y):
-                raise InputError("y cannot be of None type.")
-
-            approved_x = check_x(x)
-            approved_y = check_y(y)
-            approved_dy = check_dy(dy)
-            approved_classes = check_classes(classes)
-
-            check_sizes(approved_x, approved_y, approved_dy, approved_classes)
-
-        return approved_x, approved_y, approved_dy, approved_classes
 
     def _get_xyz_from_compounds(self, indices):
         """
@@ -975,7 +947,8 @@ class _NN(object):
 
         :param indices: indices of the compounds to use for training
         :type indices: numpy array of ints of shape (n_samples, )
-        :return: numpy array of shape (n_samples, n_atoms, 3)
+        :return: the xyz of the specified compounds
+        :rtype: numpy array of shape (n_samples, n_atoms, 3)
         """
 
         xyzs = []
@@ -1006,7 +979,8 @@ class _NN(object):
 
         :param indices: The indices of the properties to return
         :type indices: numpy array of ints of shape (n_samples, )
-        :return: numpy array of shape (n_samples, 1)
+        :return: the properties of the compounds specified
+        :rtype: numpy array of shape (n_samples, 1)
         """
 
         return np.atleast_2d(self.properties[indices]).T
@@ -1017,7 +991,8 @@ class _NN(object):
 
         :param indices: The indices of the properties to return
         :type indices: numpy array of ints of shape (n_samples, )
-        :return: numpy array of shape (n_samples, n_atoms)
+        :return: classes of the compounds specified
+        :rtype: numpy array of shape (n_samples, n_atoms)
         """
 
         zs = []
@@ -1038,18 +1013,20 @@ class _NN(object):
 
         return np.asarray(zs, dtype=np.float32)
 
-    def predict(self, x):
+    def predict(self, x, classes=None):
         """
         This function calls the predict function for either ARMP or MRMP.
 
-        :param x: descriptor
-        :rtype x: for MRMP this is a numpy array of shape (n_samples, n_features). For ARMP this is a numpy array of
-        shape (n_samples, n_atoms, n_features)
+        :param x: descriptor or indices
+        :type x: numpy array of shape (n_samples, n_features) or (n_samples, n_atoms, n_features) or an array of ints
+        :param classes: the classes to use for atomic decomposition
+        :type classes: numpy array of shape (n_sample, n_atoms)
+
 
         :return: predictions of the molecular properties.
         :rtype: numpy array of shape (n_samples,)
         """
-        predictions = self._predict(x)
+        predictions = self._predict(x, classes)
 
         if predictions.ndim > 1 and predictions.shape[1] == 1:
             return predictions.ravel()
@@ -1119,7 +1096,19 @@ class MRMP(_NN):
 
                 self._check_slatm_values()
 
+        else:
+
+            if not is_none(parameters):
+                raise InputError("The representation %s does not take any additional parameters." % (self.representation))
+
     def _set_descriptor(self, descriptor):
+        """
+        This function takes descriptors as input and stores them inside the class.
+
+        :param descriptors: global descriptors
+        :type descriptors: numpy array of shape (n_samples, n_features)
+        return: None
+        """
 
         if len(descriptor.shape) != 2:
             raise InputError("The descriptor should have a shape (n_samples, n_features). Got %s" % (str(descriptor.shape)))
@@ -1129,6 +1118,7 @@ class MRMP(_NN):
     def _generate_descriptors_from_data(self, xyz, nuclear_charges):
         """
         This function makes the descriptor from xyz data and nuclear charges.
+
         :param xyz: cartesian coordinates
         :type xyz: numpy array of shape (n_samples, n_atoms, 3)
         :param nuclear_charges: nuclear charges
@@ -1138,10 +1128,10 @@ class MRMP(_NN):
         # TODO implement
         raise InputError("Not implemented yet. Use compounds.")
 
-    # TODO Modify so that it also works for data set with different molecules
     def _generate_descriptors_from_compounds(self):
         """
         This function generates the descriptors from the compounds.
+
         :return: None
         """
 
@@ -1198,26 +1188,25 @@ class MRMP(_NN):
     #TODO upgrade so that this uses tf.Dataset like the ARMP class
     def _fit(self, x, y, dy, classes):
         """
-        This function fits the estimator to the data provided.
+        This function fits a NON atomic decomposed network to the data.
 
-        :param x: Molecular descriptor.
-        :type x: numpy array of shape (n_samples, n_atoms)
-        :param y: Molecular properties
-        :type y: numpy array of shape (n_samples, )
+        :param x: either the descriptors or the indices to the data points to use
+        :type x: either a numpy array of shape (n_samples, n_features) or a numpy array of ints
+        :param y: either the properties or None
+        :type y: either a numpy array of shape (n_samples,) or None
+        :param dy: None
+        :type dy: None
+        :param classes: None
+        :type classes: None
+
+        :return: None
         """
 
-        # Checking the inputs
-        self._check_inputs(x, y, dy, classes)
-
-        # Check that X and y have correct shape
-        x, y = check_X_y(x, y, multi_output = False, y_numeric = True, warn_on_dtype = True)
-
-        # reshape to tensorflow friendly shape
-        y = np.atleast_2d(y).T
+        x_approved, y_approved, dy_approved, classes_approved = self._check_inputs(x, y, dy, classes)
 
         # Useful quantities
-        self.n_features = x.shape[1]
-        self.n_samples = x.shape[0]
+        self.n_features = x_approved.shape[1]
+        self.n_samples = x_approved.shape[0]
 
         # Set the batch size
         batch_size = self._get_batch_size()
@@ -1239,7 +1228,7 @@ class MRMP(_NN):
             y_pred = self._model(tf_x, weights, biases)
 
         with tf.name_scope("Cost_func"):
-            cost = self.cost(y_pred, tf_y, weights)
+            cost = self._cost(y_pred, tf_y, weights)
 
         if self.tensorboard:
             cost_summary = tf.summary.scalar('cost', cost)
@@ -1271,15 +1260,15 @@ class MRMP(_NN):
             avg_cost = 0
             # Learning over the batches of data
             for j in range(n_batches):
-                batch_x = x[indices][j * batch_size:(j+1) * batch_size]
-                batch_y = y[indices][j * batch_size:(j+1) * batch_size]
+                batch_x = x_approved[indices][j * batch_size:(j + 1) * batch_size]
+                batch_y = y_approved[indices][j * batch_size:(j+1) * batch_size]
                 if self.AdagradDA:
                     feed_dict = {tf_x: batch_x, tf_y: batch_y, self.global_step:i}
                     opt, c = self.session.run([optimisation_op, cost], feed_dict=feed_dict)
                 else:
                     feed_dict = {tf_x: batch_x, tf_y: batch_y}
                     opt, c = self.session.run([optimisation_op, cost], feed_dict=feed_dict)
-                avg_cost += c * batch_x.shape[0] / x.shape[0]
+                avg_cost += c * batch_x.shape[0] / x_approved.shape[0]
 
                 if self.tensorboard:
                     if i % self.tensorboard_logger.store_frequency == 0:
@@ -1318,76 +1307,179 @@ class MRMP(_NN):
 
         return z
 
-    # TODO test
-    def _score_r2(self, x, y, sample_weight=None):
+    def _score_r2(self, x, y=None, dy=None, classes=None):
         """
         Calculate the coefficient of determination (R^2).
         Larger values corresponds to a better prediction.
 
-        :param x: The molecular descriptor
-        :type x: array of shape (n_samples, n_features)
-        :param y: The target values for each sample in x.
-        :type y: array of shape (n_samples,)
-
-        :param sample_weight: Weights of the samples. None indicates that that each sample has the same weight.
-        :type sample_weight: array of shape (n_samples,)
+        :param x: either the descriptors or the indices to the descriptors
+        :type x: either a numpy array of shape (n_samples, n_features) or a numpy array of ints
+        :param y: either the properties or None
+        :type y: either a numpy array of shape (n_samples,) or None
+        :param dy: None
+        :type dy: None
+        :param classes: None
+        :type classes: None
 
         :return: R^2
         :rtype: float
         """
 
-        y_pred = self.predict(x)
-        r2 = r2_score(y, y_pred, sample_weight = sample_weight)
+        x_approved, y_approved, dy_approved, classes_approved = self._check_inputs(x, y, dy, classes)
+
+        y_pred = self.predict(x_approved)
+        r2 = r2_score(y_approved, y_pred, sample_weight = None)
         return r2
 
-    # TODO test
-    def _score_mae(self, x, y, sample_weight=None):
+    def _score_mae(self, x, y=None, dy=None, classes=None):
         """
         Calculate the mean absolute error.
         Smaller values corresponds to a better prediction.
 
-        :param x: The molecular descriptor
-        :type x: array of shape (n_samples, n_features)
-        :param y: The target values for each sample in x.
-        :type y: array of shape (n_samples,)
-
-        :param sample_weight: Weights of the samples. None indicates that that each sample has the same weight.
-        :type sample_weight: array of shape (n_samples,)
+        :param x: either the descriptors or the indices to the descriptors
+        :type x: either a numpy array of shape (n_samples, n_features) or a numpy array of ints
+        :param y: either the properties or None
+        :type y: either a numpy array of shape (n_samples,) or None
+        :param dy: None
+        :type dy: None
+        :param classes: None
+        :type classes: None
 
         :return: Mean absolute error
         :rtype: float
 
         """
 
-        y_pred = self.predict(x)
-        mae = (-1.0)*mean_absolute_error(y, y_pred, sample_weight = sample_weight)
+        x_approved, y_approved, dy_approved, classes_approved = self._check_inputs(x, y, dy, classes)
+
+        y_pred = self.predict(x_approved)
+        mae = (-1.0)*mean_absolute_error(y_approved, y_pred, sample_weight = None)
         print("Warning! The mae is multiplied by -1 so that it can be minimised in Osprey!")
         return mae
 
-    # TODO test
-    def _score_rmse(self, x, y, sample_weight=None):
+    def _score_rmse(self, x, y=None, dy=None, classes=None):
         """
         Calculate the root mean squared error.
         Smaller values corresponds to a better prediction.
 
-        :param x: The molecular descriptor
-        :type x: array of shape (n_samples, n_features)
-        :param y: The target values for each sample in x.
-        :type y: array of shape (n_samples,)
-
-        :param sample_weight: Weights of the samples. None indicates that that each sample has the same weight.
-        :type sample_weight: array of shape (n_samples,)
+        :param x: either the descriptors or the indices to the descriptors
+        :type x: either a numpy array of shape (n_samples, n_features) or a numpy array of ints
+        :param y: either the properties or None
+        :type y: either a numpy array of shape (n_samples,) or None
+        :param dy: None
+        :type dy: None
+        :param classes: None
+        :type classes: None
 
         :return: Mean absolute error
         :rtype: float
 
         """
 
-        y_pred = self.predict(x)
-        rmse = np.sqrt(mean_squared_error(y, y_pred, sample_weight = sample_weight))
+        x_approved, y_approved, dy_approved, classes_approved = self._check_inputs(x, y, dy, classes)
+
+        y_pred = self.predict(x_approved)
+        rmse = np.sqrt(mean_squared_error(y_approved, y_pred, sample_weight = None))
         return rmse
 
-    def cost(self, y_pred, y, weights):
+    def _check_inputs(self, x, y, dy, classes):
+        """
+        This function checks whether x contains indices or data. If it contains indices, the data is extracted by the
+        appropriate compound objects. Otherwise it checks what data is passed through the arguments.
+
+        :param x: indices or data
+        :type x: numpy array of ints of shape (n_samples,) or floats of shape (n_samples, n_atoms, 3)
+        :param y: None or energies
+        :type y: None or numpy array of floats of shape (n_samples,)
+        :param dy: None or forces
+        :type dy: None or floats of shape (n_samples, n_atoms, 3)
+        :param classes: None or different NN classes available
+        :type classes: None or numpy array of ints of shape (n_samples, n_atoms)
+
+        :return: the approved x, y dy and classes
+        :rtype: numpy array of shape (n_samples, n_features), (n_samples, 1), None, None
+        """
+
+        if not is_array_like(x):
+            raise InputError("x should be an array either containing indices or data.")
+
+        if not is_none(dy) and not is_none(classes):
+            raise InputError("MRMP estimator cannot predict gradients and do atomic decomposition.")
+
+        # Check if x is made up of indices or data
+        if is_positive_integer_or_zero_array(x):
+
+            if is_none(self.descriptor):
+                if is_none(self.compounds):
+                    raise InputError("No descriptors or QML compounds have been set yet.")
+                else:
+                    self.descriptor, _ = self._generate_descriptors_from_compounds()
+            if is_none(self.properties):
+                raise InputError("The properties need to be set in advance.")
+
+            approved_x = self.descriptor[x]
+            approved_y = self._get_properties(x)
+            approved_dy = None
+            approved_classes = None
+
+            check_sizes(approved_x, approved_y, approved_dy, approved_classes)
+
+        else:
+
+            if is_none(y):
+                raise InputError("y cannot be of None type.")
+
+            approved_x = check_global_descriptor(x)
+            approved_y = check_y(y)
+            approved_dy = None
+            approved_classes = None
+
+            check_sizes(approved_x, approved_y, approved_dy, approved_classes)
+
+        return approved_x, approved_y, approved_dy, approved_classes
+
+    def _check_predict_input(self, x, classes):
+        """
+        This function checks whether x contains indices or data. If it contains indices, the data is extracted by the
+        appropriate compound objects. Otherwise it checks what data is passed through the arguments.
+
+        :param x: indices or data
+        :type x: numpy array of ints of shape (n_samples,) or floats of shape (n_samples, n_atoms, 3)
+        :param classes: None
+        :type classes: None
+
+        :return: the approved x and classes
+        :rtype: numpy array of shape (n_samples, n_features), None
+        """
+
+        if not is_array_like(x):
+            raise InputError("x should be an array either containing indices or data.")
+
+        if not is_none(classes):
+            raise InputError("MRMP estimator cannot do atomic decomposition.")
+
+        # Check if x is made up of indices or data
+        if is_positive_integer_or_zero_array(x):
+
+            if is_none(self.descriptor):
+                if is_none(self.compounds):
+                    raise InputError("No descriptors or QML compounds have been set yet.")
+                else:
+                    self.descriptor, _ = self._generate_descriptors_from_compounds()
+            if is_none(self.properties):
+                raise InputError("The properties need to be set in advance.")
+
+            approved_x = self.descriptor[x]
+            approved_classes = None
+
+        else:
+
+            approved_x = check_global_descriptor(x)
+            approved_classes = None
+
+        return approved_x, approved_classes
+
+    def _cost(self, y_pred, y, weights):
         """
         Constructs the cost function
 
@@ -1413,32 +1505,35 @@ class MRMP(_NN):
 
         return cost
 
-    def _predict(self, x):
+    def _predict(self, x, classes):
         """
-        Use the trained network to make predictions on the descriptor x. This function has to be overwritten by ARMP
-        as it uses the atomic decomposed model.
+        This function checks whether x contains indices or data. If it contains indices, the data is extracted by the
+        appropriate compound objects. Otherwise it checks what data is passed through the arguments. Then, the data is
+        used as input to the trained network to predict some properties.
 
-        :param x: The descriptor
-        :type x: numpy array of shape (n_samples, n_features)
+        :param x: indices or data
+        :type x: numpy array of ints of shape (n_samples,) or floats of shape (n_samples, n_atoms, 3)
+        :param classes: None
+        :type classes: None
 
-        :return: Predictions for the target values corresponding to the samples contained in x.
-        :rtype: numpy array of shape (n_samples, )
-
+        :return: the predicted properties
+        :rtype: numpy array of shape (n_samples,)
         """
+
+        approved_x, approved_classes = self._check_predict_input(x, classes)
 
         if self.session == None:
             raise InputError("Model needs to be fit before predictions can be made.")
-
-        check_array(x, warn_on_dtype = True)
 
         graph = tf.get_default_graph()
 
         with graph.as_default():
             tf_x = graph.get_tensor_by_name("Data/Descriptors:0")
             model = graph.get_tensor_by_name("Model/output:0")
-            y_pred = self.session.run(model, feed_dict = {tf_x : x})
+            y_pred = self.session.run(model, feed_dict = {tf_x : approved_x})
             return y_pred
 
+    # TODO these need to be checked if they still work
     def save_nn(self, save_dir="saved_model"):
         """
         This function saves the model to be used for later prediction.
