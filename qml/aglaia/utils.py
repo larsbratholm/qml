@@ -73,11 +73,11 @@ def is_positive_integer_or_zero_array(x):
 
 def check_global_descriptor(x):
     """
-    This function checks that the data passed through x corresponds to xyz coordinates in a numpy array of shape
-    (n_samples, n_atoms, 3) containing floats.
+    This function checks that the data passed through x corresponds to the descriptor in a numpy array of shape
+    (n_samples, n_features) containing floats.
 
     :param x: array like
-    :return: numpy array of floats of shape (n_samples, n_atoms, 3)
+    :return: numpy array of floats of shape (n_samples, n_features)
     """
 
     if not is_array_like(x):
@@ -87,6 +87,25 @@ def check_global_descriptor(x):
 
     if len(x.shape) != 2:
         raise InputError("x should be an array with 2 dimensions. Got %s" % (len(x.shape)))
+
+    return x
+
+def check_local_descriptor(x):
+    """
+    This function checks that the data passed through x corresponds to the descriptor in a numpy array of shape
+    (n_samples, n_atoms, n_features) containing floats.
+
+    :param x: array like
+    :return: numpy array of floats of shape (n_samples, n_atoms, n_features)
+    """
+
+    if not is_array_like(x):
+        raise InputError("x should be array like.")
+
+    x = np.asarray(x)
+
+    if len(x.shape) != 3:
+        raise InputError("x should be an array with 3 dimensions. Got %s" % (len(x.shape)))
 
     return x
 
@@ -104,7 +123,7 @@ def check_y(y):
 
     return y
 
-def check_sizes(x, y, dy, classes):
+def check_sizes(x, y=None, dy=None, classes=None):
     """
     This function checks that the different arrays have the correct number of dimensions.
 
@@ -120,6 +139,28 @@ def check_sizes(x, y, dy, classes):
         if x.shape[0] != y.shape[0]:
             raise InputError("The descriptor and the properties should have the same first number of elements in the "
                              "first dimension. Got %s and %s" % (x.shape[0], y.shape[0]))
+
+    elif is_none(y) and is_none(dy):
+        if is_none(classes):
+            raise InputError("Only x is not none.")
+        else:
+            if x.shape[0] != classes.shape[0]:
+                raise InputError("Different number of samples in the descriptor and the classes: %s and %s." % (x.shape[0], classes.shape[0]))
+            if len(x.shape) == 3:
+                if x.shape[1] != classes.shape[1]:
+                    raise InputError("The number of atoms in the descriptor and in the classes is different: %s and %s." % (x.shape[1], classes.shape[1]))
+
+    elif is_none(dy) and not is_none(classes):
+
+        if x.shape[0] != y.shape[0] or x.shape[0] != classes.shape[0]:
+            raise InputError("All x, y and classes should have the first number of elements in the first dimension. Got "
+                             "%s, %s and %s" % (x.shape[0], y.shape[0], classes.shape[0]))
+
+        if len(x.shape) == 3:
+            if x.shape[1] != classes.shape[1]:
+                raise InputError("x and classes should have the same number of elements in the 2nd dimension. Got %s "
+                                 "and %s" % (x.shape[1], classes.shape[1]))
+
     else:
 
         if x.shape[0] != y.shape[0] or x.shape[0] != dy.shape[0] or x.shape[0] != classes.shape[0]:
