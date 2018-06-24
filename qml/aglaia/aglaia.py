@@ -407,17 +407,20 @@ class _NN(object):
             raise InputError('Expected string value for variable tensorboard_subdir. Got %s' % str(tensorboard_subdir))
 
         # TensorBoardLogger will handle all tensorboard related things
-        self.tensorboard_logger = TensorBoardLogger(tensorboard_subdir)
-        self.tensorboard_subdir = tensorboard_subdir
+        self.tensorboard_logger_training = TensorBoardLogger(tensorboard_subdir + '/training')
+        self.tensorboard_subdir_training = tensorboard_subdir + '/training'
+
+        self.tensorboard_logger_descriptor = TensorBoardLogger(tensorboard_subdir + '/descriptor')
+        self.tensorboard_subdir_descriptor = tensorboard_subdir + '/descriptor'
 
         if not is_positive_integer(store_frequency):
             raise InputError("Expected positive integer value for variable store_frequency. Got %s" % str(store_frequency))
 
         if store_frequency > self.iterations:
             print("Only storing final iteration for tensorboard")
-            self.tensorboard_logger.set_store_frequency(self.iterations)
+            self.tensorboard_logger_training.set_store_frequency(self.iterations)
         else:
-            self.tensorboard_logger.set_store_frequency(store_frequency)
+            self.tensorboard_logger_training.set_store_frequency(store_frequency)
 
     def _init_weight(self, n1, n2, name):
         """
@@ -1248,7 +1251,7 @@ class MRMP(_NN):
 
             # Log weights for tensorboard
             if self.tensorboard:
-                self.tensorboard_logger.write_weight_histogram(weights)
+                self.tensorboard_logger_training.write_weight_histogram(weights)
 
         with tf.name_scope("Model"):
             y_pred = self._model(tf_x, weights, biases)
@@ -1266,7 +1269,7 @@ class MRMP(_NN):
         init = tf.global_variables_initializer()
 
         if self.tensorboard:
-            self.tensorboard_logger.initialise()
+            self.tensorboard_logger_training.initialise()
 
         # This is the total number of batches in which the training set is divided
         n_batches = ceil(self.n_samples, batch_size)
@@ -1275,7 +1278,7 @@ class MRMP(_NN):
 
         # Running the graph
         if self.tensorboard:
-            self.tensorboard_logger.set_summary_writer(self.session)
+            self.tensorboard_logger_training.set_summary_writer(self.session)
 
         self.session.run(init)
 
@@ -1297,8 +1300,8 @@ class MRMP(_NN):
                 avg_cost += c * batch_x.shape[0] / x_approved.shape[0]
 
                 if self.tensorboard:
-                    if i % self.tensorboard_logger.store_frequency == 0:
-                        self.tensorboard_logger.write_summary(self.session, feed_dict, i, j)
+                    if i % self.tensorboard_logger_training.store_frequency == 0:
+                        self.tensorboard_logger_training.write_summary(self.session, feed_dict, i, j)
 
             self.training_cost.append(avg_cost)
 
@@ -1861,8 +1864,9 @@ class ARMP(_NN):
         xyzs = np.asarray(xyzs, dtype=np.float32)
 
         if self.tensorboard:
-            run_metadata = tf.RunMetadata()
-            options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
+            self.tensorboard_logger_descriptor.initialise()
+            # run_metadata = tf.RunMetadata()
+            # options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
 
         # Turning the quantities into tensors
         with tf.name_scope("Inputs"):
@@ -1889,14 +1893,15 @@ class ARMP(_NN):
         descriptor_slices = []
 
         if self.tensorboard:
-            summary_writer = tf.summary.FileWriter(logdir="tensorboard", graph=sess.graph)
+            self.tensorboard_logger_descriptor.set_summary_writer(sess)
 
             batch_counter = 0
             while True:
                 try:
-                    descriptor_np = sess.run(descriptor, options=options, run_metadata=run_metadata)
-                    summary_writer.add_run_metadata(run_metadata=run_metadata, tag="batch %s" % batch_counter,
-                                                    global_step=None)
+                    descriptor_np = sess.run(descriptor, options=self.tensorboard_logger_descriptor.options,
+                                             run_metadata=self.tensorboard_logger_descriptor.run_metadata)
+                    self.tensorboard_logger_descriptor.write_metadata(batch_counter)
+
                     descriptor_slices.append(descriptor_np)
                     batch_counter += 1
                 except tf.errors.OutOfRangeError:
@@ -2201,6 +2206,9 @@ class ARMP(_NN):
         # Obtaining the array of unique elements in all samples
         self.elements = self._find_elements(classes_approved)
 
+        if self.tensorboard:
+            self.tensorboard_logger_training.initialise()
+
         # Useful quantities
         self.n_samples = x_approved.shape[0]
         self.n_atoms = x_approved.shape[1]
@@ -2243,7 +2251,7 @@ class ARMP(_NN):
 
                 # Log weights for tensorboard
                 if self.tensorboard:
-                    self.tensorboard_logger.write_weight_histogram(weights)
+                    self.tensorboard_logger_training.write_weight_histogram(weights)
 
         with tf.name_scope("Model"):
             molecular_energies = self._model(tf_x, tf_zs, element_weights, element_biases)
@@ -2252,7 +2260,7 @@ class ARMP(_NN):
             cost = self.cost(molecular_energies, tf_y, element_weights)
 
         if self.tensorboard:
-            cost_summary = tf.summary.scalar('cost', cost)
+            cost_summary = self.tensorboard_logger_training.write_cost_summary(cost)
 
         optimiser = self._set_optimiser()
         optimisation_op = optimiser.minimize(cost)
@@ -2261,19 +2269,14 @@ class ARMP(_NN):
         init = tf.global_variables_initializer()
         iterator_init = iterator.make_initializer(dataset)
 
-        if self.tensorboard:
-            self.tensorboard_logger.initialise()
-
         self.session = tf.Session()
 
         # Running the graph
         if self.tensorboard:
-            # self.tensorboard_logger.set_summary_writer(self.session)
-            file_writer = tf.summary.FileWriter(logdir=self.tensorboard_subdir, graph=self.session.graph)
+            self.tensorboard_logger_training.set_summary_writer(self.session)
 
         self.session.run(init)
         self.session.run(iterator_init, feed_dict={x_ph:x_approved, zs_ph:classes_approved, y_ph:y_approved})
-
 
         for i in range(self.iterations):
 
@@ -2281,8 +2284,9 @@ class ARMP(_NN):
             avg_cost = 0
 
             for j in range(n_batches):
-                if self.AdagradDA:
-                    opt, c = self.session.run([optimisation_op, cost])
+                if self.tensorboard:
+                    opt, c = self.session.run([optimisation_op, cost], options=self.tensorboard_logger_training.options,
+                             run_metadata=self.tensorboard_logger_training.run_metadata)
                 else:
                     opt, c = self.session.run([optimisation_op, cost])
 
@@ -2291,10 +2295,8 @@ class ARMP(_NN):
             # This seems to run the iterator.get_next() op, which gives problems with end of sequence
             # Hence why I re-initialise the iterator
             self.session.run(iterator_init, feed_dict={x_ph: x_approved, zs_ph: classes_approved, y_ph: y_approved})
-            if self.tensorboard:
-                if i % self.tensorboard_logger.store_frequency == 0:
-                    summary = self.session.run(tf.summary.merge_all())
-                    file_writer.add_summary(summary, i)
+            if i % self.tensorboard_logger_training.store_frequency == 0:
+                self.tensorboard_logger_training.write_summary(self.session, i)
 
             self.training_cost.append(avg_cost/n_batches)
 
