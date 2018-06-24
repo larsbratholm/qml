@@ -31,7 +31,7 @@ import os
 import qml
 
 from qml.ml.representations import *
-from qml.ml.representations.data import NUCLEAR_CHARGE
+from qml.ml.representations.alchemy import NUCLEAR_CHARGE
 
 def get_asize(mols, pad):
 

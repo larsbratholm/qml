@@ -3,7 +3,7 @@ import numpy as np
 import os
 import sys
 
-from qml.wrappers import arad_local_kernels, arad_local_symmetric_kernels
+from qml.ml.kernels.wrappers import arad_local_kernels, arad_local_symmetric_kernels
 
 def get_energies(filename):
     """ Returns a dictionary with heats of formation for each xyz-file.

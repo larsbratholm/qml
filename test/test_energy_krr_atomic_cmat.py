@@ -36,6 +36,8 @@ from qml.ml.representations import get_slatm_mbtypes
 from qml.ml.kernels import get_local_kernels_gaussian
 from qml.ml.kernels import get_local_kernels_laplacian
 
+from qml.ml.kernels.wrappers import get_atomic_kernels_gaussian, get_atomic_kernels_laplacian
+
 def get_energies(filename):
     """ Returns a dictionary with heats of formation for each xyz-file.
     """
