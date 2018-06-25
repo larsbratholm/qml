@@ -4,9 +4,9 @@ This test checks if all the ways of setting up the estimator MRMP work.
 
 
 import numpy as np
-import aglaia
+from qml.aglaia.aglaia import MRMP
 import joblib
-from aglaia import InputError
+from qml.aglaia.utils import InputError
 import glob
 
 def test_set_representation():
@@ -14,19 +14,19 @@ def test_set_representation():
     This function tests the function _set_representation.
     """
     try:
-        aglaia.MRMP(representation='unsorted_coulomb_matrix', descriptor_params={'slatm_sigma1': 0.05})
+        MRMP(representation='unsorted_coulomb_matrix', descriptor_params={'slatm_sigma1': 0.05})
         raise Exception
     except InputError:
         pass
 
     try:
-        aglaia.MRMP(representation='coulomb_matrix')
+        MRMP(representation='coulomb_matrix')
         raise Exception
     except InputError:
         pass
 
     try:
-        aglaia.MRMP(representation='slatm', descriptor_params={'slatm_alchemy': 0.05})
+        MRMP(representation='slatm', descriptor_params={'slatm_alchemy': 0.05})
         raise Exception
     except InputError:
         pass
@@ -34,7 +34,7 @@ def test_set_representation():
     parameters ={'slatm_sigma1': 0.07, 'slatm_sigma2': 0.04, 'slatm_dgrid1': 0.02, 'slatm_dgrid2': 0.06,
                                 'slatm_rcut': 5.0, 'slatm_rpower': 7, 'slatm_alchemy': True}
 
-    estimator = aglaia.MRMP(representation='slatm', descriptor_params=parameters)
+    estimator = MRMP(representation='slatm', descriptor_params=parameters)
 
     assert estimator.representation == 'slatm'
     assert estimator.slatm_parameters == parameters
@@ -48,7 +48,7 @@ def test_set_properties():
     energies = np.loadtxt('/Volumes/Transcend/repositories/qml_aglaia/qml/qml/aglaia/tests/data/CN_isobutane/prop_kjmol_training.txt',
                           usecols=[1])
 
-    estimator = aglaia.MRMP(representation='unsorted_coulomb_matrix')
+    estimator = MRMP(representation='unsorted_coulomb_matrix')
 
     assert estimator.properties == None
 
@@ -68,7 +68,7 @@ def test_set_descriptor():
     descriptor_incorrect = data_incorrect["descriptor"]
 
 
-    estimator = aglaia.MRMP()
+    estimator = MRMP()
 
     assert estimator.descriptor == None
 
@@ -94,7 +94,7 @@ def test_fit_1():
                           usecols=[1])
     filenames.sort()
 
-    estimator = aglaia.MRMP()
+    estimator = MRMP()
     estimator.generate_compounds(filenames[:100])
     estimator.set_properties(energies[:100])
     estimator.generate_descriptors()
@@ -111,7 +111,7 @@ def test_fit_2():
     descriptor = data["arr_0"]
     energies = data["arr_1"]
 
-    estimator = aglaia.MRMP()
+    estimator = MRMP()
     estimator.set_descriptors(descriptors=descriptor)
     estimator.set_properties(energies)
 
@@ -126,7 +126,7 @@ def test_fit_3():
     descriptor = data["arr_0"]
     energies = data["arr_1"]
 
-    estimator = aglaia.MRMP()
+    estimator = MRMP()
     estimator.fit(descriptor, energies)
 
 def test_score_3():
@@ -138,15 +138,15 @@ def test_score_3():
     descriptor = data["arr_0"]
     energies = data["arr_1"]
 
-    estimator_1 = aglaia.MRMP(scoring_function='mae')
+    estimator_1 = MRMP(scoring_function='mae')
     estimator_1.fit(descriptor, energies)
     estimator_1.score(descriptor, energies)
 
-    estimator_2 = aglaia.MRMP(scoring_function='r2')
+    estimator_2 = MRMP(scoring_function='r2')
     estimator_2.fit(descriptor, energies)
     estimator_2.score(descriptor, energies)
 
-    estimator_3 = aglaia.MRMP(scoring_function='rmse')
+    estimator_3 = MRMP(scoring_function='rmse')
     estimator_3.fit(descriptor, energies)
     estimator_3.score(descriptor, energies)
 
@@ -155,7 +155,7 @@ def test_predict_3():
     descriptor = data["arr_0"]
     energies = data["arr_1"]
 
-    estimator = aglaia.MRMP()
+    estimator = MRMP()
     estimator.fit(descriptor, energies)
     energies_pred = estimator.predict(descriptor)
 

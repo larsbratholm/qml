@@ -29,16 +29,3 @@ Provides
     1. NN class
     2. wrappers
 """
-from __future__ import absolute_import
-
-from .aglaia import MRMP
-
-__author__ = "Silvia Amabilino, Lars Andersen Bratholm"
-__copyright__ = "Copyright 2017"
-__credits__ = ["Silvia Amabilino, Lars Andersen Bratholm (2017) https://github.com/SilviaAmAm/Aglaia"]
-__license__ = "MIT"
-__version__ = "0.0.1"
-__maintainer__ = "Silvia Amabilino, Lars Andersen Bratholm"
-__email__ = "silvia.amabilino@bristol.ac.uk, lars.bratholm@bristol.ac.uk"
-__status__ = "Beta"
-

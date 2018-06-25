@@ -4,9 +4,9 @@ This test checks if all the ways of setting up the estimator ARMP work.
 
 
 import numpy as np
-import aglaia
+from qml.aglaia.aglaia import ARMP
 import joblib
-from aglaia import InputError
+from qml.aglaia.utils import InputError
 import glob
 
 def test_set_representation():
@@ -14,19 +14,19 @@ def test_set_representation():
     This function tests the function _set_representation.
     """
     try:
-        aglaia.ARMP(representation='slatm', descriptor_params={'slatm_sigma12': 0.05})
+        ARMP(representation='slatm', descriptor_params={'slatm_sigma12': 0.05})
         raise Exception
     except InputError:
         pass
 
     try:
-        aglaia.ARMP(representation='coulomb_matrix')
+        ARMP(representation='coulomb_matrix')
         raise Exception
     except InputError:
         pass
 
     try:
-        aglaia.ARMP(representation='slatm', descriptor_params={'slatm_alchemy': 0.05})
+        ARMP(representation='slatm', descriptor_params={'slatm_alchemy': 0.05})
         raise Exception
     except InputError:
         pass
@@ -34,7 +34,7 @@ def test_set_representation():
     parameters = {'slatm_sigma1': 0.07, 'slatm_sigma2': 0.04, 'slatm_dgrid1': 0.02, 'slatm_dgrid2': 0.06,
                   'slatm_rcut': 5.0, 'slatm_rpower': 7, 'slatm_alchemy': True}
 
-    estimator = aglaia.ARMP(representation='slatm', descriptor_params=parameters)
+    estimator = ARMP(representation='slatm', descriptor_params=parameters)
 
     assert estimator.representation == 'slatm'
     assert estimator.slatm_parameters == parameters
@@ -48,7 +48,7 @@ def test_set_properties():
     energies = np.loadtxt('/Volumes/Transcend/repositories/qml_aglaia/qml/qml/aglaia/tests/data/CN_isobutane/prop_kjmol_training.txt',
                           usecols=[1])
 
-    estimator = aglaia.ARMP(representation='slatm')
+    estimator = ARMP(representation='slatm')
 
     assert estimator.properties == None
 
@@ -68,7 +68,7 @@ def test_set_descriptor():
     descriptor_incorrect = data_incorrect["arr_0"]
 
 
-    estimator = aglaia.ARMP()
+    estimator = ARMP()
 
     assert estimator.descriptor == None
 
@@ -94,7 +94,7 @@ def test_fit_1():
                           usecols=[1])
     filenames.sort()
 
-    estimator = aglaia.ARMP(representation="acsf")
+    estimator = ARMP(representation="acsf")
     estimator.generate_compounds(filenames[:50])
     estimator.set_properties(energies[:50])
     estimator.generate_descriptors()
@@ -112,7 +112,7 @@ def test_fit_2():
     classes = data["zs"]
     energies = data["energies"]
 
-    estimator = aglaia.ARMP()
+    estimator = ARMP()
     estimator.set_descriptors(descriptors=descriptor)
     estimator.set_classes(classes=classes)
     estimator.set_properties(energies)
@@ -129,7 +129,7 @@ def test_fit_3():
     classes = data["zs"]
     energies = data["energies"]
 
-    estimator = aglaia.ARMP()
+    estimator = ARMP()
     estimator.fit(x=descriptor, y=energies, classes=classes)
 
 def test_score_3():
@@ -142,15 +142,15 @@ def test_score_3():
     classes = data["zs"]
     energies = data["energies"]
 
-    estimator_1 = aglaia.ARMP(scoring_function='mae')
+    estimator_1 = ARMP(scoring_function='mae')
     estimator_1.fit(x=descriptor, y=energies, classes=classes)
     estimator_1.score(x=descriptor, y=energies, classes=classes)
 
-    estimator_2 = aglaia.ARMP(scoring_function='r2')
+    estimator_2 = ARMP(scoring_function='r2')
     estimator_2.fit(x=descriptor, y=energies, classes=classes)
     estimator_2.score(x=descriptor, y=energies, classes=classes)
 
-    estimator_3 = aglaia.ARMP(scoring_function='rmse')
+    estimator_3 = ARMP(scoring_function='rmse')
     estimator_3.fit(x=descriptor, y=energies, classes=classes)
     estimator_3.score(x=descriptor, y=energies, classes=classes)
 
@@ -161,7 +161,7 @@ def test_predict_3():
     classes = data["zs"]
     energies = data["energies"]
 
-    estimator = aglaia.ARMP()
+    estimator = ARMP()
     estimator.fit(x=descriptor, y=energies, classes=classes)
     energies_pred = estimator.predict(x=descriptor, classes=classes)
 

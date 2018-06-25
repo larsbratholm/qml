@@ -6,23 +6,19 @@ from __future__ import print_function
 import os
 import numpy as np
 import tensorflow as tf
-from sklearn.utils.validation import check_X_y, check_array
 from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
-import matplotlib.pyplot as plt
-# from .symm_funct import generate_parkhill_acsf
-from symm_funct import generate_parkhill_acsf
-# from .utils import InputError, ceil, is_positive_or_zero, is_positive_integer, is_positive, \
-#         is_bool, is_positive_integer_or_zero, is_string, is_positive_integer_array, is_array_like, is_none, \
-#         check_x, check_y, check_sizes, check_dy, check_classes, is_numeric_array, is_non_zero_integer
-from utils import InputError, ceil, is_positive_or_zero, is_positive_integer, is_positive, \
+# import matplotlib.pyplot as plt
+from qml.aglaia.symm_funct import generate_parkhill_acsf
+from qml.aglaia.utils import InputError, ceil, is_positive_or_zero, is_positive_integer, is_positive, \
         is_bool, is_positive_integer_or_zero, is_string, is_positive_integer_array, is_array_like, is_none, \
         check_global_descriptor, check_y, check_sizes, check_dy, check_classes, is_numeric_array, is_non_zero_integer, \
     is_positive_integer_or_zero_array, check_local_descriptor
 
-from tf_utils import TensorBoardLogger
+from qml.aglaia.tf_utils import TensorBoardLogger
 
 try:
-    from qml import Compound, representations
+    from qml.data import Compound
+    from qml.ml import representations
 except ModuleNotFoundError:
     raise ModuleNotFoundError("The module qml is required")
 
@@ -588,87 +584,87 @@ class _NN(object):
 
             self._check_acsf_values()
 
-    def plot_cost(self, filename = None):
-        """
-        Plots the value of the cost function as a function of the iterations.
+    # def plot_cost(self, filename = None):
+    #     """
+    #     Plots the value of the cost function as a function of the iterations.
+    #
+    #     :param filename: File to save the plot to. If '' the plot is shown instead of saved.
+    #     :type filename: string
+    #     """
+    #
+    #     try:
+    #         import pandas as pd
+    #         import seaborn as sns
+    #     except ModuleNotFoundError:
+    #         raise ModuleNotFoundError("Plotting functions require the modules 'seaborn' and 'pandas'")
+    #
+    #     sns.set()
+    #     df = pd.DataFrame()
+    #     df["Iterations"] = range(len(self.training_cost))
+    #     df["Training cost"] = self.training_cost
+    #     f = sns.lmplot('Iterations', 'Training cost', data=df, scatter_kws={"s": 20, "alpha": 0.6}, line_kws={"alpha": 0.5}, fit_reg=False)
+    #     f.set(yscale = "log")
+    #
+    #     if filename == None:
+    #         plt.show()
+    #     elif is_string(filename):
+    #         plt.savefig(filename)
+    #     else:
+    #         raise InputError("Wrong data type of variable 'filename'. Expected string")
 
-        :param filename: File to save the plot to. If '' the plot is shown instead of saved.
-        :type filename: string
-        """
-
-        try:
-            import pandas as pd
-            import seaborn as sns
-        except ModuleNotFoundError:
-            raise ModuleNotFoundError("Plotting functions require the modules 'seaborn' and 'pandas'")
-
-        sns.set()
-        df = pd.DataFrame()
-        df["Iterations"] = range(len(self.training_cost))
-        df["Training cost"] = self.training_cost
-        f = sns.lmplot('Iterations', 'Training cost', data=df, scatter_kws={"s": 20, "alpha": 0.6}, line_kws={"alpha": 0.5}, fit_reg=False)
-        f.set(yscale = "log")
-
-        if filename == None:
-            plt.show()
-        elif is_string(filename):
-            plt.savefig(filename)
-        else:
-            raise InputError("Wrong data type of variable 'filename'. Expected string")
-
-    def correlation_plot(self, y_nn, y_true, filename = ''):
-        """
-        Creates a correlation plot between predictions and true values.
-
-        :param y_predicted: Molecular properties predicted by the network
-        :type y_predicted: numpy array of shape (n_samples,)
-        :param y_true: True molecular properties
-        :type y_true: numpy array of shape (n_samples,)
-        :param filename: File to save the plot to. If '' the plot is shown instead of saved.
-                         If the dimensionality of y is higher than 1, the filename will be prefixed
-                         by the dimension.
-        :type filename: string
-        :return: None
-        """
-
-        try:
-            import pandas as pd
-            import seaborn as sns
-        except ModuleNotFoundError:
-            raise ModuleNotFoundError("Plotting functions require the modules 'seaborn' and 'pandas'")
-
-        if y_nn.shape != y_true.shape:
-            raise InputError("Shape mismatch between predicted and true values. %s and %s" % (str(y_nn.shape), str(y_true.shape)))
-
-        if y_nn.ndim == 1 or y_nn.shape[1] == 1:
-            df = pd.DataFrame()
-            df["Predictions"] = y_nn.ravel()
-            df["True"] = y_true.ravel()
-            sns.set()
-            lm = sns.lmplot('True', 'Predictions', data=df, scatter_kws={"s": 20, "alpha": 0.6}, line_kws={"alpha": 0.5})
-            if filename == '':
-                plt.show()
-            elif is_string(filename):
-                plt.savefig(filename)
-            else:
-                raise InputError("Wrong data type of variable 'filename'. Expected string")
-        else:
-            for i in range(y_nn.shape[0]):
-                df = pd.DataFrame()
-                df["Predictions"] = y_nn[:,i]
-                df["True"] = y_true[:,i]
-                sns.set()
-                lm = sns.lmplot('True', 'Predictions', data=df, scatter_kws={"s": 20, "alpha": 0.6}, line_kws={"alpha": 0.5})
-                if filename == '':
-                    plt.show()
-                elif is_string(filename):
-                    tokens = filename.split("/")
-                    file_ = str(i) + "_" + tokens[-1]
-                    if len(tokens) > 1:
-                        file_ = "/".join(tokens[:-1]) + "/" + file_
-                    plt.savefig(file_)
-                else:
-                    raise InputError("Wrong data type of variable 'filename'. Expected string")
+    # def correlation_plot(self, y_nn, y_true, filename = ''):
+    #     """
+    #     Creates a correlation plot between predictions and true values.
+    #
+    #     :param y_predicted: Molecular properties predicted by the network
+    #     :type y_predicted: numpy array of shape (n_samples,)
+    #     :param y_true: True molecular properties
+    #     :type y_true: numpy array of shape (n_samples,)
+    #     :param filename: File to save the plot to. If '' the plot is shown instead of saved.
+    #                      If the dimensionality of y is higher than 1, the filename will be prefixed
+    #                      by the dimension.
+    #     :type filename: string
+    #     :return: None
+    #     """
+    #
+    #     try:
+    #         import pandas as pd
+    #         import seaborn as sns
+    #     except ModuleNotFoundError:
+    #         raise ModuleNotFoundError("Plotting functions require the modules 'seaborn' and 'pandas'")
+    #
+    #     if y_nn.shape != y_true.shape:
+    #         raise InputError("Shape mismatch between predicted and true values. %s and %s" % (str(y_nn.shape), str(y_true.shape)))
+    #
+    #     if y_nn.ndim == 1 or y_nn.shape[1] == 1:
+    #         df = pd.DataFrame()
+    #         df["Predictions"] = y_nn.ravel()
+    #         df["True"] = y_true.ravel()
+    #         sns.set()
+    #         lm = sns.lmplot('True', 'Predictions', data=df, scatter_kws={"s": 20, "alpha": 0.6}, line_kws={"alpha": 0.5})
+    #         if filename == '':
+    #             plt.show()
+    #         elif is_string(filename):
+    #             plt.savefig(filename)
+    #         else:
+    #             raise InputError("Wrong data type of variable 'filename'. Expected string")
+    #     else:
+    #         for i in range(y_nn.shape[0]):
+    #             df = pd.DataFrame()
+    #             df["Predictions"] = y_nn[:,i]
+    #             df["True"] = y_true[:,i]
+    #             sns.set()
+    #             lm = sns.lmplot('True', 'Predictions', data=df, scatter_kws={"s": 20, "alpha": 0.6}, line_kws={"alpha": 0.5})
+    #             if filename == '':
+    #                 plt.show()
+    #             elif is_string(filename):
+    #                 tokens = filename.split("/")
+    #                 file_ = str(i) + "_" + tokens[-1]
+    #                 if len(tokens) > 1:
+    #                     file_ = "/".join(tokens[:-1]) + "/" + file_
+    #                 plt.savefig(file_)
+    #             else:
+    #                 raise InputError("Wrong data type of variable 'filename'. Expected string")
 
     def score(self, x, y=None, dy=None, classes=None):
         """

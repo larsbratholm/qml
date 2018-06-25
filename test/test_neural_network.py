@@ -4,16 +4,13 @@ Tests directly related to the class _NN and it's children.
 """
 import tensorflow as tf
 import numpy as np
-import matplotlib.pyplot as plt
-import glob
-import random
 
 # TODO relative imports
-from aglaia import MRMP
-from aglaia.aglaia import _NN
-from aglaia.wrappers import _ONN, OMNN, OANN
-from aglaia.utils import InputError
+from qml.aglaia.aglaia import MRMP
+from qml.aglaia.utils import InputError
 
+
+# ------------ ** All functions to test the inputs to the classes ** ---------------
 
 def hidden_layer_sizes(C):
     # Exceptions that are supposed to be caught
@@ -26,12 +23,15 @@ def hidden_layer_sizes(C):
 
     # This should not raise an exception
     C(hidden_layer_sizes = [4,5])
-    C(hidden_layer_sizes = (4,5,6,7))
+    C(hidden_layer_sizes = (4,5))
     C(hidden_layer_sizes = [4.0])
 
     # This should be caught
     catch([])
+    catch([0,4])
     catch([4.2])
+    catch(["x"])
+    catch([None])
     catch(None)
     catch(4)
     catch([0])
@@ -47,11 +47,11 @@ def l1_reg(C):
 
     # This should not raise an exception
     C(l1_reg = 0.1)
-    C(l1_reg = 1)
-    C(l1_reg = 0)
+    C(l1_reg = 0.0)
 
     # This should be caught
     catch(-0.1)
+    catch("x")
     catch(None)
     catch([0])
 
@@ -66,11 +66,11 @@ def l2_reg(C):
 
     # This should not raise an exception
     C(l2_reg = 0.1)
-    C(l2_reg = 1)
-    C(l2_reg = 1)
+    C(l2_reg = 0.0)
 
     # This should be caught
     catch(-0.1)
+    catch("x")
     catch(None)
     catch([0])
 
@@ -110,6 +110,7 @@ def learning_rate(C):
     # This should be caught
     catch(0.0)
     catch(-0.1)
+    catch("x")
     catch(None)
 
 def iterations(C):
@@ -127,6 +128,7 @@ def iterations(C):
 
     # This should be caught
     catch(-2)
+    catch("x")
     catch(4.2)
     catch(None)
 
@@ -140,25 +142,30 @@ def tf_dtype(C):
             pass
 
     # This should not raise an exception
+    C(tf_dtype = "64")
     C(tf_dtype = 64)
+    C(tf_dtype = "float64")
     C(tf_dtype = tf.float64)
+    C(tf_dtype = "32")
     C(tf_dtype = 32)
+    C(tf_dtype = "float32")
     C(tf_dtype = tf.float32)
+    C(tf_dtype = "16")
     C(tf_dtype = 16)
+    C(tf_dtype = "float16")
     C(tf_dtype = tf.float16)
 
     # This should be caught
     catch(8)
+    catch("x")
     catch(float)
     catch(None)
 
-def hl(C):
+def hl1(C):
     # Exceptions that are supposed to be caught
     def catch(s):
         try:
             C(hl1 = s)
-            C(hl2 = s)
-            C(hl3 = s)
             raise Exception
         except InputError:
             pass
@@ -166,35 +173,68 @@ def hl(C):
     # This should not raise an exception
     C(hl1 = 1)
     C(hl1 = 1.0)
-    C(hl2 = 1)
-    C(hl2 = 1.0)
-    C(hl3 = 1)
-    C(hl3 = 1.0)
 
     # This should be caught
     catch(0)
+    catch("x")
     catch(4.2)
     catch(None)
     catch(-1)
 
-
-def representations():
+def hl2(C):
     # Exceptions that are supposed to be caught
     def catch(s):
         try:
-            OMNN(representation = s)
-            OANN(representation = s)
+            C(hl2 = s)
             raise Exception
         except InputError:
             pass
 
     # This should not raise an exception
-    OMNN(representation = "unsorted_coulomb_matrix")
-    OMNN(representation = "sorted_couLomb_matrix")
-    OMNN(representation = "bag_of_bOnds")
-    OMNN(representation = "slAtm")
-    OANN(representation = "atomic_coulomb_matrix")
-    OANN(representation = "slAtm")
+    C(hl2 = 1)
+    C(hl2 = 1.0)
+    C(hl2 = 0)
+
+    # This should be caught
+    catch("x")
+    catch(4.2)
+    catch(None)
+    catch(-1)
+
+def hl3(C):
+    # Exceptions that are supposed to be caught
+    def catch(s):
+        try:
+            C(hl2 = 2, hl3 = s)
+            raise Exception
+        except InputError:
+            pass
+
+    # This should not raise an exception
+    C(hl2 = 2, hl3 = 1)
+    C(hl2 = 2, hl3 = 1.0)
+    C(hl2 = 2, hl3 = 0)
+
+    # This should be caught
+    catch("x")
+    catch(4.2)
+    catch(None)
+    catch(-1)
+
+def representation(C):
+    # Exceptions that are supposed to be caught
+    def catch(s):
+        try:
+            C(representation = s)
+            raise Exception
+        except InputError:
+            pass
+
+    # This should not raise an exception
+    C(representation = "unsorted_couLomb_matrix")
+    C(representation = "sorted_couLomb_matrix")
+    C(representation = "bag_of_bOnds")
+    C(representation = "slAtm")
 
     # This should be caught
     catch("none")
@@ -202,77 +242,134 @@ def representations():
     catch(None)
     catch(-1)
 
+def scoringfunction(C):
+    """
+    This function checks that the function _set_scoring_function accepts only mae, rmsd and r2 as scoring functions.
+    :param C: a class
+    :return: none
+    """
+
+    def catch(s):
+        try:
+            C(scoring_function = s)
+            raise Exception
+        except InputError:
+            pass
+
+    accepted_inputs = ['mae', 'rmse', 'r2']
+    unaccepted_inputs = [0, "none", 4.2, -1]
+
+    # This should not raise an exception
+    for item in accepted_inputs:
+        C(scoring_function=item)
+
+    # This should be caught
+    for item in unaccepted_inputs:
+        catch(item)
+
 def test_input():
     # Additional test that inheritance is ok
-    for C in _NN, MRMP, _ONN, OMNN, OANN:
-        hidden_layer_sizes(C)
-        l1_reg(C)
-        l2_reg(C)
-        batch_size(C)
-        learning_rate(C)
-        iterations(C)
-        tf_dtype(C)
 
-    for C in _ONN, OMNN, OANN:
-        hl(C)
+    C = MRMP
 
-    representations()
+    hidden_layer_sizes(C)
+    l1_reg(C)
+    l2_reg(C)
+    batch_size(C)
+    learning_rate(C)
+    iterations(C)
+    tf_dtype(C)
+    scoringfunction(C)
 
 
-def test_NN():
+# --------------------- ** tests for regularisation terms ** -----------------
 
-    # Simple example of fitting a quadratic function
-    estimator = MRMP(hidden_layer_sizes=(5, 5, 5), learning_rate=0.01, iterations=5000, l2_reg = 0, tf_dtype = 32, scoring_function="rmse")
-    x = np.arange(-2.0, 2.0, 0.05)[:,None]
-    y = (x ** 3).ravel()
+def test_l2_loss():
+    """
+    This tests the evaluation of the l2 regularisation term on the weights of the neural net.
+    :return: None
+    """
 
-    estimator.fit(x, y)
-    y_pred = estimator.predict(x)
+    # Some example weights
+    weights = [tf.constant([2.0, 4.0], dtype=tf.float32)]
 
-    # set matplotlib to be interactive so the plots wont show
-    # TODO should probably set agg backend instead since this distorts the console
-    plt.ion()
+    # Creating object with known l2_reg parameter
+    obj = MRMP(l2_reg=0.1)
+    expected_result = [2.0]
 
-    # Cost plot
-    estimator.plot_cost()
-    estimator.correlation_plot(y_pred, y)
+    # Evaluating l2 term
+    l2_loss_tf = obj._l2_loss(weights=weights)
+    sess = tf.Session()
+    l2_loss = sess.run(l2_loss_tf)
 
-
-def test_minimal_OANN():
-    m = OANN(representation='slatm', iterations = 10)
-    filenames = glob.glob("../data/qm7/*.xyz")
-    random.shuffle(filenames)
-    m.generate_compounds(filenames[:2])
-
-    # one property per atom
-    d = {}
-    for i, c in enumerate(m.compounds):
-        x = []
-        y = []
-        for j in range(len(c.nuclear_charges)):
-            y.append(np.random.random())
-            x.append(j)
-        d[i] = x[:], y[:]
+    # Testing
+    assert np.isclose(l2_loss, expected_result)
 
 
-    m.set_properties(d)
-    m.fit([0,1])
+def test_l1_loss():
+    """
+    This tests the evaluation of the l1 regularisation term on the weights of the neural net.
+    :return: None
+    """
 
-    # one property per atom pair
-    d = {}
-    for i, c in enumerate(m.compounds):
-        x = []
-        y = []
-        for j in range(len(c.nuclear_charges)):
-            for k in range(j+1, len(c.nuclear_charges)):
-                y.append(np.random.random())
-                x.append([j,k])
-        d[i] = x[:], y[:]
+    # Some example weights
+    weights = [tf.constant([2.0, 4.0], dtype=tf.float32)]
 
-    m.set_properties(d)
-    m.fit([0,1])
+    # Creating object with known l1_reg parameter
+    obj = MRMP(l1_reg=0.1)
+    expected_result = [0.6]
+
+    # Evaluating l1 term
+    l1_loss_tf = obj._l1_loss(weights=weights)
+    sess = tf.Session()
+    l1_loss = sess.run(l1_loss_tf)
+
+    # Testing
+    assert np.isclose(l1_loss, expected_result)
+
+def test_get_batch_size():
+    """
+    This tests the get_batch_size function
+    :return:
+    """
+
+    example_data = [200, 50, 50]
+    possible_cases = ["auto", 100, 20]
+    actual_batch_sizes = []
+    expected_batch_sizes = [100, 50, 17]
+
+    for i, case in enumerate(possible_cases):
+        obj = MRMP(batch_size=case)
+        obj.n_samples = example_data[i]
+        actual_batch = obj._get_batch_size()
+        actual_batch_sizes.append(actual_batch)
+
+    for i in range(len(expected_batch_sizes)):
+        assert actual_batch_sizes[i] == expected_batch_sizes[i]
+
+def test_fit1():
+    """This tests that the neural net can overfit a cubic function."""
+
+    x = np.linspace(-2.0, 2.0, 200)
+    X = np.reshape(x, (len(x), 1))
+    y = x ** 3
+
+    estimator = MRMP(hidden_layer_sizes=(5, 5, 5), learning_rate=0.01, iterations=35000, l2_reg=0, tf_dtype=32,
+                     scoring_function="rmse")
+    estimator.fit(X, y)
+
+    x_test = np.linspace(-1.5, 1.5, 15)
+    X_test = np.reshape(x_test, (len(x_test), 1))
+    y_test = x_test ** 3
+    y_pred = estimator.predict(X_test)
+
+    y_pred_row = np.reshape(y_pred, (y_pred.shape[0],))
+    np.testing.assert_array_almost_equal(y_test, y_pred_row, decimal=1)
+
 
 if __name__ == "__main__":
     test_input()
-    test_NN()
-    test_minimal_OANN()
+    test_l2_loss()
+    test_l1_loss()
+    test_get_batch_size()
+    test_fit1()
