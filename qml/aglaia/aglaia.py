@@ -1643,6 +1643,7 @@ class ARMP(_NN):
         if not is_none(parameters):
             if not type(parameters) is dict:
                 raise InputError("The descriptor parameters passed should be either None or a dictionary.")
+            self._check_descriptor_parameters(parameters)
 
         if self.representation == 'slatm':
 
@@ -2169,6 +2170,38 @@ class ARMP(_NN):
 
         return approved_x, approved_classes
 
+    def _check_descriptor_parameters(self, parameters):
+        """
+        This function checks that the dictionary passed that contains parameters of the descriptor contains the right
+        parameters.
+
+        :param parameters: all the parameters of the descriptor.
+        :type parameters: dictionary
+        :return: None
+        """
+
+        if self.representation == "slatm":
+
+            slatm_parameters = {'slatm_sigma1': 0.05, 'slatm_sigma2': 0.05, 'slatm_dgrid1': 0.03, 'slatm_dgrid2': 0.03,
+                                'slatm_rcut': 4.8, 'slatm_rpower': 6, 'slatm_alchemy': False}
+
+            for key, value in parameters.items():
+                try:
+                    slatm_parameters[key]
+                except Exception:
+                    raise InputError("Unrecognised parameter for slatm descriptor: %s" % (key))
+
+        elif self.representation == "acsf":
+
+            acsf_parameters = {'radial_cutoff': 10.0, 'angular_cutoff': 10.0, 'radial_rs': (0.0, 0.1, 0.2),
+                                    'angular_rs': (0.0, 0.1, 0.2), 'theta_s': (3.0, 2.0), 'zeta': 3.0, 'eta': 2.0}
+
+            for key, value in parameters.items():
+                try:
+                    acsf_parameters[key]
+                except Exception:
+                    raise InputError("Unrecognised parameter for acsf descriptor: %s" % (key))
+
     def _find_elements(self, zs):
         """
         This function finds the unique atomic numbers in Zs and returns them in a list.
@@ -2295,8 +2328,9 @@ class ARMP(_NN):
             # This seems to run the iterator.get_next() op, which gives problems with end of sequence
             # Hence why I re-initialise the iterator
             self.session.run(iterator_init, feed_dict={x_ph: x_approved, zs_ph: classes_approved, y_ph: y_approved})
-            if i % self.tensorboard_logger_training.store_frequency == 0:
-                self.tensorboard_logger_training.write_summary(self.session, i)
+            if self.tensorboard:
+                if i % self.tensorboard_logger_training.store_frequency == 0:
+                    self.tensorboard_logger_training.write_summary(self.session, i)
 
             self.training_cost.append(avg_cost/n_batches)
 

@@ -5,9 +5,9 @@ This file contains tests for the atom centred symmetry function module.
 import tensorflow as tf
 import numpy as np
 
-from aglaia import symm_funct
-from aglaia.tests import np_symm_funct
-from aglaia.tests import tensormol_symm_funct
+import symm_funct
+from tests import np_symm_funct
+from tests import tensormol_symm_funct
 
 
 def test_acsf_1():
@@ -152,4 +152,6 @@ def test_acsf_3():
                 np.testing.assert_array_almost_equal(acsf_np_sort, acsf_tf_sort, decimal=4)
 
 if __name__ == "__main__":
+    test_acsf_1()
     test_acsf_2()
+    test_acsf_3()

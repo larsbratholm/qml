@@ -6,9 +6,8 @@ import tensorflow as tf
 import numpy as np
 
 # TODO relative imports
-from aglaia.aglaia import _NN, MRMP
-from aglaia.wrappers import _ONN, OMNN
-from aglaia.utils import InputError
+from aglaia import _NN, MRMP
+from aglaia import InputError
 
 
 # ------------ ** All functions to test the inputs to the classes ** ---------------
@@ -270,22 +269,18 @@ def scoringfunction(C):
 
 def test_input():
     # Additional test that inheritance is ok
-    for C in _NN, MRMP, _ONN, OMNN:
-        hidden_layer_sizes(C)
-        l1_reg(C)
-        l2_reg(C)
-        batch_size(C)
-        learning_rate(C)
-        iterations(C)
-        tf_dtype(C)
-        scoringfunction(C)
 
-    for C in _ONN, OMNN:
-        hl1(C)
-        hl2(C)
-        hl3(C)
+    C = MRMP
 
-    representation(OMNN)
+    hidden_layer_sizes(C)
+    l1_reg(C)
+    l2_reg(C)
+    batch_size(C)
+    learning_rate(C)
+    iterations(C)
+    tf_dtype(C)
+    scoringfunction(C)
+
 
 # --------------------- ** tests for regularisation terms ** -----------------
 
@@ -374,3 +369,7 @@ def test_fit1():
 
 if __name__ == "__main__":
     test_input()
+    test_l2_loss()
+    test_l1_loss()
+    test_get_batch_size()
+    test_fit1()
