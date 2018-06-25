@@ -8,6 +8,7 @@ from qml.aglaia.aglaia import MRMP
 import joblib
 from qml.aglaia.utils import InputError
 import glob
+import os
 
 def test_set_representation():
     """
@@ -44,8 +45,9 @@ def test_set_properties():
     This test checks that the set_properties function sets the correct properties.
     :return:
     """
+    test_dir = os.path.dirname(os.path.realpath(__file__))
 
-    energies = np.loadtxt('/Volumes/Transcend/repositories/qml_aglaia/qml/qml/aglaia/tests/data/CN_isobutane/prop_kjmol_training.txt',
+    energies = np.loadtxt(test_dir + '/CN_isobutane/prop_kjmol_training.txt',
                           usecols=[1])
 
     estimator = MRMP(representation='unsorted_coulomb_matrix')
@@ -62,8 +64,10 @@ def test_set_descriptor():
     :return:
     """
 
-    data_correct = np.load("/Volumes/Transcend/repositories/qml_aglaia/qml/qml/aglaia/tests/data/CN_isopent_light_UCM.npz")
-    data_incorrect = joblib.load("/Volumes/Transcend/repositories/qml_aglaia/qml/qml/aglaia/tests/data/local_slatm_ch4cn_light.bz")
+    test_dir = os.path.dirname(os.path.realpath(__file__))
+
+    data_correct = np.load(test_dir + "/data/CN_isopent_light_UCM.npz")
+    data_incorrect = joblib.load(test_dir + "/data/local_slatm_ch4cn_light.bz")
     descriptor_correct = data_correct["arr_0"]
     descriptor_incorrect = data_incorrect["descriptor"]
 
@@ -89,8 +93,10 @@ def test_fit_1():
     the descriptors are created from the compounds.
     """
 
-    filenames = glob.glob("/Volumes/Transcend/repositories/qml_aglaia/qml/qml/aglaia/tests/data/CN_isobutane/*.xyz")
-    energies = np.loadtxt('/Volumes/Transcend/repositories/qml_aglaia/qml/qml/aglaia/tests/data/CN_isobutane/prop_kjmol_training.txt',
+    test_dir = os.path.dirname(os.path.realpath(__file__))
+
+    filenames = glob.glob(test_dir + "/CN_isobutane/*.xyz")
+    energies = np.loadtxt(test_dir + '/CN_isobutane/prop_kjmol_training.txt',
                           usecols=[1])
     filenames.sort()
 
@@ -107,7 +113,9 @@ def test_fit_2():
     This function tests the second way of fitting the descriptor: the data is passed by storing the compounds in the
     class.
     """
-    data = np.load("/Volumes/Transcend/repositories/qml_aglaia/qml/qml/aglaia/tests/data/CN_isopent_light_UCM.npz")
+    test_dir = os.path.dirname(os.path.realpath(__file__))
+
+    data = np.load(test_dir + "/data/CN_isopent_light_UCM.npz")
     descriptor = data["arr_0"]
     energies = data["arr_1"]
 
@@ -122,7 +130,9 @@ def test_fit_3():
     """
     This function tests the thrid way of fitting the descriptor: the data is passed directly to the fit function.
     """
-    data = np.load("/Volumes/Transcend/repositories/qml_aglaia/qml/qml/aglaia/tests/data/CN_isopent_light_UCM.npz")
+    test_dir = os.path.dirname(os.path.realpath(__file__))
+
+    data = np.load(test_dir + "/data/CN_isopent_light_UCM.npz")
     descriptor = data["arr_0"]
     energies = data["arr_1"]
 
@@ -133,8 +143,9 @@ def test_score_3():
     """
     This function tests that all the scoring functions work.
     """
+    test_dir = os.path.dirname(os.path.realpath(__file__))
 
-    data = np.load("/Volumes/Transcend/repositories/qml_aglaia/qml/qml/aglaia/tests/data/CN_isopent_light_UCM.npz")
+    data = np.load(test_dir + "/data/CN_isopent_light_UCM.npz")
     descriptor = data["arr_0"]
     energies = data["arr_1"]
 
@@ -151,7 +162,9 @@ def test_score_3():
     estimator_3.score(descriptor, energies)
 
 def test_predict_3():
-    data = np.load("/Volumes/Transcend/repositories/qml_aglaia/qml/qml/aglaia/tests/data/CN_isopent_light_UCM.npz")
+    test_dir = os.path.dirname(os.path.realpath(__file__))
+
+    data = np.load(test_dir + "/data/CN_isopent_light_UCM.npz")
     descriptor = data["arr_0"]
     energies = data["arr_1"]
 

@@ -8,6 +8,7 @@ import numpy as np
 from qml.aglaia import symm_funct
 from qml.aglaia import np_symm_funct
 from qml.aglaia import tensormol_symm_funct
+import os
 
 
 def test_acsf_1():
@@ -26,7 +27,8 @@ def test_acsf_1():
     zeta = 3.0
     eta = 2.0
 
-    input_data = "data_test_acsf.npz"
+    test_dir = os.path.dirname(os.path.realpath(__file__))
+    input_data = test_dir + "/data/data_test_acsf.npz"
     data = np.load(input_data)
 
     xyzs = data["arr_0"]
@@ -74,7 +76,8 @@ def test_acsf_2():
     zeta = 3.0
     eta = 2.0
 
-    input_data = "data_test_acsf_01.npz"
+    test_dir = os.path.dirname(os.path.realpath(__file__))
+    input_data = test_dir + "/data/data_test_acsf_01.npz"
     data = np.load(input_data)
 
     xyzs = data["arr_0"]
@@ -119,7 +122,8 @@ def test_acsf_3():
     zeta = 3.0
     eta = 2.0
 
-    input_data = "qm7_testdata.npz"
+    test_dir = os.path.dirname(os.path.realpath(__file__))
+    input_data = test_dir + "/data/qm7_testdata.npz"
     data = np.load(input_data)
 
     xyzs = data["arr_0"]

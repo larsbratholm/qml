@@ -8,6 +8,7 @@ from qml.aglaia.aglaia import ARMP
 import joblib
 from qml.aglaia.utils import InputError
 import glob
+import os
 
 def test_set_representation():
     """
@@ -44,8 +45,9 @@ def test_set_properties():
     This test checks that the set_properties function sets the correct properties.
     :return:
     """
+    test_dir = os.path.dirname(os.path.realpath(__file__))
 
-    energies = np.loadtxt('/Volumes/Transcend/repositories/qml_aglaia/qml/qml/aglaia/tests/data/CN_isobutane/prop_kjmol_training.txt',
+    energies = np.loadtxt(test_dir + '/CN_isobutane/prop_kjmol_training.txt',
                           usecols=[1])
 
     estimator = ARMP(representation='slatm')
@@ -61,9 +63,10 @@ def test_set_descriptor():
     This test checks that the set_descriptor function works as expected.
     :return:
     """
+    test_dir = os.path.dirname(os.path.realpath(__file__))
 
-    data_incorrect = np.load("/Volumes/Transcend/repositories/qml_aglaia/qml/qml/aglaia/tests/data/CN_isopent_light_UCM.npz")
-    data_correct = joblib.load("/Volumes/Transcend/repositories/qml_aglaia/qml/qml/aglaia/tests/data/local_slatm_ch4cn_light.bz")
+    data_incorrect = np.load(test_dir + "/data/CN_isopent_light_UCM.npz")
+    data_correct = joblib.load(test_dir + "/data/local_slatm_ch4cn_light.bz")
     descriptor_correct = data_correct["descriptor"]
     descriptor_incorrect = data_incorrect["arr_0"]
 
@@ -88,9 +91,10 @@ def test_fit_1():
     This function tests the first way of fitting the descriptor: the data is passed by first creating compounds and then
     the descriptors are created from the compounds.
     """
+    test_dir = os.path.dirname(os.path.realpath(__file__))
 
-    filenames = glob.glob("/Volumes/Transcend/repositories/qml_aglaia/qml/qml/aglaia/tests/data/CN_isobutane/*.xyz")
-    energies = np.loadtxt('/Volumes/Transcend/repositories/qml_aglaia/qml/qml/aglaia/tests/data/CN_isobutane/prop_kjmol_training.txt',
+    filenames = glob.glob(test_dir + "/CN_isobutane/*.xyz")
+    energies = np.loadtxt(test_dir + '/CN_isobutane/prop_kjmol_training.txt',
                           usecols=[1])
     filenames.sort()
 
@@ -107,7 +111,9 @@ def test_fit_2():
     This function tests the second way of fitting the descriptor: the data is passed by storing the compounds in the
     class.
     """
-    data = joblib.load("/Volumes/Transcend/repositories/qml_aglaia/qml/qml/aglaia/tests/data/local_slatm_ch4cn_light.bz")
+    test_dir = os.path.dirname(os.path.realpath(__file__))
+
+    data = joblib.load(test_dir + "/data/local_slatm_ch4cn_light.bz")
     descriptor = data["descriptor"]
     classes = data["zs"]
     energies = data["energies"]
@@ -124,7 +130,9 @@ def test_fit_3():
     """
     This function tests the thrid way of fitting the descriptor: the data is passed directly to the fit function.
     """
-    data = joblib.load("/Volumes/Transcend/repositories/qml_aglaia/qml/qml/aglaia/tests/data/local_slatm_ch4cn_light.bz")
+    test_dir = os.path.dirname(os.path.realpath(__file__))
+
+    data = joblib.load(test_dir + "/data/local_slatm_ch4cn_light.bz")
     descriptor = data["descriptor"]
     classes = data["zs"]
     energies = data["energies"]
@@ -136,8 +144,9 @@ def test_score_3():
     """
     This function tests that all the scoring functions work.
     """
+    test_dir = os.path.dirname(os.path.realpath(__file__))
 
-    data = joblib.load("/Volumes/Transcend/repositories/qml_aglaia/qml/qml/aglaia/tests/data/local_slatm_ch4cn_light.bz")
+    data = joblib.load(test_dir + "/data/local_slatm_ch4cn_light.bz")
     descriptor = data["descriptor"]
     classes = data["zs"]
     energies = data["energies"]
@@ -155,8 +164,9 @@ def test_score_3():
     estimator_3.score(x=descriptor, y=energies, classes=classes)
 
 def test_predict_3():
+    test_dir = os.path.dirname(os.path.realpath(__file__))
 
-    data = joblib.load("/Volumes/Transcend/repositories/qml_aglaia/qml/qml/aglaia/tests/data/local_slatm_ch4cn_light.bz")
+    data = joblib.load(test_dir + "/data/local_slatm_ch4cn_light.bz")
     descriptor = data["descriptor"]
     classes = data["zs"]
     energies = data["energies"]
