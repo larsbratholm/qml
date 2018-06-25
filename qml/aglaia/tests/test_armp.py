@@ -45,7 +45,7 @@ def test_set_properties():
     :return:
     """
 
-    energies = np.loadtxt('/Volumes/Transcend/data_sets/CN_isobutane_model/geoms_2/training/prop_kjmol_training.txt',
+    energies = np.loadtxt('/Volumes/Transcend/repositories/qml_aglaia/qml/qml/aglaia/tests/data/CN_isobutane/prop_kjmol_training.txt',
                           usecols=[1])
 
     estimator = aglaia.ARMP(representation='slatm')
@@ -62,8 +62,8 @@ def test_set_descriptor():
     :return:
     """
 
-    data_incorrect = np.load("/Volumes/Transcend/repositories/Aglaia/data/CN_isopent_light_UCM.npz")
-    data_correct = joblib.load("/Volumes/Transcend/repositories/Aglaia/data/local_slatm_ch4cn_light.bz")
+    data_incorrect = np.load("/Volumes/Transcend/repositories/qml_aglaia/qml/qml/aglaia/tests/data/CN_isopent_light_UCM.npz")
+    data_correct = joblib.load("/Volumes/Transcend/repositories/qml_aglaia/qml/qml/aglaia/tests/data/local_slatm_ch4cn_light.bz")
     descriptor_correct = data_correct["descriptor"]
     descriptor_incorrect = data_incorrect["arr_0"]
 
@@ -89,8 +89,8 @@ def test_fit_1():
     the descriptors are created from the compounds.
     """
 
-    filenames = glob.glob("/Volumes/Transcend/data_sets/CN_isobutane_model/geoms_2/training/*.xyz")
-    energies = np.loadtxt('/Volumes/Transcend/data_sets/CN_isobutane_model/geoms_2/training/prop_kjmol_training.txt',
+    filenames = glob.glob("/Volumes/Transcend/repositories/qml_aglaia/qml/qml/aglaia/tests/data/CN_isobutane/*.xyz")
+    energies = np.loadtxt('/Volumes/Transcend/repositories/qml_aglaia/qml/qml/aglaia/tests/data/CN_isobutane/prop_kjmol_training.txt',
                           usecols=[1])
     filenames.sort()
 
@@ -107,7 +107,7 @@ def test_fit_2():
     This function tests the second way of fitting the descriptor: the data is passed by storing the compounds in the
     class.
     """
-    data = joblib.load("/Volumes/Transcend/repositories/Aglaia/data/local_slatm_ch4cn_light.bz")
+    data = joblib.load("/Volumes/Transcend/repositories/qml_aglaia/qml/qml/aglaia/tests/data/local_slatm_ch4cn_light.bz")
     descriptor = data["descriptor"]
     classes = data["zs"]
     energies = data["energies"]
@@ -124,7 +124,7 @@ def test_fit_3():
     """
     This function tests the thrid way of fitting the descriptor: the data is passed directly to the fit function.
     """
-    data = joblib.load("/Volumes/Transcend/repositories/Aglaia/data/local_slatm_ch4cn_light.bz")
+    data = joblib.load("/Volumes/Transcend/repositories/qml_aglaia/qml/qml/aglaia/tests/data/local_slatm_ch4cn_light.bz")
     descriptor = data["descriptor"]
     classes = data["zs"]
     energies = data["energies"]
@@ -137,7 +137,7 @@ def test_score_3():
     This function tests that all the scoring functions work.
     """
 
-    data = joblib.load("/Volumes/Transcend/repositories/Aglaia/data/local_slatm_ch4cn_light.bz")
+    data = joblib.load("/Volumes/Transcend/repositories/qml_aglaia/qml/qml/aglaia/tests/data/local_slatm_ch4cn_light.bz")
     descriptor = data["descriptor"]
     classes = data["zs"]
     energies = data["energies"]
@@ -156,7 +156,7 @@ def test_score_3():
 
 def test_predict_3():
 
-    data = joblib.load("/Volumes/Transcend/repositories/Aglaia/data/local_slatm_ch4cn_light.bz")
+    data = joblib.load("/Volumes/Transcend/repositories/qml_aglaia/qml/qml/aglaia/tests/data/local_slatm_ch4cn_light.bz")
     descriptor = data["descriptor"]
     classes = data["zs"]
     energies = data["energies"]
