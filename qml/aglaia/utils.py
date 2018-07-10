@@ -109,6 +109,34 @@ def check_local_descriptor(x):
 
     return x
 
+def check_xyz(xyz):
+    """
+    This function checks that the cartesian coordinates are three dimensional and the last dimension is 3.
+
+    :param xyz: cartesian coordinates
+    :type xyz: hopefully numpy array of shape (n_samples, n_atoms, 3)
+    :return: the cartesian coordinates
+    :rtype: numpy array of shape (n_samples, n_atoms, 3)
+    """
+
+    if is_none(xyz):
+        approved_xyz = xyz
+    else:
+        if not is_array_like(xyz):
+            raise InputError("dy should be array like.")
+
+        xyz = np.asarray(xyz)
+
+        if len(xyz.shape) != 3:
+            raise InputError("The cartesian coordinates should be in an array with 3 dimensions. Got %s" % (len(xyz.shape)))
+
+        if xyz.shape[-1] != 3:
+            raise InputError("The last dimension of the array xyz should be 3. Got %s" % (xyz.shape[-1]))
+
+        approved_xyz = xyz
+
+    return approved_xyz
+
 def check_y(y):
     """
     This function checks that y is a one dimensional array of floats.
@@ -137,7 +165,7 @@ def check_sizes(x, y=None, dy=None, classes=None):
     if is_none(dy) and is_none(classes):
 
         if x.shape[0] != y.shape[0]:
-            raise InputError("The descriptor and the properties should have the same first number of elements in the "
+            raise InputError("x and the properties should have the same first number of elements in the "
                              "first dimension. Got %s and %s" % (x.shape[0], y.shape[0]))
 
     elif is_none(y) and is_none(dy):

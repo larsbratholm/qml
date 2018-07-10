@@ -12,7 +12,7 @@ from qml.aglaia.symm_funct import generate_parkhill_acsf
 from qml.aglaia.utils import InputError, ceil, is_positive_or_zero, is_positive_integer, is_positive, \
         is_bool, is_positive_integer_or_zero, is_string, is_positive_integer_array, is_array_like, is_none, \
         check_global_descriptor, check_y, check_sizes, check_dy, check_classes, is_numeric_array, is_non_zero_integer, \
-    is_positive_integer_or_zero_array, check_local_descriptor
+    is_positive_integer_or_zero_array, check_local_descriptor, check_xyz
 
 from qml.aglaia.tf_utils import TensorBoardLogger
 
@@ -729,11 +729,12 @@ class _NN(object):
             raise InputError("Gradients cannot be set to none.")
         else:
             if is_numeric_array(gradients):
+                if len(np.asarray(gradients).shape) != 3 or np.asarray(gradients).shape[-1] != 3:
+                    raise InputError("The gradients should be a three dimensional array with the last dimension equal to 3.")
                 self.gradients = np.asarray(gradients)
             else:
                 raise InputError('Variable "gradients" expected to be array like.')
 
-    # TODO move to ARMP? MRMP does not neet this function
     def set_classes(self, classes):
         """
         This function stores the classes to be used during training for local networks.
@@ -935,7 +936,7 @@ class _NN(object):
 
         return np.atleast_2d(self.properties[indices]).T
 
-    def _get_classes(self, indices):
+    def _get_classes_from_compounds(self, indices):
         """
         This returns the classes that have been set through QML.
 
@@ -2391,3 +2392,315 @@ class ARMP(_NN):
 
         self.session = tf.Session(graph=tf.get_default_graph())
         tf.saved_model.loader.load(self.session, [tf.saved_model.tag_constants.SERVING], save_dir)
+
+### --------------------- ** Atomic representation - molecular properties with gradients ** ----------------------------
+
+class ARMP_G(_NN):
+    """
+    The ``ARMP_G`` class  is used to build neural networks that take as an input atomic representations of molecules and
+    output molecular properties and their gradients, like the energies and the forces.
+    """
+
+    def __init__(self, hidden_layer_sizes=(5,), l1_reg=0.0, l2_reg=0.0001, batch_size='auto', learning_rate=0.001,
+                 iterations=500, tensorboard=False, store_frequency=200, tf_dtype=tf.float32, scoring_function='mae',
+                 activation_function=tf.sigmoid, optimiser=tf.train.AdamOptimizer, beta1=0.9, beta2=0.999,
+                 epsilon=1e-08,
+                 rho=0.95, initial_accumulator_value=0.1, initial_gradient_squared_accumulator_value=0.1,
+                 l1_regularization_strength=0.0, l2_regularization_strength=0.0,
+                 tensorboard_subdir=os.getcwd() + '/tensorboard', representation='acsf', descriptor_params=None):
+
+        super(ARMP_G, self).__init__(hidden_layer_sizes, l1_reg, l2_reg, batch_size, learning_rate,
+                                   iterations, tensorboard, store_frequency, tf_dtype, scoring_function,
+                                   activation_function, optimiser, beta1, beta2, epsilon,
+                                   rho, initial_accumulator_value, initial_gradient_squared_accumulator_value,
+                                   l1_regularization_strength, l2_regularization_strength, tensorboard_subdir)
+
+        if representation != 'acsf':
+            raise InputError("Only the acsf descriptor can currently be used with gradients.")
+
+        self._set_representation(representation, descriptor_params)
+
+    def _set_representation(self, representation, parameters):
+        """
+        This function sets the representation and the parameters of the representation.
+
+        :param representation: the name of the representation
+        :type representation: string
+        :param parameters: all the parameters of the descriptor.
+        :type parameters: dictionary
+        :return: None
+        """
+
+        if not is_string(representation):
+            raise InputError("Expected string for variable 'representation'. Got %s" % str(representation))
+        if representation.lower() not in ['slatm', 'acsf']:
+            raise InputError("Unknown representation %s" % representation)
+        self.representation = representation.lower()
+
+        if not is_none(parameters):
+            if not type(parameters) is dict:
+                raise InputError("The descriptor parameters passed should be either None or a dictionary.")
+            self._check_descriptor_parameters(parameters)
+
+        if self.representation == 'slatm':
+
+            self._set_slatm_parameters(parameters)
+
+        elif self.representation == 'acsf':
+
+            self._set_acsf_parameters(parameters)
+
+        else:
+
+            if not is_none(parameters):
+                raise InputError("The representation %s does not take any additional parameters." % (self.representation))
+
+    def _check_descriptor_parameters(self, parameters):
+        """
+        This function checks that the dictionary passed that contains parameters of the descriptor contains the right
+        parameters.
+
+        :param parameters: all the parameters of the descriptor.
+        :type parameters: dictionary
+        :return: None
+        """
+
+        if self.representation == "acsf":
+
+            acsf_parameters = {'radial_cutoff': 10.0, 'angular_cutoff': 10.0, 'radial_rs': (0.0, 0.1, 0.2),
+                                    'angular_rs': (0.0, 0.1, 0.2), 'theta_s': (3.0, 2.0), 'zeta': 3.0, 'eta': 2.0}
+
+            for key, value in parameters.items():
+                try:
+                    acsf_parameters[key]
+                except Exception:
+                    raise InputError("Unrecognised parameter for acsf descriptor: %s" % (key))
+
+    def _check_inputs(self, x, y, dy, classes):
+        """
+
+        :param x: Indices or the cartesian coordinates
+        :param y:
+        :param dy:
+        :param classes:
+        :return:
+        """
+
+        if not is_array_like(x):
+            raise InputError("x should be an array either containing indices or data.")
+
+        # Check if x is made up of indices or data
+        if is_positive_integer_or_zero_array(x):
+            if is_none(self.compounds):
+                raise InputError("The compounds need to have been set in advance.")
+            else:
+                approved_xyz = self._get_xyz_from_compounds(x)
+
+            if is_none(self.properties):
+                raise InputError("The properties need to be set in advance.")
+            else:
+                approved_y = self._get_properties(x)
+
+            # if is_none(self.gradients):
+            #     raise InputError("The gradients need to be set in advance.")
+            # else:
+            #     approved_dy = self.gradients[x]
+            approved_dy = None
+
+            if is_none(self.classes):
+                approved_classes = self._get_classes_from_compounds(x)
+            else:
+                approved_classes = self.classes[x]
+
+        else:
+            if is_none(y):
+                raise InputError("y cannot be of None type.")
+            if is_none(dy):
+                raise InputError("ARMP_G estimator requires gradients.")
+            if is_none(classes):
+                raise InputError("ARMP estimator needs the classes to do atomic decomposition.")
+
+            approved_xyz = check_xyz(x)
+            approved_y = check_y(y)
+            approved_dy = check_dy(dy)
+            approved_classes = check_classes(classes)
+
+        check_sizes(approved_xyz, approved_y, approved_dy, approved_classes)
+
+        return approved_xyz, approved_y, approved_dy, approved_classes
+
+    def _find_elements(self, zs):
+        """
+        This function finds the unique atomic numbers in Zs and returns them in a list.
+
+        :param zs: nuclear charges
+        :type zs: numpy array of floats of shape (n_samples, n_atoms)
+        :return: unique nuclear charges
+        :rtype: numpy array of floats of shape (n_elements,)
+        """
+
+        # Obtaining the unique atomic numbers (but still includes the dummy atoms)
+        elements = np.unique(zs)
+
+        # Removing the dummy
+        return np.trim_zeros(elements)
+
+    def _generate_descriptors_from_compounds(self):
+        """
+        This function generates the descriptors from the compounds.
+        :return: the descriptors and the classes
+        :rtype: numpy array of shape (n_samples, n_atoms, n_features) and (n_samples, n_atoms)
+        """
+
+        if is_none(self.compounds):
+            raise InputError("QML compounds needs to be created in advance")
+
+
+        if self.representation == 'acsf':
+
+            descriptor, descriptor_grad, classes = self._generate_acsf_from_compounds()
+
+        else:
+            raise InputError("This should never happen, unrecognised representation %s." % (self.representation))
+
+        return descriptor, descriptor_grad, classes
+
+    def _generate_acsf_from_compounds(self):
+        """
+        This function generates the atom centred symmetry functions.
+
+        :return: descriptor acsf and classes
+        :rtype: numpy array of shape (n_samples, n_atoms, n_features) and (n_samples, n_atoms)
+        """
+
+        # Obtaining the total elements and the element pairs
+        mbtypes = representations.get_slatm_mbtypes([mol.nuclear_charges for mol in self.compounds])
+
+        elements = []
+        element_pairs = []
+
+        # Splitting the one and two body interactions in mbtypes
+        for item in mbtypes:
+            if len(item) == 1:
+                elements.append(item[0])
+            if len(item) == 2:
+                element_pairs.append(list(item))
+            if len(item) == 3:
+                break
+
+        # Need the element pairs in descending order for TF
+        for item in element_pairs:
+            item.reverse()
+
+        # Obtaining the xyz and the nuclear charges
+        xyzs = []
+        zs = []
+        max_n_atoms = 0
+
+        for compound in self.compounds:
+            xyzs.append(compound.coordinates)
+            zs.append(compound.nuclear_charges)
+            if len(compound.nuclear_charges) > max_n_atoms:
+                max_n_atoms = len(compound.nuclear_charges)
+
+        # Padding so that all the samples have the same shape
+        n_samples = len(zs)
+        for i in range(n_samples):
+            current_n_atoms = len(zs[i])
+            missing_n_atoms = max_n_atoms - current_n_atoms
+            zs_padding = np.zeros(missing_n_atoms)
+            zs[i] = np.concatenate((zs[i], zs_padding))
+            xyz_padding = np.zeros((missing_n_atoms, 3))
+            xyzs[i] = np.concatenate((xyzs[i], xyz_padding))
+
+        zs = np.asarray(zs, dtype=np.int32)
+        xyzs = np.asarray(xyzs, dtype=np.float32)
+
+        if self.tensorboard:
+            self.tensorboard_logger_descriptor.initialise()
+            # run_metadata = tf.RunMetadata()
+            # options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
+
+        # Turning the quantities into tensors
+        with tf.name_scope("Inputs"):
+            zs_tf = tf.placeholder(shape=[n_samples, max_n_atoms], dtype=tf.int32, name="zs")
+            xyz_tf = tf.placeholder(shape=[n_samples, max_n_atoms, 3], dtype=tf.float32, name="xyz")
+
+            dataset = tf.data.Dataset.from_tensor_slices((xyz_tf, zs_tf))
+            dataset = dataset.batch(20)
+            iterator = tf.data.Iterator.from_structure(dataset.output_types, dataset.output_shapes)
+            batch_xyz, batch_zs = iterator.get_next()
+
+        descriptor = generate_parkhill_acsf(xyzs=batch_xyz, Zs=batch_zs, elements=elements, element_pairs=element_pairs,
+                                            radial_cutoff=self.acsf_parameters['radial_cutoff'],
+                                            angular_cutoff=self.acsf_parameters['angular_cutoff'],
+                                            radial_rs=self.acsf_parameters['radial_rs'],
+                                            angular_rs=self.acsf_parameters['angular_rs'],
+                                            theta_s=self.acsf_parameters['theta_s'], eta=self.acsf_parameters['eta'],
+                                            zeta=self.acsf_parameters['zeta'])
+
+        gradients = tf.gradients(descriptor, batch_xyz)
+
+        sess = tf.Session()
+        sess.run(tf.global_variables_initializer())
+        sess.run(iterator.make_initializer(dataset), feed_dict={xyz_tf: xyzs, zs_tf: zs})
+
+        descriptor_slices = []
+        gradients_slices = []
+
+        if self.tensorboard:
+            self.tensorboard_logger_descriptor.set_summary_writer(sess)
+
+            batch_counter = 0
+            while True:
+                try:
+                    descriptor_np = sess.run(descriptor, options=self.tensorboard_logger_descriptor.options,
+                                             run_metadata=self.tensorboard_logger_descriptor.run_metadata)
+                    gradients_np = sess.run(gradients)
+
+                    self.tensorboard_logger_descriptor.write_metadata(batch_counter)
+
+                    descriptor_slices.append(descriptor_np)
+                    gradients_slices.append(gradients_np)
+
+                    batch_counter += 1
+                except tf.errors.OutOfRangeError:
+                    break
+        else:
+            batch_counter = 0
+            while True:
+                try:
+                    descriptor_np = sess.run(descriptor)
+                    gradients_np = sess.run(gradients)
+                    descriptor_slices.append(descriptor_np)
+                    gradients_slices.append(gradients_np)
+                    batch_counter += 1
+                except tf.errors.OutOfRangeError:
+                    break
+
+        descriptor_conc = np.concatenate(descriptor_slices, axis=0)
+        gradients_conc = np.concatenate(gradients_slices, axis=0)
+        print(descriptor_conc.shape)
+
+        sess.close()
+
+        return descriptor_conc, gradients_conc, zs
+
+    def _fit(self, xyz, y, dy, classes):
+        """
+
+        :param xyz:
+        :param y:
+        :param dy:
+        :param classes:
+        :return:
+        """
+
+        xyz_approved, y_approved, dy_approved, classes_approved = self._check_inputs(xyz, y, dy, classes)
+
+        # Obtaining the array of unique elements in all samples
+        self.elements = self._find_elements(classes_approved)
+
+        g, dg_dxyz, classes = self.generate_descriptors()
+
+        print(g.shape, dg_dxyz.shape)
