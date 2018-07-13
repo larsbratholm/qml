@@ -26,7 +26,7 @@ def acsf_rad(xyzs, Zs, radial_cutoff, radial_rs, eta):
     # Calculating the distance matrix between the atoms of each sample
     with tf.name_scope("Distances"):
         dxyzs = tf.expand_dims(xyzs, axis=2) - tf.expand_dims(xyzs, axis=1)
-        dist_tensor = tf.cast(tf.norm(dxyzs, axis=3), dtype=tf.float32)  # (n_samples, n_atoms, n_atoms)
+        dist_tensor = tf.cast(tf.norm(dxyzs+1.e-16, axis=3), dtype=tf.float32)  # (n_samples, n_atoms, n_atoms)
 
     # Indices of terms that need to be zero (diagonal elements)
     mask_0 = tf.zeros(tf.shape(dist_tensor))
@@ -82,7 +82,7 @@ def acsf_ang(xyzs, Zs, angular_cutoff, angular_rs, theta_s, zeta, eta):
     # Finding the R_ij + R_ik term
     with tf.name_scope("Sum_distances"):
         dxyzs = tf.expand_dims(xyzs, axis=2) - tf.expand_dims(xyzs, axis=1)
-        dist_tensor = tf.cast(tf.norm(dxyzs, axis=3), dtype=tf.float32)  # (n_samples, n_atoms, n_atoms)
+        dist_tensor = tf.cast(tf.norm(dxyzs+1.e-16, axis=3), dtype=tf.float32)  # (n_samples, n_atoms, n_atoms)
 
         # This is the tensor where element sum_dist_tensor[0,1,2,3] is the R_12 + R_13 in the 0th data sample
         sum_dist_tensor = tf.expand_dims(dist_tensor, axis=3) + tf.expand_dims(dist_tensor,
@@ -139,8 +139,8 @@ def acsf_ang(xyzs, Zs, angular_cutoff, angular_rs, theta_s, zeta, eta):
                                 tf.expand_dims(dist_tensor, axis=2))  # (n_samples,  n_atoms, n_atoms, n_atoms)
         # Dividing the dot products by the magnitudes to obtain cos theta
         cos_theta = tf.divide(dots_dxyzs, dist_prod)
-        # Taking care of the values that due numerical error are just above 1.0 or below -1.0
-        cut_cos_theta = tf.clip_by_value(cos_theta, tf.constant(-1.0), tf.constant(1.0))
+        # Taking care of the values that due numerical error are just above 1.0 or below -1.0 (with the extra term for numerical stability)
+        cut_cos_theta = tf.clip_by_value(cos_theta, tf.constant(-1.0 + 1.0e-7), tf.constant(1.0 - 1.0e-7))
         # Applying arc cos to find the theta value
         theta = tf.acos(cut_cos_theta)  # (n_samples,  n_atoms, n_atoms, n_atoms)
         # Removing the NaNs created by dividing by zero

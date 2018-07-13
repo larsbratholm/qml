@@ -697,6 +697,17 @@ class _NN(object):
                 raise InputError(
                     'Variable "properties" expected to be array like of dimension 1. Got %s' % str(properties))
 
+    def set_xyz(self, xyz):
+
+        if is_none(xyz):
+            raise InputError("The cartesian coordinates cannot be set to none.")
+        else:
+            if is_numeric_array(xyz) and np.asarray(xyz).ndim == 3:
+                self.xyz = np.asarray(xyz)
+            else:
+                raise InputError(
+                    'Variable "xyz" expected to be array like of dimension 3. Got %s' % str(xyz.shape))
+
     def set_descriptors(self, descriptors):
         """
         This function takes descriptors as input and stores them inside the class.
@@ -2491,8 +2502,10 @@ class ARMP_G(_NN):
 
         # Check if x is made up of indices or data
         if is_positive_integer_or_zero_array(x):
-            if is_none(self.compounds):
-                raise InputError("The compounds need to have been set in advance.")
+            if is_none(self.compounds) and is_none(self.xyz):
+                raise InputError("The compounds need to have been set in advance or you should provide the xyz.")
+            elif is_none(self.compounds) and not is_none(self.xyz):
+                approved_xyz = self.xyz[x]
             else:
                 approved_xyz = self._get_xyz_from_compounds(x)
 
@@ -2501,16 +2514,17 @@ class ARMP_G(_NN):
             else:
                 approved_y = self._get_properties(x)
 
-            # if is_none(self.gradients):
-            #     raise InputError("The gradients need to be set in advance.")
-            # else:
-            #     approved_dy = self.gradients[x]
-            approved_dy = None
-
-            if is_none(self.classes):
-                approved_classes = self._get_classes_from_compounds(x)
+            if is_none(self.gradients):
+                raise InputError("The gradients need to be set in advance.")
             else:
+                approved_dy = self.gradients[x]
+
+            if is_none(self.classes) and not is_none(self.compounds):
+                approved_classes = self._get_classes_from_compounds(x)
+            elif not is_none(self.classes) and is_none(self.compounds):
                 approved_classes = self.classes[x]
+            else:
+                raise InputError("Classes havent been set yet.")
 
         else:
             if is_none(y):
@@ -2545,27 +2559,28 @@ class ARMP_G(_NN):
         # Removing the dummy
         return np.trim_zeros(elements)
 
-    def _generate_descriptors_from_compounds(self):
-        """
-        This function generates the descriptors from the compounds.
-        :return: the descriptors and the classes
-        :rtype: numpy array of shape (n_samples, n_atoms, n_features) and (n_samples, n_atoms)
-        """
+    # TODO implement _generate_descriptors_from_data
+    # def _generate_descriptors_from_compounds(self):
+    #     """
+    #     This function generates the descriptors from the compounds.
+    #     :return: the descriptors and the classes
+    #     :rtype: numpy array of shape (n_samples, n_atoms, n_features) and (n_samples, n_atoms)
+    #     """
+    #
+    #     if is_none(self.compounds):
+    #         raise InputError("QML compounds needs to be created in advance")
+    #
+    #
+    #     if self.representation == 'acsf':
+    #
+    #         descriptor, descriptor_grad, classes = self._generate_acsf_from_compounds()
+    #
+    #     else:
+    #         raise InputError("This should never happen, unrecognised representation %s." % (self.representation))
+    #
+    #     return descriptor, descriptor_grad, classes
 
-        if is_none(self.compounds):
-            raise InputError("QML compounds needs to be created in advance")
-
-
-        if self.representation == 'acsf':
-
-            descriptor, descriptor_grad, classes = self._generate_acsf_from_compounds()
-
-        else:
-            raise InputError("This should never happen, unrecognised representation %s." % (self.representation))
-
-        return descriptor, descriptor_grad, classes
-
-    def _generate_acsf_from_compounds(self):
+    def _generate_data_compounds(self):
         """
         This function generates the atom centred symmetry functions.
 
@@ -2592,99 +2607,149 @@ class ARMP_G(_NN):
         for item in element_pairs:
             item.reverse()
 
-        # Obtaining the xyz and the nuclear charges
-        xyzs = []
-        zs = []
-        max_n_atoms = 0
+        return np.asarray(elements), np.asarray(element_pairs)
 
-        for compound in self.compounds:
-            xyzs.append(compound.coordinates)
-            zs.append(compound.nuclear_charges)
-            if len(compound.nuclear_charges) > max_n_atoms:
-                max_n_atoms = len(compound.nuclear_charges)
+    def _generate_data_from_input(self):
+        """
+        This function generates the atom centred symmetry functions.
 
-        # Padding so that all the samples have the same shape
-        n_samples = len(zs)
-        for i in range(n_samples):
-            current_n_atoms = len(zs[i])
-            missing_n_atoms = max_n_atoms - current_n_atoms
-            zs_padding = np.zeros(missing_n_atoms)
-            zs[i] = np.concatenate((zs[i], zs_padding))
-            xyz_padding = np.zeros((missing_n_atoms, 3))
-            xyzs[i] = np.concatenate((xyzs[i], xyz_padding))
+        :return: descriptor acsf and classes
+        :rtype: numpy array of shape (n_samples, n_atoms, n_features) and (n_samples, n_atoms)
+        """
 
-        zs = np.asarray(zs, dtype=np.int32)
-        xyzs = np.asarray(xyzs, dtype=np.float32)
+        # Obtaining the total elements and the element pairs
+        mbtypes = representations.get_slatm_mbtypes(self.classes)
 
-        if self.tensorboard:
-            self.tensorboard_logger_descriptor.initialise()
-            # run_metadata = tf.RunMetadata()
-            # options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
+        elements = []
+        element_pairs = []
 
-        # Turning the quantities into tensors
-        with tf.name_scope("Inputs"):
-            zs_tf = tf.placeholder(shape=[n_samples, max_n_atoms], dtype=tf.int32, name="zs")
-            xyz_tf = tf.placeholder(shape=[n_samples, max_n_atoms, 3], dtype=tf.float32, name="xyz")
+        # Splitting the one and two body interactions in mbtypes
+        for item in mbtypes:
+            if len(item) == 1:
+                elements.append(item[0])
+            if len(item) == 2:
+                element_pairs.append(list(item))
+            if len(item) == 3:
+                break
 
-            dataset = tf.data.Dataset.from_tensor_slices((xyz_tf, zs_tf))
-            dataset = dataset.batch(20)
-            iterator = tf.data.Iterator.from_structure(dataset.output_types, dataset.output_shapes)
-            batch_xyz, batch_zs = iterator.get_next()
+        # Need the element pairs in descending order for TF
+        for item in element_pairs:
+            item.reverse()
 
-        descriptor = generate_parkhill_acsf(xyzs=batch_xyz, Zs=batch_zs, elements=elements, element_pairs=element_pairs,
-                                            radial_cutoff=self.acsf_parameters['radial_cutoff'],
-                                            angular_cutoff=self.acsf_parameters['angular_cutoff'],
-                                            radial_rs=self.acsf_parameters['radial_rs'],
-                                            angular_rs=self.acsf_parameters['angular_rs'],
-                                            theta_s=self.acsf_parameters['theta_s'], eta=self.acsf_parameters['eta'],
-                                            zeta=self.acsf_parameters['zeta'])
+        return np.asarray(elements), np.asarray(element_pairs)
 
-        gradients = tf.gradients(descriptor, batch_xyz)
+    def _make_weights_biases(self, train_elements):
+        """
+        This function uses the self.elements data to initialise tensors of weights and biases for each element present
+        in the system.
 
-        sess = tf.Session()
-        sess.run(tf.global_variables_initializer())
-        sess.run(iterator.make_initializer(dataset), feed_dict={xyz_tf: xyzs, zs_tf: zs})
+        :return: dictionaries of weights and biases for each element
+        :rtype: two dictionaries where the keys are ints and the value are tensors
+        """
+        element_weights = {}
+        element_biases = {}
 
-        descriptor_slices = []
-        gradients_slices = []
+        with tf.name_scope("Weights"):
+            for i in range(train_elements.shape[0]):
+                weights, biases = self._generate_weights(n_out=1)
+                element_weights[train_elements[i]] = weights
+                element_biases[train_elements[i]] = biases
 
-        if self.tensorboard:
-            self.tensorboard_logger_descriptor.set_summary_writer(sess)
+                # Log weights for tensorboard
+                if self.tensorboard:
+                    self.tensorboard_logger_training.write_weight_histogram(weights)
 
-            batch_counter = 0
-            while True:
-                try:
-                    descriptor_np = sess.run(descriptor, options=self.tensorboard_logger_descriptor.options,
-                                             run_metadata=self.tensorboard_logger_descriptor.run_metadata)
-                    gradients_np = sess.run(gradients)
+        return element_weights, element_biases
 
-                    self.tensorboard_logger_descriptor.write_metadata(batch_counter)
+    def _model(self, x, zs, element_weights, element_biases, elements):
+        """
+        This generates the molecular model by combining all the outputs from the atomic networks.
 
-                    descriptor_slices.append(descriptor_np)
-                    gradients_slices.append(gradients_np)
+        :param x: Atomic descriptor
+        :type x: tf tensor of shape (n_samples, n_atoms, n_features)
+        :param zs: Nuclear charges of the systems
+        :type zs: tf tensor of shape (n_samples, n_atoms)
+        :param element_weights: Element specific weights
+        :type element_weights: list of tf.Variables of length hidden_layer_sizes.size + 1
+        :param element_biases: Element specific biases
+        :type element_biases: list of tf.Variables of length hidden_layer_sizes.size + 1
+        :return: Predicted properties for all samples
+        :rtype: tf tensor of shape (n_samples, 1)
+        """
 
-                    batch_counter += 1
-                except tf.errors.OutOfRangeError:
-                    break
-        else:
-            batch_counter = 0
-            while True:
-                try:
-                    descriptor_np = sess.run(descriptor)
-                    gradients_np = sess.run(gradients)
-                    descriptor_slices.append(descriptor_np)
-                    gradients_slices.append(gradients_np)
-                    batch_counter += 1
-                except tf.errors.OutOfRangeError:
-                    break
+        atomic_energies = tf.zeros_like(zs, dtype=tf.float32)
 
-        descriptor_conc = np.concatenate(descriptor_slices, axis=0)
-        gradients_conc = np.concatenate(gradients_slices, axis=0)
-        print(descriptor_conc.shape)
+        for i in range(elements.shape[0]):
+            # Calculating the output for every atom in all data as if they were all of the same element
+            atomic_energies_all = self._atomic_model(x, self.hidden_layer_sizes,
+                                                     element_weights[elements[i]],
+                                                     element_biases[elements[i]])  # (n_samples, n_atoms)
 
-        sess.close()
+            # Figuring out which atomic energies correspond to the current element.
+            current_element = tf.expand_dims(tf.constant(elements[i], dtype=tf.int32), axis=0)
+            where_element = tf.equal(tf.cast(zs, dtype=tf.int32), current_element)  # (n_samples, n_atoms)
 
-        return descriptor_conc, gradients_conc, zs
+            # Extracting the energies corresponding to the right element
+            element_energies = tf.where(where_element, atomic_energies_all, tf.zeros_like(zs, dtype=tf.float32))
+
+            # Adding the energies of the current element to the final atomic energies tensor
+            atomic_energies = tf.add(atomic_energies, element_energies)
+
+        # Summing the energies of all the atoms
+        total_energies = tf.reduce_sum(atomic_energies, axis=-1, name="output", keepdims=True)
+
+        return total_energies
+
+    def _atomic_model(self, x, hidden_layer_sizes, weights, biases):
+        """
+        Constructs the atomic part of the network. It calculates the output for all atoms as if they all were the same
+        element.
+
+        :param x: Atomic descriptor
+        :type x: tf tensor of shape (n_samples, n_atoms, n_features)
+        :param weights: Weights used in the network for a particular element.
+        :type weights: list of tf.Variables of length hidden_layer_sizes.size + 1
+        :param biases: Biases used in the network for a particular element.
+        :type biases: list of tf.Variables of length hidden_layer_sizes.size + 1
+        :return: Output
+        :rtype: tf.Variable of size (n_samples, n_atoms)
+        """
+
+        # Calculate the activation of the first hidden layer
+        z = tf.add(tf.tensordot(x, tf.transpose(weights[0]), axes=1), biases[0])
+        h = self.activation_function(z)
+
+        # Calculate the activation of the remaining hidden layers
+        for i in range(hidden_layer_sizes.size - 1):
+            z = tf.add(tf.tensordot(h, tf.transpose(weights[i + 1]), axes=1), biases[i + 1])
+            h = self.activation_function(z)
+
+        # Calculating the output of the last layer
+        z = tf.add(tf.tensordot(h, tf.transpose(weights[-1]), axes=1), biases[-1])
+
+        z_squeezed = tf.squeeze(z, axis=[-1])
+
+        return z_squeezed
+
+    def _cost(self, y_true, y_nn, dy_true, dy_nn, weights_dict):
+
+        ene_err = tf.square(tf.subtract(y_true, y_nn))
+        force_err = tf.square(tf.subtract(dy_true, dy_nn))
+
+        cost_function = tf.add(tf.reduce_mean(ene_err), tf.reduce_mean(force_err), name="loss")
+
+        if self.l2_reg > 0:
+            l2_loss = 0
+            for element in weights_dict:
+                l2_loss += self._l2_loss(weights_dict[element])
+            cost_function += l2_loss
+        if self.l1_reg > 0:
+            l1_loss = 0
+            for element in weights_dict:
+                l1_loss += self._l1_loss(weights_dict[element])
+            cost_function += l1_loss
+
+        return cost_function
 
     def _fit(self, xyz, y, dy, classes):
         """
@@ -2698,9 +2763,87 @@ class ARMP_G(_NN):
 
         xyz_approved, y_approved, dy_approved, classes_approved = self._check_inputs(xyz, y, dy, classes)
 
-        # Obtaining the array of unique elements in all samples
-        self.elements = self._find_elements(classes_approved)
+        elements, element_pairs = self._generate_data_from_input()
 
-        g, dg_dxyz, classes = self.generate_descriptors()
+        n_samples = xyz_approved.shape[0]
+        max_n_atoms = xyz_approved.shape[1]
 
-        print(g.shape, dg_dxyz.shape)
+        if self.tensorboard:
+            self.tensorboard_logger_training.initialise()
+            # run_metadata = tf.RunMetadata()
+            # options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
+
+        # Turning the quantities into tensors
+        with tf.name_scope("Inputs"):
+            zs_tf = tf.placeholder(shape=[n_samples, max_n_atoms], dtype=tf.int32, name="zs")
+            xyz_tf = tf.placeholder(shape=[n_samples, max_n_atoms, 3], dtype=tf.float32, name="xyz")
+            true_ene = tf.placeholder(shape=[n_samples, 1], dtype=tf.float32, name="true_ene")
+            true_forces = tf.placeholder(shape=[n_samples, max_n_atoms, 3], dtype=tf.float32, name="true_forces")
+
+            dataset = tf.data.Dataset.from_tensor_slices((xyz_tf, true_ene, true_forces, zs_tf))
+            dataset = dataset.batch(self.batch_size)
+            iterator = tf.data.Iterator.from_structure(dataset.output_types, dataset.output_shapes)
+            batch_xyz, batch_y, batch_dy, batch_zs = iterator.get_next()
+
+        batch_descriptor = generate_parkhill_acsf(xyzs=batch_xyz, Zs=batch_zs, elements=elements, element_pairs=element_pairs,
+                                            radial_cutoff=self.acsf_parameters['radial_cutoff'],
+                                            angular_cutoff=self.acsf_parameters['angular_cutoff'],
+                                            radial_rs=self.acsf_parameters['radial_rs'],
+                                            angular_rs=self.acsf_parameters['angular_rs'],
+                                            theta_s=self.acsf_parameters['theta_s'], eta=self.acsf_parameters['eta'],
+                                            zeta=self.acsf_parameters['zeta'])
+
+        self.n_features = elements.shape[0] * self.acsf_parameters['radial_rs'].shape[0] + element_pairs.shape[0] * \
+                                                                                           self.acsf_parameters[
+                                                                                               'angular_rs'].shape[0] * \
+                                                                                           self.acsf_parameters[
+                                                                                               'theta_s'].shape[0]
+
+        element_weights, element_biases = self._make_weights_biases(elements)
+
+        # Creating the model
+        with tf.name_scope("Model"):
+            energies = self._model(batch_descriptor, batch_zs, element_weights, element_biases, elements)
+            forces = tf.gradients(energies, batch_xyz, name='NN_Forces')[0]
+
+        # Calculating the cost
+        with tf.name_scope("Cost"):
+            cost = self._cost(batch_y, energies, batch_dy, forces, element_weights)
+
+        if self.tensorboard:
+            cost_summary = self.tensorboard_logger_training.write_cost_summary(cost)
+
+        optimiser = self._set_optimiser()
+        optimisation_op = optimiser.minimize(cost)
+
+        # Initialisation of variables and iterators
+        init = tf.global_variables_initializer()
+        iterator_init = iterator.make_initializer(dataset)
+
+        # Starting the session
+        self.session = tf.Session()
+
+        if self.tensorboard:
+            self.tensorboard_logger_training.set_summary_writer(self.session)
+
+        self.session.run(init)
+        self.session.run(iterator_init, feed_dict={xyz_tf: xyz_approved, zs_tf: classes_approved, true_ene: y_approved, true_forces: dy_approved})
+
+        for i in range(self.iterations):
+
+            self.session.run(iterator_init, feed_dict={xyz_tf: xyz_approved, zs_tf: classes_approved, true_ene: y_approved, true_forces: dy_approved})
+
+            for j in range(self.batch_size):
+                if self.tensorboard:
+                    opt, c = self.session.run([optimisation_op, cost], options=self.tensorboard_logger_training.options,
+                             run_metadata=self.tensorboard_logger_training.run_metadata)
+                else:
+                    opt, c = self.session.run([optimisation_op, cost])
+
+            # This seems to run the iterator.get_next() op, which gives problems with end of sequence
+            # Hence why I re-initialise the iterator
+            self.session.run(iterator_init, feed_dict={xyz_tf: xyz_approved, zs_tf: classes_approved, true_ene: y_approved, true_forces: dy_approved})
+            if self.tensorboard:
+                if i % self.tensorboard_logger_training.store_frequency == 0:
+                    self.tensorboard_logger_training.write_summary(self.session, i)
+
