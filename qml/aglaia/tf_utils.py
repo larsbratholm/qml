@@ -49,3 +49,35 @@ class TensorBoardLogger(object):
 
     def write_cost_summary(self, cost):
         tf.summary.scalar('cost', cost)
+
+def partial_derivatives(y, x):
+    """
+    Take the partial derivatives of y wrt x. Since the tf.gradients function does a
+    sum over the y-dimensions (The output is x.shape), we have to do the derivative
+    separately on every single element of y.
+    Code modified from https://github.com/tensorflow/tensorflow/issues/675#issuecomment-299729653
+
+    :param y: Rank N Tensor where N >= 1
+    :type y: Tensorflow Tensor
+    :param x: Rank N Tensor where N >= 0
+    :type x: Tensorflow Tensor
+    :return: Partial derivatives of shape y.shape + x.shape
+    :rtype: Tensorflow Tensor
+    """
+
+    y_flat = tf.reshape(y, [-1])
+    n = y_flat.shape[0]
+
+    loop_vars = [
+            tf.constant(0, tf.int32),
+            tf.TensorArray(tf.float32, size=n),
+            ]
+
+    _, jacobian = tf.while_loop(
+    lambda j, _: j < n,
+    lambda j, result: (j+1, result.write(j, tf.gradients(y_flat[j], x))),
+    loop_vars)
+
+    # TODO y.shape[1:] should be changed to y.shape and vice versa for x
+    # once we have changed how the representation is generated
+    return tf.reshape(jacobian.stack(), y.shape[1:].as_list() + x.shape[1:].as_list())
