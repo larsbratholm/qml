@@ -14,7 +14,7 @@ from qml.aglaia.utils import InputError, ceil, is_positive_or_zero, is_positive_
         check_global_descriptor, check_y, check_sizes, check_dy, check_classes, is_numeric_array, is_non_zero_integer, \
     is_positive_integer_or_zero_array, check_local_descriptor, check_xyz
 
-from qml.aglaia.tf_utils import TensorBoardLogger
+from qml.aglaia.tf_utils import TensorBoardLogger, partial_derivatives
 
 try:
     from qml.data import Compound
@@ -2570,13 +2570,65 @@ class ARMP_G(ARMP, _NN):
         :rtype: numpy arrays of shape (n_samples, n_atoms, n_features) and (n_samples, n_atoms, n_features, n_atoms, 3)
         """
 
-        n_samples = xyz.shape[0]
-        n_atoms = classes.shape[1]
 
-        a = np.ones((n_samples, n_atoms, self.n_features))
-        b = np.ones((n_samples, n_atoms, self.n_features, n_atoms, 3))
+        # TODO give in init
+        radial_cutoff = 10.0
+        angular_cutoff = 10.0
+        radial_rs = np.arange(0.0, 10.5, 10)
+        angular_rs = np.arange(0.0, 10.5, 10)
+        theta_s = np.arange(0.0, 3.14, 3)
+        zeta = 3.0
+        eta = 2.0
 
-        return a, b
+        # TODO get these
+        elements = []
+        element_pairs = []
+
+        n_samples = zs.shape[0]
+        n_atoms = zs.shape[1]
+
+        # NOTE: Resets graph, so make sure model is created afterwards
+        tf.reset_default_graph()
+
+        # TODO we should probably switch to the one at a time descriptor, so we remove the n_samples dimension
+        # since it has to be 1
+        with tf.name_scope("Inputs"):
+            zs_tf = tf.placeholder(shape=[1, n_atoms], dtype=tf.int32, name="zs")
+            xyz_tf = tf.placeholder(shape=[1, n_atoms, 3], dtype=tf.float32, name="xyz")
+
+
+        # PARAMs
+        with tf.name_scope("acsf_params"):
+            rad_cutoff = tf.constant(radial_cutoff, dtype=tf.float32)
+            ang_cutoff = tf.constant(angular_cutoff, dtype=tf.float32)
+            rad_rs = tf.constant(radial_rs, dtype=tf.float32)
+            ang_rs = tf.constant(angular_rs, dtype=tf.float32)
+            theta_s_tf = tf.constant(theta_s, dtype=tf.float32)
+            zeta_tf = tf.constant(zeta, dtype=tf.float32)
+            eta_tf = tf.constant(eta, dtype=tf.float32)
+
+        # TODO correct this to the correct function call
+        representation = generate_parkhill_acsf(xyz_tf, zs_tf, elements, element_pairs, radial_cutoff, angular_cutoff, radial_rs, angular_rs, theta_s, zeta, eta)
+
+        jacobian = partial_derivatives(representation, xyz_tf)
+
+        sess = tf.Session()
+        sess.run(tf.global_variables_initializer())
+
+        # Do representations and gradients one by one
+        # TODO do with dataset?
+        gradients = []
+        representations = []
+        for i in range(n_samples):
+            representation, partial_grad = sess.run([representation, jacobian], feed_dict={xyz_tf: xyzs[i:i+1], zs_tf: zs[i:i+1]})
+            gradients.append(partial_grad)
+            representations.append(representation)
+
+        gradients = np.asarray(gradients)
+        representations = np.asarray(representations)
+
+        return representations, gradients
+
 
     def _get_nn_forces(self, nn_ene, g, dg_dr):
         """
