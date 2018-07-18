@@ -224,15 +224,35 @@ def test_load_external():
 
     assert np.isclose(score_after_loading, score_on_other_machine)
 
+def test_get_params():
+    """
+    This test checks whether the function get_params inherited by BaseEstimator works properly.
+    """
+
+    slatm_params = {'slatm_sigma1': 0.1, 'slatm_sigma2': 0.2}
+
+    estimator = MRMP(l1_reg=0.1, l2_reg=0.3, descriptor_params=slatm_params, representation='slatm')
+
+    parameters = estimator.get_params()
+
+    assert parameters["l1_reg"] == 0.1
+    assert parameters["l2_reg"] == 0.3
+
+    if not type(parameters["descriptor_params"]) is dict:
+        raise InputError("The descriptor parameters should be a dictionary.")
+
+    for key, value in slatm_params.items():
+        params_in_estimator = parameters["descriptor_params"]
+        assert value == params_in_estimator[key]
 
 if __name__ == "__main__":
 
-    # test_set_properties()
-    # test_set_descriptor()
-    # test_set_representation()
-    # test_fit_1()
-    # test_fit_2()
-    # test_fit_3()
-    # test_score()
-
+    test_set_properties()
+    test_set_descriptor()
+    test_set_representation()
+    test_fit_1()
+    test_fit_2()
+    test_fit_3()
+    test_score()
     test_load_external()
+    test_get_params()
