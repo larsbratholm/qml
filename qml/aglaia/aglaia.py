@@ -2349,7 +2349,7 @@ class ARMP(_NN):
         :param classes: either the classes or None
         :type classes: either a numpy array of shape (n_samples, n_atoms) or None
 
-        :return: Mean absolute error
+        :return: Root mean square error
         :rtype: float
 
         """
@@ -2640,7 +2640,7 @@ class ARMP_G(ARMP, _NN):
         n_atoms = xyz.shape[1]
 
         # NOTE: Resets graph, so make sure model is created afterwards
-        tf.reset_default_graph()
+        # tf.reset_default_graph()
 
         if self.tensorboard:
             self.tensorboard_logger_descriptor.initialise()
@@ -2830,16 +2830,16 @@ class ARMP_G(ARMP, _NN):
 
     def predict(self, x, classes=None):
         """
-        This function calls the predict function for either ARMP or MRMP.
+        This function overwrites the parent predict, because it needs to return not only the properties but also the
+        gradients.
 
         :param x: descriptor or indices
         :type x: numpy array of shape (n_samples, n_features) or (n_samples, n_atoms, n_features) or an array of ints
         :param classes: the classes to use for atomic decomposition
         :type classes: numpy array of shape (n_sample, n_atoms)
 
-
-        :return: predictions of the molecular properties.
-        :rtype: numpy array of shape (n_samples,)
+        :return: predictions of the molecular properties and their gradients.
+        :rtype: numpy array of shape (n_samples,) and (n_samples, n_atoms, 3)
         """
         prop_predictions, grad_predictions = self._predict(x, classes)
 
@@ -2879,4 +2879,94 @@ class ARMP_G(ARMP, _NN):
             y_pred, dy_pred = self.session.run([model, output_grad], feed_dict={batch_g: g, batch_zs:classes_approved, batch_dg_dr: dg_dr})
 
         return y_pred, dy_pred
+
+    def _score_r2(self, x, y=None, dy=None, classes=None):
+        """
+        Calculate the coefficient of determination (R^2).
+        Larger values corresponds to a better prediction.
+
+        :param x: either the cartesian coordinates or the indices to the samples
+        :type x: either a numpy array of shape (n_samples, n_atoms, 3) or a numpy array of ints
+        :param y: either the properties or None
+        :type y: either a numpy array of shape (n_samples,) or None
+        :param dy: either the gradients or None
+        :type dy: either a numpy array of shape (n_samples, n_atoms, 3)
+        :param classes: either the classes or None
+        :type classes: either a numpy array of shape (n_samples, n_atoms) or None
+
+        :return: average R^2 of the properties and the gradient
+        :rtype: float
+        """
+
+        xyz_approved, y_approved, dy_approved, classes_approved = self._check_inputs(x, y, dy, classes)
+
+        y_pred, dy_pred = self.predict(xyz_approved, classes_approved)
+        y_r2 = r2_score(y_approved, y_pred, sample_weight = None)
+        dy_approved = np.reshape(dy_approved, (dy_approved.shape[0], dy_approved.shape[1]*dy_approved.shape[2]))
+        dy_pred = np.reshape(dy_pred, (dy_pred.shape[0], dy_pred.shape[1] * dy_pred.shape[2]))
+        dy_r2 = r2_score(dy_approved, dy_pred, sample_weight= None)
+        r2 = (y_r2 + dy_r2)*0.5
+        return r2
+
+    def _score_mae(self, x, y=None, dy=None, classes=None):
+        """
+        Calculate the mean absolute error.
+        Smaller values corresponds to a better prediction.
+
+        :param x: either the descriptors or the indices to the descriptors
+        :type x: either a numpy array of shape (n_samples, n_atoms, n_features) or a numpy array of ints
+        :param y: either the properties or None
+        :type y: either a numpy array of shape (n_samples,) or None
+        :param dy: either the gradients or None
+        :type dy: either a numpy array of shape (n_samples, n_atoms, 3)
+        :param classes: either the classes or None
+        :type classes: either a numpy array of shape (n_samples, n_atoms) or None
+
+        :param sample_weight: Weights of the samples. None indicates that that each sample has the same weight.
+        :type sample_weight: array of shape (n_samples,)
+
+        :return: Average Mean absolute error of the properties and the gradient
+        :rtype: float
+        """
+
+        xyz_approved, y_approved, dy_approved, classes_approved = self._check_inputs(x, y, dy, classes)
+
+        y_pred, dy_pred = self.predict(xyz_approved, classes_approved)
+        dy_approved = np.reshape(dy_approved, (dy_approved.shape[0], dy_approved.shape[1] * dy_approved.shape[2]))
+        dy_pred = np.reshape(dy_pred, (dy_pred.shape[0], dy_pred.shape[1] * dy_pred.shape[2]))
+        y_mae = (-1.0) * mean_absolute_error(y_approved, y_pred, sample_weight=None)
+        dy_mae = (-1.0) * mean_absolute_error(dy_approved, dy_pred, sample_weight=None)
+        mae = 0.5*y_mae + 0.5*dy_mae
+        print("Warning! The mae is multiplied by -1 so that it can be minimised in Osprey!")
+        return mae
+
+    def _score_rmse(self, x, y=None, dy=None, classes=None):
+        """
+        Calculate the root mean squared error.
+        Smaller values corresponds to a better prediction.
+
+        :param x: either the descriptors or the indices to the descriptors
+        :type x: either a numpy array of shape (n_samples, n_atoms, n_features) or a numpy array of ints
+        :param y: either the properties or None
+        :type y: either a numpy array of shape (n_samples,) or None
+        :param dy: either the gradients or None
+        :type dy: either a numpy array of shape (n_samples, n_atoms, 3)
+        :param classes: either the classes or None
+        :type classes: either a numpy array of shape (n_samples, n_atoms) or None
+
+        :return: Average root mean square error of the properties and the gradient
+        :rtype: float
+        """
+
+        xyz_approved, y_approved, dy_approved, classes_approved = self._check_inputs(x, y, dy, classes)
+
+        y_pred, dy_pred = self.predict(xyz_approved, classes_approved)
+        dy_approved = np.reshape(dy_approved, (dy_approved.shape[0], dy_approved.shape[1] * dy_approved.shape[2]))
+        dy_pred = np.reshape(dy_pred, (dy_pred.shape[0], dy_pred.shape[1] * dy_pred.shape[2]))
+        y_rmse = np.sqrt(mean_squared_error(y_approved, y_pred, sample_weight = None))
+        dy_rmse = np.sqrt(mean_squared_error(dy_approved, dy_pred, sample_weight=None))
+        rmse = 0.5*y_rmse + 0.5*dy_rmse
+        return rmse
+
+
 
