@@ -118,6 +118,7 @@ class _NN(BaseEstimator):
         self.properties = None
         self.gradients = None
         self.classes = None
+        self.dg_dr = None
 
     def _set_activation_function(self, activation_function):
         """
@@ -2444,12 +2445,21 @@ class ARMP_G(ARMP, _NN):
 
         # Check if x is made up of indices or data
         if is_positive_integer_or_zero_array(x):
-            if is_none(self.compounds) and is_none(self.xyz):
-                raise InputError("The compounds need to have been set in advance or you should provide the xyz.")
-            elif is_none(self.compounds) and not is_none(self.xyz):
-                approved_xyz = self.xyz[x]
+
+            if not is_none(self.compounds):
+                raise NotImplementedError("ARMP_G does not support Compounds yet. Please set xyz, y, dy and classes.")
+
+            if is_none(self.descriptor):
+
+                if is_none(self.xyz) or is_none(self.classes):
+                    raise InputError("The xyz coordinates and the classes need to have been set in advance.")
+                else:
+                    approved_x, approved_dg_dr = self._generate_descriptors_and_gradients(self.xyz[x], self.classes[x])
+                    approved_classes = self.classes[x]
             else:
-                approved_xyz = self._get_xyz_from_compounds(x)
+                approved_x = self.descriptor[x]
+                approved_dg_dr = self.dg_dr[x]
+                approved_classes = self.classes[x]
 
             if is_none(self.properties):
                 raise InputError("The properties need to be set in advance.")
@@ -2461,12 +2471,6 @@ class ARMP_G(ARMP, _NN):
             else:
                 approved_dy = self.gradients[x]
 
-            if is_none(self.classes) and not is_none(self.compounds):
-                approved_classes = self._get_classes_from_compounds(x)
-            elif not is_none(self.classes) and is_none(self.compounds):
-                approved_classes = self.classes[x]
-            else:
-                raise InputError("Classes havent been set yet.")
 
         else:
             if is_none(y):
@@ -2481,9 +2485,11 @@ class ARMP_G(ARMP, _NN):
             approved_dy = check_dy(dy)
             approved_classes = check_classes(classes)
 
-        check_sizes(approved_xyz, approved_y, approved_dy, approved_classes)
+            approved_x, approved_dg_dr = self._generate_descriptors_and_gradients(approved_xyz, approved_classes)
 
-        return approved_xyz, approved_y, approved_dy, approved_classes
+        check_sizes(approved_x, approved_y, approved_dy, approved_classes)
+
+        return approved_x, approved_dg_dr, approved_y, approved_dy, approved_classes
 
     def _check_predict_input(self, x, classes):
         """
@@ -2503,24 +2509,25 @@ class ARMP_G(ARMP, _NN):
         if not is_array_like(x):
             raise InputError("x should be an array either containing indices or data.")
 
+        if not is_none(self.compounds):
+            raise NotImplementedError("ARMP_G does not support Compounds yet. Please set xyz, y, dy and classes.")
+
         # Check if x is made up of indices or data
         if is_positive_integer_or_zero_array(x):
 
-            if is_none(self.compounds) and is_none(self.xyz):
-                raise InputError("The compounds need to have been set in advance or you should provide the xyz.")
-            elif is_none(self.compounds) and not is_none(self.xyz):
-                approved_xyz = self.xyz[x]
-            else:
-                approved_xyz = self._get_xyz_from_compounds(x)
+            if is_none(self.descriptor):
+                if is_none(self.xyz) or is_none(self.classes):
+                    raise InputError("The xyz coordinates and the classes need to have been set in advance.")
+                else:
+                    approved_x,approved_dg_dr = self._generate_descriptors_and_gradients(self.xyz[x], self.classes[x])
+                    approved_classes = self.classes[x]
 
-            if is_none(self.classes) and not is_none(self.compounds):
-                approved_classes = self._get_classes_from_compounds(x)
-            elif not is_none(self.classes) and is_none(self.compounds):
+                check_sizes(x=approved_x, classes=approved_classes)
+
+            else:
+                approved_x = self.descriptor[x]
+                approved_dg_dr = self.dg_dr[x]
                 approved_classes = self.classes[x]
-            else:
-                raise InputError("Classes havent been set yet.")
-
-            check_sizes(x=approved_xyz, classes=approved_classes)
 
         else:
 
@@ -2529,10 +2536,53 @@ class ARMP_G(ARMP, _NN):
 
             approved_xyz = check_xyz(x)
             approved_classes = check_classes(classes)
+            approved_x, approved_dg_dr = self._generate_descriptors_and_gradients(approved_xyz, approved_classes)
 
-            check_sizes(x=approved_xyz, classes=approved_classes)
+            check_sizes(x=approved_x, classes=approved_classes)
 
-        return approved_xyz, approved_classes
+        return approved_x, approved_dg_dr, approved_classes
+
+    def _check_score_input(self, x, y, dy):
+        """
+        This function checks that the data passed to the fit function makes sense. If X represent indices, it extracts
+        the data from the variables self.properties, self.gradients.
+
+        :param x: Indices or the cartesian coordinates
+        :type x: Either 1D numpy array of ints or numpy array of floats of shape (n_samples, n_atoms, 3)
+        :param y: The properties - for example the molecular energies (or None if x represents indices)
+        :type y: numpy array of shape (n_samples,)
+        :param dy: Gradients of the molecular properties - for example the forces (or None if x represents indices)
+        :type dy: numpy array of shape (n_samples, n_atoms, 3)
+        :return: properties, gradients
+        :rtype: (n_samples,), (n_samples, n_atoms, 3)
+        """
+
+        if not is_array_like(x):
+            raise InputError("x should be an array either containing indices or data.")
+
+        # Check if x is made up of indices or data
+        if is_positive_integer_or_zero_array(x):
+
+            if is_none(self.properties):
+                raise InputError("The properties need to be set in advance.")
+            else:
+                approved_y = self._get_properties(x)
+
+            if is_none(self.gradients):
+                raise InputError("The gradients need to be set in advance.")
+            else:
+                approved_dy = self.gradients[x]
+
+        else:
+            if is_none(y):
+                raise InputError("y cannot be of None type.")
+            if is_none(dy):
+                raise InputError("ARMP_G estimator requires gradients.")
+
+            approved_y = check_y(y)
+            approved_dy = check_dy(dy)
+
+        return approved_y, approved_dy
 
     def _get_elements_and_pairs(self, classes):
         """
@@ -2623,18 +2673,47 @@ class ARMP_G(ARMP, _NN):
 
         return cost_function
 
-    def _generate_descriptors_and_gradient(self, xyz, classes):
+    def generate_descriptors_and_gradient(self, xyz=None, classes=None):
         """
-        This function takes in the coordinates and the classes and returns the the descriptor and its derivative with
+        This function takes in the coordinates and the classes and makes the descriptor and its derivative with
         respect to the cartesian coordinates.
 
         :param xyz: cartesian coordinates
         :type xyz: numpy array of shape (n_samples, n_atoms, 3)
         :param classes: the different types of atoms present
         :type classes: numpy array of shape (n_samples, n_atoms)
-        :return: the descriptor and its derivative with respect to the cartesian coordinates
-        :rtype: numpy arrays of shape (n_samples, n_atoms, n_features) and (n_samples, n_atoms, n_features, n_atoms, 3)
         """
+
+        if is_none(xyz) and is_none(classes) and is_none(self.xyz) and is_none(self.classes):
+            raise InputError("Cartesian coordinates need to be passed in or set in advance in order to generate the "
+                             "descriptor and its gradients.")
+        elif not is_none(xyz) and not is_none(classes) and not is_none(self.xyz) and not is_none(self.classes):
+            raise InputError("Cartesian coordinates have already been set!")
+        elif not is_none(xyz) and not is_none(classes) and is_none(self.xyz) and is_none(self.classes):
+            self.xyz, self.classes = self._check_predict_input(xyz, classes)
+
+        if not is_none(self.descriptor):
+            raise InputError("The descriptors have already been set!")
+
+        self.descriptor, self.dg_dr = self._generate_descriptor_and_gradients(self.xyz, self.classes)
+
+    def _generate_descriptors_and_gradients(self, xyz, classes):
+        """
+        This function takes in the coordinates and the classes and returns the descriptor and its derivative with
+        respect to the cartesian coordinates.
+
+        :param xyz: cartesian coordinates
+        :type xyz: numpy array of shape (n_samples, n_atoms, 3)
+        :param classes: the different types of atoms present
+        :type classes: numpy array of shape (n_samples, n_atoms)
+        :return: the descriptors and their gradients wrt to the cartesian coordinates
+        :rtype: numpy arrays of shape (n_samples, n_atoms, n_features) and (n_samples, n_atoms, 3)
+        """
+
+        self.elements, self.element_pairs = self._get_elements_and_pairs(classes)
+        self.n_features = self.elements.shape[0] * self.acsf_parameters['radial_rs'].shape[0] + \
+                          self.element_pairs.shape[0] * self.acsf_parameters['angular_rs'].shape[0] * \
+                          self.acsf_parameters['theta_s'].shape[0]
 
         n_samples = xyz.shape[0]
         n_atoms = xyz.shape[1]
@@ -2655,13 +2734,14 @@ class ARMP_G(ARMP, _NN):
             batch_xyz, batch_zs = iterator.get_next()
 
         representation = generate_parkhill_acsf_single(xyzs=batch_xyz, Zs=batch_zs, elements=self.elements,
-                                            element_pairs=self.element_pairs,
-                                            radial_cutoff=self.acsf_parameters['radial_cutoff'],
-                                            angular_cutoff=self.acsf_parameters['angular_cutoff'],
-                                            radial_rs=self.acsf_parameters['radial_rs'],
-                                            angular_rs=self.acsf_parameters['angular_rs'],
-                                            theta_s=self.acsf_parameters['theta_s'], eta=self.acsf_parameters['eta'],
-                                            zeta=self.acsf_parameters['zeta'])
+                                                       element_pairs=self.element_pairs,
+                                                       radial_cutoff=self.acsf_parameters['radial_cutoff'],
+                                                       angular_cutoff=self.acsf_parameters['angular_cutoff'],
+                                                       radial_rs=self.acsf_parameters['radial_rs'],
+                                                       angular_rs=self.acsf_parameters['angular_rs'],
+                                                       theta_s=self.acsf_parameters['theta_s'],
+                                                       eta=self.acsf_parameters['eta'],
+                                                       zeta=self.acsf_parameters['zeta'])
 
         jacobian = partial_derivatives(representation, batch_xyz)
 
@@ -2686,7 +2766,6 @@ class ARMP_G(ARMP, _NN):
                     gradients_slices.append(gradient_np)
                     counter += 1
                 except tf.errors.OutOfRangeError:
-                    print("Generated all the descriptors and gradients.")
                     break
         else:
             while True:
@@ -2700,10 +2779,7 @@ class ARMP_G(ARMP, _NN):
 
         sess.close()
 
-        gradients = np.asarray(gradients_slices)
-        representations = np.asarray(representation_slices)
-
-        return representations, gradients
+        return np.asarray(representation_slices), np.asarray(gradients_slices)
 
     def _get_nn_forces(self, nn_ene, g, dg_dr):
         """
@@ -2743,17 +2819,10 @@ class ARMP_G(ARMP, _NN):
         :return: None
         """
 
-        xyz_approved, y_approved, dy_approved, classes_approved = self._check_inputs(xyz, y, dy, classes)
+        g_approved, dg_dr_approved, y_approved, dy_approved, classes_approved = self._check_inputs(xyz, y, dy, classes)
 
-        self.elements, self.element_pairs = self._get_elements_and_pairs(classes_approved)
-        self.n_features = self.elements.shape[0] * self.acsf_parameters['radial_rs'].shape[0] + \
-                          self.element_pairs.shape[0] * self.acsf_parameters['angular_rs'].shape[0] * \
-                          self.acsf_parameters['theta_s'].shape[0]
-
-        g, dg_dr = self._generate_descriptors_and_gradient(xyz_approved, classes_approved)
-
-        self.n_samples = xyz_approved.shape[0]
-        max_n_atoms = xyz_approved.shape[1]
+        self.n_samples = g_approved.shape[0]
+        max_n_atoms = g_approved.shape[1]
 
         batch_size = self._get_batch_size()
         n_batches = ceil(self.n_samples, batch_size)
@@ -2763,11 +2832,11 @@ class ARMP_G(ARMP, _NN):
 
         # Turning the quantities into tensors
         with tf.name_scope("Data"):
-            zs_tf = tf.placeholder(shape=[self.n_samples, max_n_atoms], dtype=tf.int32, name="zs")
-            g_tf = tf.placeholder(shape=[self.n_samples, max_n_atoms, self.n_features], dtype=tf.float32, name="descriptor")
-            dg_dr_tf = tf.placeholder(shape=[self.n_samples, max_n_atoms, self.n_features, max_n_atoms, 3], dtype=tf.float32, name="dG_dr")
-            true_ene = tf.placeholder(shape=[self.n_samples, 1], dtype=tf.float32, name="true_ene")
-            true_forces = tf.placeholder(shape=[self.n_samples, max_n_atoms, 3], dtype=tf.float32, name="true_forces")
+            zs_tf = tf.placeholder(shape=[self.n_samples, max_n_atoms], dtype=tf.int32)
+            g_tf = tf.placeholder(shape=[self.n_samples, max_n_atoms, self.n_features], dtype=tf.float32)
+            dg_dr_tf = tf.placeholder(shape=[self.n_samples, max_n_atoms, self.n_features, max_n_atoms, 3], dtype=tf.float32)
+            true_ene = tf.placeholder(shape=[self.n_samples, 1], dtype=tf.float32)
+            true_forces = tf.placeholder(shape=[self.n_samples, max_n_atoms, 3], dtype=tf.float32)
 
             dataset = tf.data.Dataset.from_tensor_slices((g_tf, dg_dr_tf, true_ene, true_forces, zs_tf))
             dataset = dataset.batch(self.batch_size)
@@ -2808,11 +2877,11 @@ class ARMP_G(ARMP, _NN):
             self.tensorboard_logger_training.set_summary_writer(self.session)
 
         self.session.run(init)
-        self.session.run(iterator_init, feed_dict={g_tf: g, dg_dr_tf: dg_dr, zs_tf: classes_approved, true_ene: y_approved, true_forces: dy_approved})
+        self.session.run(iterator_init, feed_dict={g_tf: g_approved, dg_dr_tf: dg_dr_approved, zs_tf: classes_approved, true_ene: y_approved, true_forces: dy_approved})
 
         for i in range(self.iterations):
 
-            self.session.run(iterator_init, feed_dict={g_tf: g, dg_dr_tf: dg_dr, zs_tf: classes_approved, true_ene: y_approved, true_forces: dy_approved})
+            self.session.run(iterator_init, feed_dict={g_tf: g_approved, dg_dr_tf: dg_dr_approved, zs_tf: classes_approved, true_ene: y_approved, true_forces: dy_approved})
 
             for j in range(n_batches):
                 if self.tensorboard:
@@ -2823,7 +2892,7 @@ class ARMP_G(ARMP, _NN):
 
             # This seems to run the iterator.get_next() op, which gives problems with end of sequence
             # Hence why I re-initialise the iterator
-            self.session.run(iterator_init, feed_dict={g_tf: g, dg_dr_tf: dg_dr, zs_tf: classes_approved, true_ene: y_approved, true_forces: dy_approved})
+            self.session.run(iterator_init, feed_dict={g_tf: g_approved, dg_dr_tf: dg_dr_approved, zs_tf: classes_approved, true_ene: y_approved, true_forces: dy_approved})
             if self.tensorboard:
                 if i % self.tensorboard_logger_training.store_frequency == 0:
                     self.tensorboard_logger_training.write_summary(self.session, i)
@@ -2861,14 +2930,12 @@ class ARMP_G(ARMP, _NN):
         :rtype: numpy arrays of shape (n_samples,) and (n_samples, n_atoms, 3)
         """
 
-        xyz_approved, classes_approved = self._check_predict_input(xyz, classes)
+        g_approved, dg_dr_approved, classes_approved = self._check_predict_input(xyz, classes)
 
         if self.session == None:
             raise InputError("Model needs to be fit before predictions can be made.")
 
         graph = tf.get_default_graph()
-
-        g, dg_dr = self._generate_descriptors_and_gradient(xyz_approved, classes_approved)
 
         with graph.as_default():
             batch_g = graph.get_tensor_by_name("Data/Descriptors:0")
@@ -2876,7 +2943,7 @@ class ARMP_G(ARMP, _NN):
             batch_dg_dr = graph.get_tensor_by_name("Data/dG_dr:0")
             model = graph.get_tensor_by_name("Model/output:0")
             output_grad = graph.get_tensor_by_name("Model/output_grad:0")
-            y_pred, dy_pred = self.session.run([model, output_grad], feed_dict={batch_g: g, batch_zs:classes_approved, batch_dg_dr: dg_dr})
+            y_pred, dy_pred = self.session.run([model, output_grad], feed_dict={batch_g: g_approved, batch_zs:classes_approved, batch_dg_dr: dg_dr_approved})
 
         return y_pred, dy_pred
 
@@ -2898,9 +2965,10 @@ class ARMP_G(ARMP, _NN):
         :rtype: float
         """
 
-        xyz_approved, y_approved, dy_approved, classes_approved = self._check_inputs(x, y, dy, classes)
+        y_approved, dy_approved = self._check_score_input(x, y, dy)
 
-        y_pred, dy_pred = self.predict(xyz_approved, classes_approved)
+        y_pred, dy_pred = self.predict(x, classes)
+
         y_r2 = r2_score(y_approved, y_pred, sample_weight = None)
         dy_approved = np.reshape(dy_approved, (dy_approved.shape[0], dy_approved.shape[1]*dy_approved.shape[2]))
         dy_pred = np.reshape(dy_pred, (dy_pred.shape[0], dy_pred.shape[1] * dy_pred.shape[2]))
@@ -2929,9 +2997,10 @@ class ARMP_G(ARMP, _NN):
         :rtype: float
         """
 
-        xyz_approved, y_approved, dy_approved, classes_approved = self._check_inputs(x, y, dy, classes)
+        y_approved, dy_approved = self._check_score_input(x, y, dy)
 
-        y_pred, dy_pred = self.predict(xyz_approved, classes_approved)
+        y_pred, dy_pred = self.predict(x, classes)
+
         dy_approved = np.reshape(dy_approved, (dy_approved.shape[0], dy_approved.shape[1] * dy_approved.shape[2]))
         dy_pred = np.reshape(dy_pred, (dy_pred.shape[0], dy_pred.shape[1] * dy_pred.shape[2]))
         y_mae = (-1.0) * mean_absolute_error(y_approved, y_pred, sample_weight=None)
@@ -2958,9 +3027,9 @@ class ARMP_G(ARMP, _NN):
         :rtype: float
         """
 
-        xyz_approved, y_approved, dy_approved, classes_approved = self._check_inputs(x, y, dy, classes)
+        y_approved, dy_approved = self._check_score_input(x, y, dy)
 
-        y_pred, dy_pred = self.predict(xyz_approved, classes_approved)
+        y_pred, dy_pred = self.predict(x, classes)
         dy_approved = np.reshape(dy_approved, (dy_approved.shape[0], dy_approved.shape[1] * dy_approved.shape[2]))
         dy_pred = np.reshape(dy_pred, (dy_pred.shape[0], dy_pred.shape[1] * dy_pred.shape[2]))
         y_rmse = np.sqrt(mean_squared_error(y_approved, y_pred, sample_weight = None))
