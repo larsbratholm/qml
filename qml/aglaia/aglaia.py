@@ -2709,11 +2709,11 @@ class ARMP_G(ARMP, _NN):
         :return: the descriptors and their gradients wrt to the cartesian coordinates
         :rtype: numpy arrays of shape (n_samples, n_atoms, n_features) and (n_samples, n_atoms, 3)
         """
-
-        self.elements, self.element_pairs = self._get_elements_and_pairs(classes)
-        self.n_features = self.elements.shape[0] * self.acsf_parameters['radial_rs'].shape[0] + \
-                          self.element_pairs.shape[0] * self.acsf_parameters['angular_rs'].shape[0] * \
-                          self.acsf_parameters['theta_s'].shape[0]
+        if is_none(self.element_pairs) and is_none(self.elements):
+            self.elements, self.element_pairs = self._get_elements_and_pairs(classes)
+            self.n_features = self.elements.shape[0] * self.acsf_parameters['radial_rs'].shape[0] + \
+                              self.element_pairs.shape[0] * self.acsf_parameters['angular_rs'].shape[0] * \
+                              self.acsf_parameters['theta_s'].shape[0]
 
         n_samples = xyz.shape[0]
         n_atoms = xyz.shape[1]
