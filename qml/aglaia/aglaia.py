@@ -2070,8 +2070,6 @@ class ARMP(_NN):
                     raise InputError("No descriptors or QML compounds have been set yet.")
                 else:
                     self.descriptor, self.classes = self._generate_descriptors_from_compounds()
-            if is_none(self.properties):
-                raise InputError("The properties need to be set in advance.")
 
             approved_x = self.descriptor[x]
             approved_classes = self.classes[x]
@@ -2476,7 +2474,7 @@ class ARMP_G(ARMP, _NN):
             if is_none(dy):
                 raise InputError("ARMP_G estimator requires gradients.")
             if is_none(classes):
-                raise InputError("ARMP estimator needs the classes to do atomic decomposition.")
+                raise InputError("ARMP_G estimator needs the classes to do atomic decomposition.")
 
             approved_xyz = check_xyz(x)
             approved_y = check_y(y)
@@ -2486,6 +2484,55 @@ class ARMP_G(ARMP, _NN):
         check_sizes(approved_xyz, approved_y, approved_dy, approved_classes)
 
         return approved_xyz, approved_y, approved_dy, approved_classes
+
+    def _check_predict_input(self, x, classes):
+        """
+        This function checks whether x contains indices or data. If it contains indices, the data is extracted by the
+        appropriate compound objects or self.xyz and self.classes. Otherwise it checks what data is passed through the
+        arguments.
+
+        :param x: indices or data
+        :type x: numpy array of ints of shape (n_samples,) or floats of shape (n_samples, n_atoms, n_features)
+        :param classes: classes to use for the atomic decomposition or None
+        :type classes: either a numpy array of shape (n_samples, n_atoms) or None
+
+        :return: the approved descriptor and classes
+        :rtype: numpy array of shape (n_samples, n_atoms, n_features), (n_samples, n_atoms)
+        """
+
+        if not is_array_like(x):
+            raise InputError("x should be an array either containing indices or data.")
+
+        # Check if x is made up of indices or data
+        if is_positive_integer_or_zero_array(x):
+
+            if is_none(self.compounds) and is_none(self.xyz):
+                raise InputError("The compounds need to have been set in advance or you should provide the xyz.")
+            elif is_none(self.compounds) and not is_none(self.xyz):
+                approved_xyz = self.xyz[x]
+            else:
+                approved_xyz = self._get_xyz_from_compounds(x)
+
+            if is_none(self.classes) and not is_none(self.compounds):
+                approved_classes = self._get_classes_from_compounds(x)
+            elif not is_none(self.classes) and is_none(self.compounds):
+                approved_classes = self.classes[x]
+            else:
+                raise InputError("Classes havent been set yet.")
+
+            check_sizes(x=approved_xyz, classes=approved_classes)
+
+        else:
+
+            if is_none(classes):
+                raise InputError("ARMP_G estimator needs the classes to do atomic decomposition.")
+
+            approved_xyz = check_xyz(x)
+            approved_classes = check_classes(classes)
+
+            check_sizes(x=approved_xyz, classes=approved_classes)
+
+        return approved_xyz, approved_classes
 
     def _get_elements_and_pairs(self, classes):
         """
@@ -2631,11 +2678,11 @@ class ARMP_G(ARMP, _NN):
             counter = 0
             while True:
                 try:
-                    representation_np = sess.run(representation, options=self.tensorboard_logger_descriptor.options,
-                                             run_metadata=self.tensorboard_logger_descriptor.run_metadata)
+                    representation_np, gradient_np = sess.run([representation, jacobian],
+                                                              options=self.tensorboard_logger_descriptor.options,
+                                                              run_metadata=self.tensorboard_logger_descriptor.run_metadata)
                     self.tensorboard_logger_descriptor.write_metadata(counter)
                     representation_slices.append(representation_np)
-                    gradient_np = sess.run(jacobian)
                     gradients_slices.append(gradient_np)
                     counter += 1
                 except tf.errors.OutOfRangeError:
@@ -2644,9 +2691,8 @@ class ARMP_G(ARMP, _NN):
         else:
             while True:
                 try:
-                    representation_np = sess.run(representation)
+                    representation_np, gradient_np = sess.run([representation, jacobian])
                     representation_slices.append(representation_np)
-                    gradient_np = sess.run(jacobian)
                     gradients_slices.append(gradient_np)
                 except tf.errors.OutOfRangeError:
                     print("Generated all the descriptors and gradients.")
@@ -2678,6 +2724,7 @@ class ARMP_G(ARMP, _NN):
         dene_dg = tf.gradients(nn_ene, g, name='dEne_dG')[0]
 
         forces = - tf.einsum('abcij,abc->aij', dg_dr, dene_dg)
+        forces = tf.identity(forces, name="output_grad")
 
         return forces
 
@@ -2703,27 +2750,35 @@ class ARMP_G(ARMP, _NN):
                           self.element_pairs.shape[0] * self.acsf_parameters['angular_rs'].shape[0] * \
                           self.acsf_parameters['theta_s'].shape[0]
 
-        # TODO implement
         g, dg_dr = self._generate_descriptors_and_gradient(xyz_approved, classes_approved)
 
-        n_samples = xyz_approved.shape[0]
+        self.n_samples = xyz_approved.shape[0]
         max_n_atoms = xyz_approved.shape[1]
+
+        batch_size = self._get_batch_size()
+        n_batches = ceil(self.n_samples, batch_size)
 
         if self.tensorboard:
             self.tensorboard_logger_training.initialise()
 
         # Turning the quantities into tensors
         with tf.name_scope("Inputs"):
-            zs_tf = tf.placeholder(shape=[n_samples, max_n_atoms], dtype=tf.int32, name="zs")
-            g_tf = tf.placeholder(shape=[n_samples, max_n_atoms, self.n_features], dtype=tf.float32, name="descriptor")
-            dg_dr_tf = tf.placeholder(shape=[n_samples, max_n_atoms, self.n_features, max_n_atoms, 3], dtype=tf.float32, name="dG_dr")
-            true_ene = tf.placeholder(shape=[n_samples, 1], dtype=tf.float32, name="true_ene")
-            true_forces = tf.placeholder(shape=[n_samples, max_n_atoms, 3], dtype=tf.float32, name="true_forces")
+            zs_tf = tf.placeholder(shape=[self.n_samples, max_n_atoms], dtype=tf.int32, name="zs")
+            g_tf = tf.placeholder(shape=[self.n_samples, max_n_atoms, self.n_features], dtype=tf.float32, name="descriptor")
+            dg_dr_tf = tf.placeholder(shape=[self.n_samples, max_n_atoms, self.n_features, max_n_atoms, 3], dtype=tf.float32, name="dG_dr")
+            true_ene = tf.placeholder(shape=[self.n_samples, 1], dtype=tf.float32, name="true_ene")
+            true_forces = tf.placeholder(shape=[self.n_samples, max_n_atoms, 3], dtype=tf.float32, name="true_forces")
 
             dataset = tf.data.Dataset.from_tensor_slices((g_tf, dg_dr_tf, true_ene, true_forces, zs_tf))
             dataset = dataset.batch(self.batch_size)
             iterator = tf.data.Iterator.from_structure(dataset.output_types, dataset.output_shapes)
             batch_g, batch_dg_dr, batch_y, batch_dy, batch_zs = iterator.get_next()
+
+            batch_g = tf.identity(batch_g, name="Descriptors")
+            batch_dg_dr = tf.identity(batch_dg_dr, name="dG_dr")
+            batch_y = tf.identity(batch_y, name="Properties")
+            batch_dy = tf.identity(batch_dy, name="Forces")
+            batch_zs = tf.identity(batch_zs, name="Classes")
 
         element_weights, element_biases = self._make_weights_biases(self.elements)
 
@@ -2759,12 +2814,12 @@ class ARMP_G(ARMP, _NN):
 
             self.session.run(iterator_init, feed_dict={g_tf: g, dg_dr_tf: dg_dr, zs_tf: classes_approved, true_ene: y_approved, true_forces: dy_approved})
 
-            for j in range(self.batch_size):
+            for j in range(n_batches):
                 if self.tensorboard:
-                    opt, c = self.session.run([optimisation_op, cost], options=self.tensorboard_logger_training.options,
+                    self.session.run(optimisation_op, options=self.tensorboard_logger_training.options,
                              run_metadata=self.tensorboard_logger_training.run_metadata)
                 else:
-                    opt, c = self.session.run([optimisation_op, cost])
+                    self.session.run(optimisation_op)
 
             # This seems to run the iterator.get_next() op, which gives problems with end of sequence
             # Hence why I re-initialise the iterator
@@ -2772,4 +2827,36 @@ class ARMP_G(ARMP, _NN):
             if self.tensorboard:
                 if i % self.tensorboard_logger_training.store_frequency == 0:
                     self.tensorboard_logger_training.write_summary(self.session, i)
+
+    def _predict(self, xyz, classes):
+        """
+        This function predicts the properties and their gradient starting from the cartesian coordinates and the atom
+        types.
+
+        :param xyz: Cartesian coordinates
+        :type xyz: numpy array of shape (n_samples, n_atoms, 3)
+        :param classes: the different atom types present in the system
+        :type classes: numpy array of shape (n_samples, n_atoms)
+        :return: predicted properties and their gradients
+        :rtype: numpy arrays of shape (n_samples,) and (n_samples, n_atoms, 3)
+        """
+
+        xyz_approved, classes_approved = self._check_predict_input(xyz, classes)
+
+        if self.session == None:
+            raise InputError("Model needs to be fit before predictions can be made.")
+
+        graph = tf.get_default_graph()
+
+        g, dg_dr = self._generate_descriptors_and_gradient(xyz_approved, classes_approved)
+
+        with graph.as_default():
+            batch_g = graph.get_tensor_by_name("Data/Descriptors:0")
+            batch_zs = graph.get_tensor_by_name("Data/Classes:0")
+            batch_dg_dr = graph.get_tensor_by_name("Data/dG_dr:0")
+            model = graph.get_tensor_by_name("Model/output:0")
+            output_grad = graph.get_tensor_by_name("Model/output_grad:0")
+            y_pred, dy_pred = self.session.run([model, output_grad], feed_dict={batch_g: g, batch_zs:classes_approved, batch_dg_dr: dg_dr})
+
+        return y_pred, dy_pred
 
