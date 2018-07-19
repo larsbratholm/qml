@@ -8,7 +8,7 @@ import numpy as np
 import tensorflow as tf
 from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
 from sklearn.base import BaseEstimator
-from qml.aglaia.symm_funct import generate_parkhill_acsf
+from qml.aglaia.symm_funct import generate_parkhill_acsf, generate_parkhill_acsf_single
 from qml.aglaia.utils import InputError, ceil, is_positive_or_zero, is_positive_integer, is_positive, \
         is_bool, is_positive_integer_or_zero, is_string, is_positive_integer_array, is_array_like, is_none, \
         check_global_descriptor, check_y, check_sizes, check_dy, check_classes, is_numeric_array, is_non_zero_integer, \
@@ -1623,7 +1623,6 @@ class ARMP(_NN):
 
         return descriptor, classes
 
-    # TODO modify so that it uses the new map function
     def _generate_acsf_from_data(self, xyz, classes):
         """
         This function generates the acsf from the cartesian coordinates and the classes.
@@ -1654,8 +1653,7 @@ class ARMP(_NN):
             item.reverse()
 
         if self.tensorboard:
-            run_metadata = tf.RunMetadata()
-            options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
+            self.tensorboard_logger_descriptor.initialise()
 
         n_samples = xyz.shape[0]
         max_n_atoms = xyz.shape[1]
@@ -1685,26 +1683,23 @@ class ARMP(_NN):
         descriptor_slices = []
 
         if self.tensorboard:
-            summary_writer = tf.summary.FileWriter(logdir="tensorboard", graph=sess.graph)
-
+            self.tensorboard_logger_descriptor.set_summary_writer(sess)
             batch_counter = 0
             while True:
                 try:
-                    descriptor_np = sess.run(descriptor, options=options, run_metadata=run_metadata)
-                    summary_writer.add_run_metadata(run_metadata=run_metadata, tag="batch %s" % batch_counter,
-                                                    global_step=None)
+                    descriptor_np = sess.run(descriptor, options=self.tensorboard_logger_descriptor.options,
+                                             run_metadata=self.tensorboard_logger_descriptor.run_metadata)
+                    self.tensorboard_logger_descriptor.write_metadata(batch_counter)
                     descriptor_slices.append(descriptor_np)
                     batch_counter += 1
                 except tf.errors.OutOfRangeError:
                     print("Generated all the descriptors.")
                     break
         else:
-            batch_counter = 0
             while True:
                 try:
                     descriptor_np = sess.run(descriptor)
                     descriptor_slices.append(descriptor_np)
-                    batch_counter += 1
                 except tf.errors.OutOfRangeError:
                     print("Generated all the descriptors.")
                     break
@@ -2431,12 +2426,19 @@ class ARMP_G(ARMP, _NN):
 
     def _check_inputs(self, x, y, dy, classes):
         """
+        This function checks that the data passed to the fit function makes sense. If X represent indices, it extracts
+        the data from the compounds or the variables self.xyz, self.properties, self.gradients and self.classes.
 
         :param x: Indices or the cartesian coordinates
-        :param y:
-        :param dy:
-        :param classes:
-        :return:
+        :type x: Either 1D numpy array of ints or numpy array of floats of shape (n_samples, n_atoms, 3)
+        :param y: The properties - for example the molecular energies (or None if x represents indices)
+        :type y: numpy array of shape (n_samples,)
+        :param dy: Gradients of the molecular properties - for example the forces (or None if x represents indices)
+        :type dy: numpy array of shape (n_samples, n_atoms, 3)
+        :param classes: The different types of atoms in the system (or None if x represents indices)
+        :type classes: numpy array of shape (n_samples, n_atoms)
+        :return: The xyz, properties, gradients and classes
+        :rtype: (n_samples, n_atoms, 3), (n_samples,), (n_samples, n_atoms, 3), (n_samples, n_atoms)
         """
 
         if not is_array_like(x):
@@ -2489,8 +2491,10 @@ class ARMP_G(ARMP, _NN):
         """
         This function generates the atom centred symmetry functions.
 
-        :return: descriptor acsf and classes
-        :rtype: numpy array of shape (n_samples, n_atoms, n_features) and (n_samples, n_atoms)
+        :param classes: The different types of atoms present in the system
+        :type classes: numpy array of shape (n_samples, n_atoms)
+        :return: elements and element pairs in the system
+        :rtype: numpy array of shape (n_elements,) and (n_element_pairs)
         """
 
         # Obtaining the total elements and the element pairs
@@ -2538,6 +2542,21 @@ class ARMP_G(ARMP, _NN):
         return element_weights, element_biases
 
     def _cost_G(self, y_true, y_nn, dy_true, dy_nn, weights_dict):
+        """
+        This function calculates the cost for the ARMP_G class. It uses both true energies/forces and the neural network
+        predicted energies/forces.
+
+        :param y_true: True properties
+        :type y_true: tf tensor of shape (n_sample,)
+        :param y_nn: Neural network predicted properties
+        :type y_nn: tf tensor of shape (n_sample,)
+        :param dy_true: True gradients
+        :type dy_true: tf tensor of shape (n_sample, n_atoms, 3)
+        :param dy_nn: Neural network predicted gradients
+        :type dy_nn: tf tensor of shape (n_sample, n_atoms, 3)
+        :param weights_dict: dictionary containing the weights for each element specific network.
+        :return: tf.tensor of shape ()
+        """
 
         ene_err = tf.square(tf.subtract(y_true, y_nn))
         force_err = tf.square(tf.subtract(dy_true, dy_nn))
@@ -2570,65 +2589,75 @@ class ARMP_G(ARMP, _NN):
         :rtype: numpy arrays of shape (n_samples, n_atoms, n_features) and (n_samples, n_atoms, n_features, n_atoms, 3)
         """
 
-
-        # TODO give in init
-        radial_cutoff = 10.0
-        angular_cutoff = 10.0
-        radial_rs = np.arange(0.0, 10.5, 10)
-        angular_rs = np.arange(0.0, 10.5, 10)
-        theta_s = np.arange(0.0, 3.14, 3)
-        zeta = 3.0
-        eta = 2.0
-
-        # TODO get these
-        elements = []
-        element_pairs = []
-
-        n_samples = zs.shape[0]
-        n_atoms = zs.shape[1]
+        n_samples = xyz.shape[0]
+        n_atoms = xyz.shape[1]
 
         # NOTE: Resets graph, so make sure model is created afterwards
         tf.reset_default_graph()
 
-        # TODO we should probably switch to the one at a time descriptor, so we remove the n_samples dimension
+        if self.tensorboard:
+            self.tensorboard_logger_descriptor.initialise()
+
         # since it has to be 1
         with tf.name_scope("Inputs"):
-            zs_tf = tf.placeholder(shape=[1, n_atoms], dtype=tf.int32, name="zs")
-            xyz_tf = tf.placeholder(shape=[1, n_atoms, 3], dtype=tf.float32, name="xyz")
+            zs_tf = tf.placeholder(shape=[n_samples, n_atoms], dtype=tf.int32, name="zs")
+            xyz_tf = tf.placeholder(shape=[n_samples, n_atoms, 3], dtype=tf.float32, name="xyz")
 
+            dataset = tf.data.Dataset.from_tensor_slices((xyz_tf, zs_tf))
+            iterator = tf.data.Iterator.from_structure(dataset.output_types, dataset.output_shapes)
+            batch_xyz, batch_zs = iterator.get_next()
 
-        # PARAMs
-        with tf.name_scope("acsf_params"):
-            rad_cutoff = tf.constant(radial_cutoff, dtype=tf.float32)
-            ang_cutoff = tf.constant(angular_cutoff, dtype=tf.float32)
-            rad_rs = tf.constant(radial_rs, dtype=tf.float32)
-            ang_rs = tf.constant(angular_rs, dtype=tf.float32)
-            theta_s_tf = tf.constant(theta_s, dtype=tf.float32)
-            zeta_tf = tf.constant(zeta, dtype=tf.float32)
-            eta_tf = tf.constant(eta, dtype=tf.float32)
+        representation = generate_parkhill_acsf_single(xyzs=batch_xyz, Zs=batch_zs, elements=self.elements,
+                                            element_pairs=self.element_pairs,
+                                            radial_cutoff=self.acsf_parameters['radial_cutoff'],
+                                            angular_cutoff=self.acsf_parameters['angular_cutoff'],
+                                            radial_rs=self.acsf_parameters['radial_rs'],
+                                            angular_rs=self.acsf_parameters['angular_rs'],
+                                            theta_s=self.acsf_parameters['theta_s'], eta=self.acsf_parameters['eta'],
+                                            zeta=self.acsf_parameters['zeta'])
 
-        # TODO correct this to the correct function call
-        representation = generate_parkhill_acsf(xyz_tf, zs_tf, elements, element_pairs, radial_cutoff, angular_cutoff, radial_rs, angular_rs, theta_s, zeta, eta)
-
-        jacobian = partial_derivatives(representation, xyz_tf)
+        jacobian = partial_derivatives(representation, batch_xyz)
 
         sess = tf.Session()
         sess.run(tf.global_variables_initializer())
+        sess.run(iterator.make_initializer(dataset), feed_dict={xyz_tf: xyz, zs_tf: classes})
 
         # Do representations and gradients one by one
-        # TODO do with dataset?
-        gradients = []
-        representations = []
-        for i in range(n_samples):
-            representation, partial_grad = sess.run([representation, jacobian], feed_dict={xyz_tf: xyzs[i:i+1], zs_tf: zs[i:i+1]})
-            gradients.append(partial_grad)
-            representations.append(representation)
+        gradients_slices = []
+        representation_slices = []
 
-        gradients = np.asarray(gradients)
-        representations = np.asarray(representations)
+        if self.tensorboard:
+            self.tensorboard_logger_descriptor.set_summary_writer(sess)
+            counter = 0
+            while True:
+                try:
+                    representation_np = sess.run(representation, options=self.tensorboard_logger_descriptor.options,
+                                             run_metadata=self.tensorboard_logger_descriptor.run_metadata)
+                    self.tensorboard_logger_descriptor.write_metadata(counter)
+                    representation_slices.append(representation_np)
+                    gradient_np = sess.run(jacobian)
+                    gradients_slices.append(gradient_np)
+                    counter += 1
+                except tf.errors.OutOfRangeError:
+                    print("Generated all the descriptors and gradients.")
+                    break
+        else:
+            while True:
+                try:
+                    representation_np = sess.run(representation)
+                    representation_slices.append(representation_np)
+                    gradient_np = sess.run(jacobian)
+                    gradients_slices.append(gradient_np)
+                except tf.errors.OutOfRangeError:
+                    print("Generated all the descriptors and gradients.")
+                    break
+
+        sess.close()
+
+        gradients = np.asarray(gradients_slices)
+        representations = np.asarray(representation_slices)
 
         return representations, gradients
-
 
     def _get_nn_forces(self, nn_ene, g, dg_dr):
         """
@@ -2654,12 +2683,17 @@ class ARMP_G(ARMP, _NN):
 
     def _fit(self, xyz, y, dy, classes):
         """
+        This function fits the weights of the neural networks to the properties and their gradient.
 
-        :param xyz:
-        :param y:
-        :param dy:
-        :param classes:
-        :return:
+        :param xyz: cartesian coordinates
+        :type xyz: numpy array of shape (n_samples, n_atoms, 3)
+        :param y: molecular properties
+        :type y: numpy array of shape (n_samples,)
+        :param dy: gradients of the properties wrt to cartesian coordinates
+        :type dy: numpy array of shape (n_samples, n_atoms, 3)
+        :param classes: type of the atoms in the system
+        :type classes: numpy array of shape (n_samples, n_atoms)
+        :return: None
         """
 
         xyz_approved, y_approved, dy_approved, classes_approved = self._check_inputs(xyz, y, dy, classes)
@@ -2683,7 +2717,6 @@ class ARMP_G(ARMP, _NN):
             zs_tf = tf.placeholder(shape=[n_samples, max_n_atoms], dtype=tf.int32, name="zs")
             g_tf = tf.placeholder(shape=[n_samples, max_n_atoms, self.n_features], dtype=tf.float32, name="descriptor")
             dg_dr_tf = tf.placeholder(shape=[n_samples, max_n_atoms, self.n_features, max_n_atoms, 3], dtype=tf.float32, name="dG_dr")
-            # xyz_tf = tf.placeholder(shape=[n_samples, max_n_atoms, 3], dtype=tf.float32, name="xyz")
             true_ene = tf.placeholder(shape=[n_samples, 1], dtype=tf.float32, name="true_ene")
             true_forces = tf.placeholder(shape=[n_samples, max_n_atoms, 3], dtype=tf.float32, name="true_forces")
 
@@ -2691,16 +2724,6 @@ class ARMP_G(ARMP, _NN):
             dataset = dataset.batch(self.batch_size)
             iterator = tf.data.Iterator.from_structure(dataset.output_types, dataset.output_shapes)
             batch_g, batch_dg_dr, batch_y, batch_dy, batch_zs = iterator.get_next()
-
-        # batch_descriptor = generate_parkhill_acsf(xyzs=batch_xyz, Zs=batch_zs, elements=self.elements, element_pairs=self.element_pairs,
-        #                                     radial_cutoff=self.acsf_parameters['radial_cutoff'],
-        #                                     angular_cutoff=self.acsf_parameters['angular_cutoff'],
-        #                                     radial_rs=self.acsf_parameters['radial_rs'],
-        #                                     angular_rs=self.acsf_parameters['angular_rs'],
-        #                                     theta_s=self.acsf_parameters['theta_s'], eta=self.acsf_parameters['eta'],
-        #                                     zeta=self.acsf_parameters['zeta'])
-        #
-        #
 
         element_weights, element_biases = self._make_weights_biases(self.elements)
 

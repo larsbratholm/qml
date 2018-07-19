@@ -78,6 +78,5 @@ def partial_derivatives(y, x):
     lambda j, result: (j+1, result.write(j, tf.gradients(y_flat[j], x))),
     loop_vars)
 
-    # TODO y.shape[1:] should be changed to y.shape and vice versa for x
     # once we have changed how the representation is generated
-    return tf.reshape(jacobian.stack(), y.shape[1:].as_list() + x.shape[1:].as_list())
+    return tf.reshape(jacobian.stack(), y.shape.as_list() + x.shape.as_list())
