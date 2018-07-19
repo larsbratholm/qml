@@ -2762,7 +2762,7 @@ class ARMP_G(ARMP, _NN):
             self.tensorboard_logger_training.initialise()
 
         # Turning the quantities into tensors
-        with tf.name_scope("Inputs"):
+        with tf.name_scope("Data"):
             zs_tf = tf.placeholder(shape=[self.n_samples, max_n_atoms], dtype=tf.int32, name="zs")
             g_tf = tf.placeholder(shape=[self.n_samples, max_n_atoms, self.n_features], dtype=tf.float32, name="descriptor")
             dg_dr_tf = tf.placeholder(shape=[self.n_samples, max_n_atoms, self.n_features, max_n_atoms, 3], dtype=tf.float32, name="dG_dr")
@@ -2827,6 +2827,26 @@ class ARMP_G(ARMP, _NN):
             if self.tensorboard:
                 if i % self.tensorboard_logger_training.store_frequency == 0:
                     self.tensorboard_logger_training.write_summary(self.session, i)
+
+    def predict(self, x, classes=None):
+        """
+        This function calls the predict function for either ARMP or MRMP.
+
+        :param x: descriptor or indices
+        :type x: numpy array of shape (n_samples, n_features) or (n_samples, n_atoms, n_features) or an array of ints
+        :param classes: the classes to use for atomic decomposition
+        :type classes: numpy array of shape (n_sample, n_atoms)
+
+
+        :return: predictions of the molecular properties.
+        :rtype: numpy array of shape (n_samples,)
+        """
+        prop_predictions, grad_predictions = self._predict(x, classes)
+
+        if prop_predictions.ndim > 1 and prop_predictions.shape[1] == 1:
+            prop_predictions = prop_predictions.ravel()
+
+        return prop_predictions, grad_predictions
 
     def _predict(self, xyz, classes):
         """
