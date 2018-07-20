@@ -119,6 +119,8 @@ class _NN(BaseEstimator):
         self.gradients = None
         self.classes = None
         self.dg_dr = None
+        self.elements = None
+        self.element_pairs = None
 
     def _set_activation_function(self, activation_function):
         """
@@ -2673,7 +2675,7 @@ class ARMP_G(ARMP, _NN):
 
         return cost_function
 
-    def generate_descriptors_and_gradient(self, xyz=None, classes=None):
+    def generate_descriptors(self, xyz=None, classes=None):
         """
         This function takes in the coordinates and the classes and makes the descriptor and its derivative with
         respect to the cartesian coordinates.
@@ -2695,28 +2697,61 @@ class ARMP_G(ARMP, _NN):
         if not is_none(self.descriptor):
             raise InputError("The descriptors have already been set!")
 
-        self.descriptor, self.dg_dr = self._generate_descriptor_and_gradients(self.xyz, self.classes)
+        self.descriptor, self.dg_dr = self._generate_descriptors_and_gradients()
 
-    def _generate_descriptors_and_gradients(self, xyz, classes):
+    def save_descriptors_and_gradients(self, filename="descrpt_and_grad.hdf5"):
+        """
+        This function stores the descriptors and their gradients wrt the cartesian coordinates that have been generated
+        for later re-use.
+
+        :return: None
+        """
+
+        if is_none(self.descriptor) or is_none(self.dg_dr):
+            raise InputError("The descriptors and their gradients wrt to the Cartesian coordinates have not been calculated yet.")
+
+        try:
+            import h5py
+        except ModuleNotFoundError:
+            raise ModuleNotFoundError("h5py is needed for saving large data sets.")
+
+        f = h5py.File(filename, "w")
+
+        descript = f.create_dataset("descriptor", self.descriptor.shape, data=self.descriptor)
+        grad = f.create_dataset("dg_dr", self.dg_dr.shape, data=self.dg_dr)
+
+        f.close()
+
+    def load_descriptors_and_gradients(self, filename="descrpt_and_grad.hdf5"):
+
+        try:
+            import h5py
+        except ModuleNotFoundError:
+            raise ModuleNotFoundError("h5py is needed for saving large data sets.")
+
+        f = h5py.File(filename, "r")
+
+        self.descriptor = f["descriptor"][:]
+        self.dg_dr = f["dg_dr"][:]
+
+        f.close()
+
+    def _generate_descriptors_and_gradients(self):
         """
         This function takes in the coordinates and the classes and returns the descriptor and its derivative with
         respect to the cartesian coordinates.
 
-        :param xyz: cartesian coordinates
-        :type xyz: numpy array of shape (n_samples, n_atoms, 3)
-        :param classes: the different types of atoms present
-        :type classes: numpy array of shape (n_samples, n_atoms)
         :return: the descriptors and their gradients wrt to the cartesian coordinates
         :rtype: numpy arrays of shape (n_samples, n_atoms, n_features) and (n_samples, n_atoms, 3)
         """
         if is_none(self.element_pairs) and is_none(self.elements):
-            self.elements, self.element_pairs = self._get_elements_and_pairs(classes)
+            self.elements, self.element_pairs = self._get_elements_and_pairs(self.classes)
             self.n_features = self.elements.shape[0] * self.acsf_parameters['radial_rs'].shape[0] + \
                               self.element_pairs.shape[0] * self.acsf_parameters['angular_rs'].shape[0] * \
                               self.acsf_parameters['theta_s'].shape[0]
 
-        n_samples = xyz.shape[0]
-        n_atoms = xyz.shape[1]
+        n_samples = self.xyz.shape[0]
+        n_atoms = self.xyz.shape[1]
 
         # NOTE: Resets graph, so make sure model is created afterwards
         # tf.reset_default_graph()
@@ -2747,7 +2782,7 @@ class ARMP_G(ARMP, _NN):
 
         sess = tf.Session()
         sess.run(tf.global_variables_initializer())
-        sess.run(iterator.make_initializer(dataset), feed_dict={xyz_tf: xyz, zs_tf: classes})
+        sess.run(iterator.make_initializer(dataset), feed_dict={xyz_tf: self.xyz, zs_tf: self.classes})
 
         # Do representations and gradients one by one
         gradients_slices = []
@@ -2774,7 +2809,6 @@ class ARMP_G(ARMP, _NN):
                     representation_slices.append(representation_np)
                     gradients_slices.append(gradient_np)
                 except tf.errors.OutOfRangeError:
-                    print("Generated all the descriptors and gradients.")
                     break
 
         sess.close()
@@ -2820,6 +2854,12 @@ class ARMP_G(ARMP, _NN):
         """
 
         g_approved, dg_dr_approved, y_approved, dy_approved, classes_approved = self._check_inputs(xyz, y, dy, classes)
+
+        if is_none(self.element_pairs) and is_none(self.elements):
+            self.elements, self.element_pairs = self._get_elements_and_pairs(self.classes)
+            self.n_features = self.elements.shape[0] * self.acsf_parameters['radial_rs'].shape[0] + \
+                              self.element_pairs.shape[0] * self.acsf_parameters['angular_rs'].shape[0] * \
+                              self.acsf_parameters['theta_s'].shape[0]
 
         self.n_samples = g_approved.shape[0]
         max_n_atoms = g_approved.shape[1]

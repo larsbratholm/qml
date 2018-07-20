@@ -1,7 +1,7 @@
 """
 This script shows how to set up the ARMP_G estimator where the xyz, nuclear charges, energies and forces are all set in
-advance. Then the indices are used to specify on which samples to train and the descripto/gradients are generated only
-for those samples.
+advance. Then the descriptors and the gradients are generated for all the samples. The indices are used to specify on
+which samples to train/predict.
 """
 
 from qml.aglaia.aglaia import ARMP_G
@@ -25,18 +25,18 @@ print(xyz.shape, zs.shape, ene.shape, forces.shape)
 estimator = ARMP_G(iterations=1, representation='acsf', descriptor_params={"radial_rs": np.arange(0,10, 2), "angular_rs": np.arange(0.5, 10.5, 2),
 "theta_s": np.arange(0, 3.14, 2.5)}, tensorboard=False, store_frequency=1, batch_size=10)
 
-estimator.set_xyz(xyz)
-estimator.set_classes(zs)
-estimator.set_properties(ene)
-estimator.set_gradients(forces)
+estimator.set_xyz(xyz[:1])
+estimator.set_classes(zs[:1])
+estimator.set_properties(ene[:1])
+estimator.set_gradients(forces[:1])
 
-##  ------------- ** Fitting to the data ** ---------------
+estimator.generate_descriptors()
 
-idx = np.arange(0,5)
+## ----------- ** Fitting and predicting ** -------------------
+
+idx = np.arange(0,1)
 
 estimator.fit(idx)
-
-##  ------------- ** Predicting and scoring ** ---------------
 
 score = estimator.score(idx)
 
