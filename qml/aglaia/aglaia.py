@@ -2979,6 +2979,7 @@ class ARMP_G(ARMP, _NN):
             batch_dy = tf.identity(batch_dy, name="Forces")
             batch_zs = tf.identity(batch_zs, name="Classes")
 
+
         element_weights, element_biases = self._make_weights_biases(self.elements)
 
         # Creating the model
@@ -3026,6 +3027,51 @@ class ARMP_G(ARMP, _NN):
             if self.tensorboard:
                 if i % self.tensorboard_logger_training.store_frequency == 0:
                     self.tensorboard_logger_training.write_summary(self.session, i)
+
+        self._save_weights(element_weights, element_biases, self.session)
+
+    def _save_weights(self, element_weights, element_biases, sess):
+        """
+        This function is used to save the weights once the model has been trained, so that they can be reused within
+        the same script.
+
+        :param element_weights: dictionary of tf.tensors
+        :param element_biases: dictionary of tf.tensors
+        :param sess: the session where the model was trained
+        :return: None
+        """
+
+        self.all_weights = {}
+        self.all_biases = {}
+
+        for key in self.elements:
+            w = []
+            b = []
+            for ii in range(len(element_weights[key])):
+                w.append(sess.run(element_weights[key][ii]))
+                b.append(sess.run(element_biases[key][ii]))
+            self.all_weights[key] = w
+            self.all_biases[key] = b
+
+    def _load_weights(self):
+        """
+        This function is used to reload the weights that have been fit to some data
+        :return: two dictionaries of tensors.
+        """
+
+        all_weights = {}
+        all_biases = {}
+
+        for key in self.elements:
+            w = []
+            b = []
+            for ii in range(len(self.all_weights[key])):
+                w.append(tf.constant(self.all_weights[key][ii]))
+                b.append(tf.constant(self.all_biases[key][ii]))
+            all_weights[key] = w
+            all_biases[key] = b
+
+        return all_weights, all_biases
 
     def predict(self, x, classes=None, dgdr=None):
         """
@@ -3081,6 +3127,65 @@ class ARMP_G(ARMP, _NN):
             y_pred, dy_pred = self.session.run([model, output_grad], feed_dict={batch_g: g_approved, batch_zs:classes_approved, batch_dg_dr: dg_dr_approved})
 
         return y_pred, dy_pred
+
+    def predict_from_xyz(self, xyz, classes):
+        """
+        This function can be used to predict energies and forces straight from xyz data.
+        :param xyz: Cartesian coordinates
+        :type xyz: numpy array of shape (n_samples, n_atoms, 3)
+        :param classes: atom types
+        :type classes: numpy array of shape (n_samples, n_atoms)
+
+        :return: predicted properties and their gradients
+        :rtype: numpy arrays of shape (n_samples,) and (n_samples, n_atoms, 3)
+        """
+
+        n_samples = xyz.shape[0]
+        n_atoms = xyz.shape[1]
+
+        element_weights, element_biases = self._load_weights()
+
+        with tf.name_scope("Inputs"):
+            zs_tf = tf.placeholder(shape=[n_samples, n_atoms], dtype=tf.int32, name="zs")
+            xyz_tf = tf.placeholder(shape=[n_samples, n_atoms, 3], dtype=tf.float32, name="xyz")
+
+            dataset = tf.data.Dataset.from_tensor_slices((xyz_tf, zs_tf))
+            dataset = dataset.batch(2)
+            iterator = tf.data.Iterator.from_structure(dataset.output_types, dataset.output_shapes)
+            batch_xyz, batch_zs = iterator.get_next()
+
+        batch_representation = generate_parkhill_acsf(xyzs=batch_xyz, Zs=batch_zs, elements=self.elements,
+                                                       element_pairs=self.element_pairs,
+                                                       radial_cutoff=self.acsf_parameters['radial_cutoff'],
+                                                       angular_cutoff=self.acsf_parameters['angular_cutoff'],
+                                                       radial_rs=self.acsf_parameters['radial_rs'],
+                                                       angular_rs=self.acsf_parameters['angular_rs'],
+                                                       theta_s=self.acsf_parameters['theta_s'],
+                                                       eta=self.acsf_parameters['eta'],
+                                                       zeta=self.acsf_parameters['zeta'])
+
+        with tf.name_scope("Model"):
+            batch_energies_nn = self._model(batch_representation, batch_zs, element_weights, element_biases)
+            batch_forces_nn = - tf.gradients(batch_energies_nn, batch_xyz)[0]
+
+        energies_nn = []
+        forces_nn = []
+
+        self.session.run(tf.global_variables_initializer())
+        self.session.run(iterator.make_initializer(dataset), feed_dict={xyz_tf:xyz, zs_tf:classes})
+
+        while True:
+            try:
+                batch_ene_np, batch_forces_np = self.session.run([batch_energies_nn, batch_forces_nn])
+                energies_nn.append(batch_ene_np)
+                forces_nn.append(batch_forces_np)
+            except tf.errors.OutOfRangeError:
+                break
+
+        energies_nn = np.concatenate(energies_nn, axis=0)
+        forces_nn = np.concatenate(forces_nn, axis=0)
+
+        return energies_nn, forces_nn
 
     def _score_r2(self, x, y=None, classes=None, dy=None, dgdr=None):
         """
