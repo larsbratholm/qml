@@ -12,7 +12,7 @@ from qml.aglaia.symm_funct import generate_parkhill_acsf, generate_parkhill_acsf
 from qml.aglaia.utils import InputError, ceil, is_positive_or_zero, is_positive_integer, is_positive, \
         is_bool, is_positive_integer_or_zero, is_string, is_positive_integer_array, is_array_like, is_none, \
         check_global_descriptor, check_y, check_sizes, check_dy, check_classes, is_numeric_array, is_non_zero_integer, \
-    is_positive_integer_or_zero_array, check_local_descriptor, check_xyz
+    is_positive_integer_or_zero_array, check_local_descriptor, check_xyz, check_dgdr
 
 from qml.aglaia.tf_utils import TensorBoardLogger, partial_derivatives
 
@@ -113,6 +113,7 @@ class _NN(BaseEstimator):
         self.optimiser = self._set_optimiser_type(optimiser)
 
         # Placholder variables for data
+        self.xyz = None
         self.compounds = None
         self.descriptor = None
         self.properties = None
@@ -575,17 +576,21 @@ class _NN(BaseEstimator):
         :return: None
         """
 
-        self.acsf_parameters = {'radial_cutoff': 10.0, 'angular_cutoff': 10.0, 'radial_rs': (0.0, 0.1, 0.2),
-                                'angular_rs': (0.0, 0.1, 0.2), 'theta_s': (3.0, 2.0), 'zeta': 3.0, 'eta': 2.0}
+        self.acsf_parameters = {'radial_cutoff': 10.0, 'angular_cutoff': 10.0, 'radial_rs': np.asarray([0.0, 0.1, 0.2]),
+                                'angular_rs': np.asarray([0.0, 0.1, 0.2]), 'theta_s': np.asarray([3.0, 2.0]),
+                                'zeta': 3.0, 'eta': 2.0}
 
         if not is_none(params):
             for key, value in params.items():
                 if key in self.acsf_parameters:
-                    self.acsf_parameters[key] = value
+                    if is_numeric_array(value):
+                        self.acsf_parameters[key] = np.asarray(value)
+                    else:
+                        self.acsf_parameters[key] = value
 
             self._check_acsf_values()
 
-    def score(self, x, y=None, dy=None, classes=None):
+    def score(self, x, y=None, classes=None, dy=None, dgdr=None):
         """
         This function calls the appropriate function to score the model. One needs to pass a descriptor and some
         properties to it or alternatively if the compounds/descriptors and the properties are stored in the class one
@@ -599,13 +604,15 @@ class _NN(BaseEstimator):
         :type dy: either a numpy array of shape (n_samples, n_atoms, 3) or None
         :param classes: either the classes to do the NN decomposition or None
         :type classes: either a numpy array of shape (n_samples, n_atoms) or None
+        :param dg_dr: gradients of the descriptor with respect to the cartesian coordinates or None
+        :type dg_dr: numpy array of shape (n_samples, n_atoms, n_features, n_atoms, 3)
 
         :return: score
         :rtype: float
         """
-        return self._score(x, y, dy, classes)
+        return self._score(x, y, classes, dy, dgdr)
 
-    def _score(self, x, y=None, dy=None, classes=None):
+    def _score(self, x, y=None, classes=None, dy=None, dgdr=None):
         """
         This function calls the appropriate function to score the model. One needs to pass a descriptor and some
         properties to it or alternatively if the compounds/descriptors and the properties are stored in the class one
@@ -619,16 +626,18 @@ class _NN(BaseEstimator):
         :type dy: either a numpy array of shape (n_samples, n_atoms, 3) or None
         :param classes: either the classes to do the NN decomposition or None
         :type classes: either a numpy array of shape (n_samples, n_atoms) or None
+        :param dg_dr: gradients of the descriptor with respect to the cartesian coordinates or None
+        :type dg_dr: numpy array of shape (n_samples, n_atoms, n_features, n_atoms, 3)
 
         :return: score
         :rtype: float
         """
         if self.scoring_function == 'mae':
-            return self._score_mae(x, y, dy, classes)
+            return self._score_mae(x, y, classes, dy, dgdr)
         if self.scoring_function == 'rmse':
-            return self._score_rmse(x, y, dy, classes)
+            return self._score_rmse(x, y, classes, dy, dgdr)
         if self.scoring_function == 'r2':
-            return self._score_r2(x, y, dy, classes)
+            return self._score_r2(x, y, classes, dy, dgdr)
 
     def generate_compounds(self, filenames):
         """
@@ -763,7 +772,7 @@ class _NN(BaseEstimator):
             else:
                 raise InputError('Variable "gradients" expected to be array like of positive integers.')
 
-    def fit(self, x, y=None, dy=None, classes=None):
+    def fit(self, x, y=None, classes=None, dy=None, dgdr=None):
         """
         This function calls the specific fit method of the child classes.
 
@@ -771,15 +780,17 @@ class _NN(BaseEstimator):
         :type x: either a numpy array of shape (n_samples, n_features) or (n_samples, n_atoms, n_features) or a numpy array of ints
         :param y: either the properties or None
         :type y: either a numpy array of shape (n_samples,) or None
-        :param dy: either the gradients of the properties or none
-        :type dy: either a numpy array of shape (n_samples, n_atoms, 3) or None
         :param classes: either the classes to do the NN decomposition or None
         :type classes: either a numpy array of shape (n_samples, n_atoms) or None
+        :param dy: either the gradients of the properties or none
+        :type dy: either a numpy array of shape (n_samples, n_atoms, 3) or None
+        :param dg_dr: gradients of the descriptor with respect to the cartesian coordinates or None
+        :type dg_dr: numpy array of shape (n_samples, n_atoms, n_features, n_atoms, 3)
 
         :return: None
         """
 
-        return self._fit(x, y, dy, classes)
+        return self._fit(x, y, classes, dy, dgdr)
 
     def _check_slatm_values(self):
         """
@@ -976,7 +987,7 @@ class _NN(BaseEstimator):
 
         return np.asarray(zs, dtype=np.float32)
 
-    def predict(self, x, classes=None):
+    def predict(self, x, classes=None, dgdr=None):
         """
         This function calls the predict function for either ARMP or MRMP.
 
@@ -984,12 +995,14 @@ class _NN(BaseEstimator):
         :type x: numpy array of shape (n_samples, n_features) or (n_samples, n_atoms, n_features) or an array of ints
         :param classes: the classes to use for atomic decomposition
         :type classes: numpy array of shape (n_sample, n_atoms)
+        :param dg_dr: gradients of the descriptor with respect to the cartesian coordinates or None
+        :type dg_dr: numpy array of shape (n_samples, n_atoms, n_features, n_atoms, 3)
 
 
         :return: predictions of the molecular properties.
         :rtype: numpy array of shape (n_samples,)
         """
-        predictions = self._predict(x, classes)
+        predictions = self._predict(x, classes, dgdr)
 
         if predictions.ndim > 1 and predictions.shape[1] == 1:
             return predictions.ravel()
@@ -1142,7 +1155,7 @@ class MRMP(_NN):
         return x, None
 
     #TODO upgrade so that this uses tf.Dataset like the ARMP class
-    def _fit(self, x, y, dy, classes):
+    def _fit(self, x, y, classes, dy, dgdr):
         """
         This function fits a NON atomic decomposed network to the data.
 
@@ -1150,15 +1163,17 @@ class MRMP(_NN):
         :type x: either a numpy array of shape (n_samples, n_features) or a numpy array of ints
         :param y: either the properties or None
         :type y: either a numpy array of shape (n_samples,) or None
-        :param dy: None
-        :type dy: None
         :param classes: None
         :type classes: None
+        :param dy: None
+        :type dy: None
+        :param dg_dr: None
+        :type dg_dr: None
 
         :return: None
         """
 
-        x_approved, y_approved, dy_approved, classes_approved = self._check_inputs(x, y, dy, classes)
+        x_approved, y_approved, dy_approved, classes_approved = self._check_inputs(x, y, classes, dy, dgdr)
 
         # Useful quantities
         self.n_features = x_approved.shape[1]
@@ -1265,7 +1280,7 @@ class MRMP(_NN):
 
         return z
 
-    def _score_r2(self, x, y=None, dy=None, classes=None):
+    def _score_r2(self, x, y=None, classes=None, dy=None, dgdr=None):
         """
         Calculate the coefficient of determination (R^2).
         Larger values corresponds to a better prediction.
@@ -1278,18 +1293,20 @@ class MRMP(_NN):
         :type dy: None
         :param classes: None
         :type classes: None
+        :param dg_dr: None
+        :type dg_dr: None
 
         :return: R^2
         :rtype: float
         """
 
-        x_approved, y_approved, dy_approved, classes_approved = self._check_inputs(x, y, dy, classes)
+        x_approved, y_approved, dy_approved, classes_approved = self._check_inputs(x, y, classes, dy, dgdr)
 
         y_pred = self.predict(x_approved)
         r2 = r2_score(y_approved, y_pred, sample_weight = None)
         return r2
 
-    def _score_mae(self, x, y=None, dy=None, classes=None):
+    def _score_mae(self, x, y=None, classes=None, dy=None, dgdr=None):
         """
         Calculate the mean absolute error.
         Smaller values corresponds to a better prediction.
@@ -1302,20 +1319,22 @@ class MRMP(_NN):
         :type dy: None
         :param classes: None
         :type classes: None
+        :param dg_dr: None
+        :type dg_dr: None
 
         :return: Mean absolute error
         :rtype: float
 
         """
 
-        x_approved, y_approved, dy_approved, classes_approved = self._check_inputs(x, y, dy, classes)
+        x_approved, y_approved, dy_approved, classes_approved = self._check_inputs(x, y, classes, dy, dgdr)
 
         y_pred = self.predict(x_approved)
         mae = (-1.0)*mean_absolute_error(y_approved, y_pred, sample_weight = None)
         print("Warning! The mae is multiplied by -1 so that it can be minimised in Osprey!")
         return mae
 
-    def _score_rmse(self, x, y=None, dy=None, classes=None):
+    def _score_rmse(self, x, y=None, classes=None, dy=None, dgdr=None):
         """
         Calculate the root mean squared error.
         Smaller values corresponds to a better prediction.
@@ -1328,19 +1347,21 @@ class MRMP(_NN):
         :type dy: None
         :param classes: None
         :type classes: None
+        :param dg_dr: None
+        :type dg_dr: None
 
         :return: Mean absolute error
         :rtype: float
 
         """
 
-        x_approved, y_approved, dy_approved, classes_approved = self._check_inputs(x, y, dy, classes)
+        x_approved, y_approved, dy_approved, classes_approved = self._check_inputs(x, y, classes, dy, dgdr)
 
         y_pred = self.predict(x_approved)
         rmse = np.sqrt(mean_squared_error(y_approved, y_pred, sample_weight = None))
         return rmse
 
-    def _check_inputs(self, x, y, dy, classes):
+    def _check_inputs(self, x, y, classes, dy, dgdr):
         """
         This function checks whether x contains indices or data. If it contains indices, the data is extracted by the
         appropriate compound objects. Otherwise it checks what data is passed through the arguments.
@@ -1349,10 +1370,12 @@ class MRMP(_NN):
         :type x: numpy array of ints of shape (n_samples,) or floats of shape (n_samples, n_atoms, 3)
         :param y: None or energies
         :type y: None or numpy array of floats of shape (n_samples,)
-        :param dy: None or forces
-        :type dy: None or floats of shape (n_samples, n_atoms, 3)
-        :param classes: None or different NN classes available
-        :type classes: None or numpy array of ints of shape (n_samples, n_atoms)
+        :param dy: None
+        :type dy: None
+        :param classes: None
+        :type classes: None
+        :param dg_dr: None
+        :type dg_dr: None
 
         :return: the approved x, y dy and classes
         :rtype: numpy array of shape (n_samples, n_features), (n_samples, 1), None, None
@@ -1361,7 +1384,7 @@ class MRMP(_NN):
         if not is_array_like(x):
             raise InputError("x should be an array either containing indices or data.")
 
-        if not is_none(dy) and not is_none(classes):
+        if not is_none(dy) and not is_none(classes) and not is_none(dgdr):
             raise InputError("MRMP estimator cannot predict gradients and do atomic decomposition.")
 
         # Check if x is made up of indices or data
@@ -1396,7 +1419,7 @@ class MRMP(_NN):
 
         return approved_x, approved_y, approved_dy, approved_classes
 
-    def _check_predict_input(self, x, classes):
+    def _check_predict_input(self, x, classes, dgdr):
         """
         This function checks whether x contains indices or data. If it contains indices, the data is extracted by the
         appropriate compound objects. Otherwise it checks what data is passed through the arguments.
@@ -1405,6 +1428,8 @@ class MRMP(_NN):
         :type x: numpy array of ints of shape (n_samples,) or floats of shape (n_samples, n_features)
         :param classes: None
         :type classes: None
+        :param dg_dr: None
+        :type dg_dr: None
 
         :return: the approved x and classes
         :rtype: numpy array of shape (n_samples, n_features), None
@@ -1415,6 +1440,9 @@ class MRMP(_NN):
 
         if not is_none(classes):
             raise InputError("MRMP estimator cannot do atomic decomposition.")
+
+        if not is_none(dgdr):
+            raise InputError("MRMP does not need gradients of the descriptor.")
 
         # Check if x is made up of indices or data
         if is_positive_integer_or_zero_array(x):
@@ -1463,7 +1491,7 @@ class MRMP(_NN):
 
         return cost
 
-    def _predict(self, x, classes):
+    def _predict(self, x, classes, dgdr):
         """
         This function checks whether x contains indices or data. If it contains indices, the data is extracted by the
         appropriate compound objects. Otherwise it checks what data is passed through the arguments. Then, the data is
@@ -1473,12 +1501,14 @@ class MRMP(_NN):
         :type x: numpy array of ints of shape (n_samples,) or floats of shape (n_samples, n_features)
         :param classes: None
         :type classes: None
+        :param dg_dr: None
+        :type dg_dr: None
 
         :return: the predicted properties
         :rtype: numpy array of shape (n_samples,)
         """
 
-        approved_x, approved_classes = self._check_predict_input(x, classes)
+        approved_x, approved_classes = self._check_predict_input(x, classes, dgdr)
 
         if self.session == None:
             raise InputError("Model needs to be fit before predictions can be made.")
@@ -1987,7 +2017,7 @@ class ARMP(_NN):
 
         return cost_function
 
-    def _check_inputs(self, x, y, dy, classes):
+    def _check_inputs(self, x, y, classes, dy, dgdr):
         """
         This function checks that all the needed input data is available.
 
@@ -1995,10 +2025,12 @@ class ARMP(_NN):
         :type x: either a numpy array of shape (n_samples, n_atoms, n_features) or a numpy array of ints
         :param y: either the properties or None
         :type y: either a numpy array of shape (n_samples,) or None
-        :param dy: None
-        :type dy: None
         :param classes: classes to use for the atomic decomposition
         :type classes: either a numpy array of shape (n_samples, n_atoms) or None
+        :param dy: None
+        :type dy: None
+        :param dgdr: None
+        :type dgdr: None
 
         :return: the approved x, y dy and classes
         :rtype: numpy array of shape (n_samples, n_atoms, n_features), (n_samples, 1), None, (n_samples, n_atoms)
@@ -2008,6 +2040,9 @@ class ARMP(_NN):
             raise InputError("x should be an array either containing indices or data.")
 
         if not is_none(dy):
+            raise InputError("ARMP estimator cannot be used to predict gradients. Use ARMP_G estimator.")
+
+        if not is_none(dgdr):
             raise InputError("ARMP estimator cannot be used to predict gradients. Use ARMP_G estimator.")
 
         # Check if x is made up of indices or data
@@ -2048,7 +2083,7 @@ class ARMP(_NN):
 
         return approved_x, approved_y, approved_dy, approved_classes
 
-    def _check_predict_input(self, x, classes):
+    def _check_predict_input(self, x, classes, dgdr):
         """
         This function checks whether x contains indices or data. If it contains indices, the data is extracted by the
         appropriate compound objects. Otherwise it checks what data is passed through the arguments.
@@ -2057,6 +2092,8 @@ class ARMP(_NN):
         :type x: numpy array of ints of shape (n_samples,) or floats of shape (n_samples, n_atoms, n_features)
         :param classes: classes to use for the atomic decomposition or None
         :type classes: either a numpy array of shape (n_samples, n_atoms) or None
+        :param dg_dr: None
+        :type dg_dr: None
 
         :return: the approved descriptor and classes
         :rtype: numpy array of shape (n_samples, n_atoms, n_features), (n_samples, n_atoms)
@@ -2064,6 +2101,9 @@ class ARMP(_NN):
 
         if not is_array_like(x):
             raise InputError("x should be an array either containing indices or data.")
+
+        if not is_none(dgdr):
+            raise InputError("ARMP does not require gradients of the descriptor.")
 
         # Check if x is made up of indices or data
         if is_positive_integer_or_zero_array(x):
@@ -2139,7 +2179,7 @@ class ARMP(_NN):
         # Removing the dummy
         return np.trim_zeros(elements)
 
-    def _fit(self, x, y, dy, classes):
+    def _fit(self, x, y, classes, dy, dgdr):
         """
         This function fits an atomic decomposed network to the data.
 
@@ -2147,15 +2187,17 @@ class ARMP(_NN):
         :type x: either a numpy array of shape (n_samples, n_atoms, n_features) or a numpy array of ints
         :param y: either the properties or None
         :type y: either a numpy array of shape (n_samples,) or None
-        :param dy: None
-        :type dy: None
         :param classes: classes to use for the atomic decomposition or None
         :type classes: either a numpy array of shape (n_samples, n_atoms) or None
+        :param dy: None
+        :type dy: None
+        :param dg_dr: None
+        :type dg_dr: None
 
         :return: None
         """
 
-        x_approved, y_approved, dy_approved, classes_approved = self._check_inputs(x, y, dy, classes)
+        x_approved, y_approved, dy_approved, classes_approved = self._check_inputs(x, y, classes, dy, dgdr)
 
         # Obtaining the array of unique elements in all samples
         self.elements = self._find_elements(classes_approved)
@@ -2255,7 +2297,7 @@ class ARMP(_NN):
 
             self.training_cost.append(avg_cost/n_batches)
 
-    def _predict(self, x, classes):
+    def _predict(self, x, classes, dgdr):
         """
         This function checks whether x contains indices or data. If it contains indices, the data is extracted by the
         appropriate compound objects. Otherwise it checks what data is passed through the arguments. Then, the data is
@@ -2265,12 +2307,14 @@ class ARMP(_NN):
         :type x: numpy array of ints of shape (n_samples,) or of floats of shape (n_samples, n_atoms, n_features)
         :param classes: classes to use for the atomic decomposition or None
         :type classes: either a numpy array of shape (n_samples, n_atoms) or None
+        :param dg_dr: None
+        :type dg_dr: None
 
         :return: the predicted properties
         :rtype: numpy array of shape (n_samples,)
         """
 
-        approved_x, approved_classes = self._check_predict_input(x, classes)
+        approved_x, approved_classes = self._check_predict_input(x, classes, dgdr)
 
         if self.session == None:
             raise InputError("Model needs to be fit before predictions can be made.")
@@ -2285,7 +2329,7 @@ class ARMP(_NN):
 
         return y_pred
 
-    def _score_r2(self, x, y=None, dy=None, classes=None):
+    def _score_r2(self, x, y=None, classes=None, dy=None, dgdr=None):
         """
         Calculate the coefficient of determination (R^2).
         Larger values corresponds to a better prediction.
@@ -2298,18 +2342,20 @@ class ARMP(_NN):
         :type dy: None
         :param classes: either the classes or None
         :type classes: either a numpy array of shape (n_samples, n_atoms) or None
+        :param dg_dr: None
+        :type dg_dr: None
 
         :return: R^2
         :rtype: float
         """
 
-        x_approved, y_approved, dy_approved, classes_approved = self._check_inputs(x, y, dy, classes)
+        x_approved, y_approved, dy_approved, classes_approved = self._check_inputs(x, y, classes, dy, dgdr)
 
         y_pred = self.predict(x_approved, classes_approved)
         r2 = r2_score(y_approved, y_pred, sample_weight = None)
         return r2
 
-    def _score_mae(self, x, y=None, dy=None, classes=None):
+    def _score_mae(self, x, y=None, classes=None, dy=None, dgdr=None):
         """
         Calculate the mean absolute error.
         Smaller values corresponds to a better prediction.
@@ -2322,6 +2368,8 @@ class ARMP(_NN):
         :type dy: None
         :param classes: either the classes or None
         :type classes: either a numpy array of shape (n_samples, n_atoms) or None
+        :param dg_dr: None
+        :type dg_dr: None
 
         :param sample_weight: Weights of the samples. None indicates that that each sample has the same weight.
         :type sample_weight: array of shape (n_samples,)
@@ -2331,14 +2379,14 @@ class ARMP(_NN):
 
         """
 
-        x_approved, y_approved, dy_approved, classes_approved = self._check_inputs(x, y, dy, classes)
+        x_approved, y_approved, dy_approved, classes_approved = self._check_inputs(x, y, classes, dy, dgdr)
 
         y_pred = self.predict(x_approved, classes_approved)
         mae = (-1.0) * mean_absolute_error(y_approved, y_pred, sample_weight=None)
         print("Warning! The mae is multiplied by -1 so that it can be minimised in Osprey!")
         return mae
 
-    def _score_rmse(self, x, y=None, dy=None, classes=None):
+    def _score_rmse(self, x, y=None, classes=None, dy=None, dgdr=None):
         """
         Calculate the root mean squared error.
         Smaller values corresponds to a better prediction.
@@ -2351,13 +2399,15 @@ class ARMP(_NN):
         :type dy: None
         :param classes: either the classes or None
         :type classes: either a numpy array of shape (n_samples, n_atoms) or None
+        :param dg_dr: None
+        :type dg_dr: None
 
         :return: Root mean square error
         :rtype: float
 
         """
 
-        x_approved, y_approved, dy_approved, classes_approved = self._check_inputs(x, y, dy, classes)
+        x_approved, y_approved, dy_approved, classes_approved = self._check_inputs(x, y, classes, dy, dgdr)
 
         y_pred = self.predict(x_approved, classes_approved)
         rmse = np.sqrt(mean_squared_error(y_approved, y_pred, sample_weight = None))
@@ -2425,21 +2475,27 @@ class ARMP_G(ARMP, _NN):
 
         self._set_representation(representation, descriptor_params)
 
-    def _check_inputs(self, x, y, dy, classes):
+    def _check_inputs(self, x, y, classes, dy, dgdr):
         """
         This function checks that the data passed to the fit function makes sense. If X represent indices, it extracts
-        the data from the compounds or the variables self.xyz, self.properties, self.gradients and self.classes.
+        the data from the variables self.xyz, self.properties, self.gradients and self.classes. If the descriptors have
+        been generated prior to calling this function, it uses self.descriptor and self.dg_dr instead of self.xyz.
+        Otherwise the descriptors and their gradients wrt the Cartesian coordinates are generated.
 
         :param x: Indices or the cartesian coordinates
         :type x: Either 1D numpy array of ints or numpy array of floats of shape (n_samples, n_atoms, 3)
         :param y: The properties - for example the molecular energies (or None if x represents indices)
         :type y: numpy array of shape (n_samples,)
-        :param dy: Gradients of the molecular properties - for example the forces (or None if x represents indices)
-        :type dy: numpy array of shape (n_samples, n_atoms, 3)
         :param classes: The different types of atoms in the system (or None if x represents indices)
         :type classes: numpy array of shape (n_samples, n_atoms)
-        :return: The xyz, properties, gradients and classes
-        :rtype: (n_samples, n_atoms, 3), (n_samples,), (n_samples, n_atoms, 3), (n_samples, n_atoms)
+        :param dy: Gradients of the molecular properties - for example the forces (or None if x represents indices)
+        :type dy: numpy array of shape (n_samples, n_atoms, 3)
+        :param dg_dr: gradients of the descriptor with respect to the cartesian coordinates
+        :type dg_dr: numpy array of shape (n_samples, n_atoms, n_features, n_atoms, 3)
+
+        :return: The descriptor, the properties, classes, gradients, the gradients of the descriptor wrt xyz
+        :rtype: (n_samples, n_atoms, n_features), (n_samples,), (n_samples, n_atoms), (n_samples, n_atoms, 3),
+        (n_samples, n_atoms, n_features, n_atoms, 3)
         """
 
         if not is_array_like(x):
@@ -2448,19 +2504,23 @@ class ARMP_G(ARMP, _NN):
         # Check if x is made up of indices or data
         if is_positive_integer_or_zero_array(x):
 
-            if not is_none(self.compounds):
-                raise NotImplementedError("ARMP_G does not support Compounds yet. Please set xyz, y, dy and classes.")
-
             if is_none(self.descriptor):
 
                 if is_none(self.xyz) or is_none(self.classes):
-                    raise InputError("The xyz coordinates and the classes need to have been set in advance.")
+                    if not is_none(self.compounds):
+                        idx_tot = len(self.compounds)
+                        self.xyz = self._get_xyz_from_compounds(idx_tot)
+                        self.classes = self._get_classes_from_compounds(idx_tot)
+                        approved_g, approved_dgdr = self._generate_descriptors_and_dgdr(self.xyz[x], self.classes[x])
+                        approved_classes = self.classes[x]
+                    else:
+                        raise InputError("The xyz coordinates and the classes need to have been set in advance.")
                 else:
-                    approved_x, approved_dg_dr = self._generate_descriptors_and_gradients(self.xyz[x], self.classes[x])
+                    approved_g, approved_dgdr = self._generate_descriptors_and_dgdr(self.xyz[x], self.classes[x])
                     approved_classes = self.classes[x]
             else:
-                approved_x = self.descriptor[x]
-                approved_dg_dr = self.dg_dr[x]
+                approved_g = self.descriptor[x]
+                approved_dgdr = self.dg_dr[x]
                 approved_classes = self.classes[x]
 
             if is_none(self.properties):
@@ -2473,7 +2533,6 @@ class ARMP_G(ARMP, _NN):
             else:
                 approved_dy = self.gradients[x]
 
-
         else:
             if is_none(y):
                 raise InputError("y cannot be of None type.")
@@ -2481,68 +2540,75 @@ class ARMP_G(ARMP, _NN):
                 raise InputError("ARMP_G estimator requires gradients.")
             if is_none(classes):
                 raise InputError("ARMP_G estimator needs the classes to do atomic decomposition.")
+            if is_none(dgdr):
+                raise InputError("ARM_G class needs the gradients of the descriptor wrt to xyz.")
 
-            approved_xyz = check_xyz(x)
+            approved_g = check_local_descriptor(x)
             approved_y = check_y(y)
             approved_dy = check_dy(dy)
             approved_classes = check_classes(classes)
+            approved_dgdr = check_dgdr(dgdr)
 
-            approved_x, approved_dg_dr = self._generate_descriptors_and_gradients(approved_xyz, approved_classes)
+        check_sizes(approved_g, approved_y, approved_dy, approved_classes)
 
-        check_sizes(approved_x, approved_y, approved_dy, approved_classes)
+        return approved_g, approved_y, approved_classes, approved_dy, approved_dgdr
 
-        return approved_x, approved_dg_dr, approved_y, approved_dy, approved_classes
-
-    def _check_predict_input(self, x, classes):
+    def _check_predict_input(self, x, classes, dgdr):
         """
-        This function checks whether x contains indices or data. If it contains indices, the data is extracted by the
-        appropriate compound objects or self.xyz and self.classes. Otherwise it checks what data is passed through the
-        arguments.
+        This function has the same role as _check_inputs except it does not check y and dy.
 
         :param x: indices or data
         :type x: numpy array of ints of shape (n_samples,) or floats of shape (n_samples, n_atoms, n_features)
         :param classes: classes to use for the atomic decomposition or None
         :type classes: either a numpy array of shape (n_samples, n_atoms) or None
+        :param dg_dr: gradients of the descriptor with respect to the cartesian coordinates or None
+        :type dg_dr: numpy array of shape (n_samples, n_atoms, n_features, n_atoms, 3)
 
-        :return: the approved descriptor and classes
-        :rtype: numpy array of shape (n_samples, n_atoms, n_features), (n_samples, n_atoms)
+        :return: The descriptor, the gradients of the descriptor wrt xyz and classes
+        :rtype: (n_samples, n_atoms, n_features), (n_samples, n_atoms, n_features, n_atoms, 3), (n_samples, n_atoms)
         """
 
         if not is_array_like(x):
             raise InputError("x should be an array either containing indices or data.")
 
-        if not is_none(self.compounds):
-            raise NotImplementedError("ARMP_G does not support Compounds yet. Please set xyz, y, dy and classes.")
-
         # Check if x is made up of indices or data
         if is_positive_integer_or_zero_array(x):
 
             if is_none(self.descriptor):
-                if is_none(self.xyz) or is_none(self.classes):
-                    raise InputError("The xyz coordinates and the classes need to have been set in advance.")
-                else:
-                    approved_x,approved_dg_dr = self._generate_descriptors_and_gradients(self.xyz[x], self.classes[x])
-                    approved_classes = self.classes[x]
 
-                check_sizes(x=approved_x, classes=approved_classes)
+                if is_none(self.xyz) or is_none(self.classes):
+                    if not is_none(self.compounds):
+                        idx_tot = len(self.compounds)
+                        self.xyz = self._get_xyz_from_compounds(idx_tot)
+                        self.classes = self._get_classes_from_compounds(idx_tot)
+                        approved_g, approved_dgdr = self._generate_descriptors_and_dgdr(self.xyz[x], self.classes[x])
+                        approved_classes = self.classes[x]
+                    else:
+                        raise InputError("The xyz coordinates and the classes need to have been set in advance.")
+                else:
+                    approved_g,approved_dgdr = self._generate_descriptors_and_dgdr(self.xyz[x], self.classes[x])
+                    approved_classes = self.classes[x]
+                check_sizes(x=approved_g, classes=approved_classes)
 
             else:
-                approved_x = self.descriptor[x]
-                approved_dg_dr = self.dg_dr[x]
+                approved_g = self.descriptor[x]
+                approved_dgdr = self.dg_dr[x]
                 approved_classes = self.classes[x]
 
         else:
 
             if is_none(classes):
-                raise InputError("ARMP_G estimator needs the classes to do atomic decomposition.")
+                raise InputError("ARMP_G needs the classes to do atomic decomposition for predictions.")
+            if is_none(dgdr):
+                raise InputError("ARMP_G needs the descriptor gradients for predictions.")
 
-            approved_xyz = check_xyz(x)
+            approved_g = check_local_descriptor(x)
             approved_classes = check_classes(classes)
-            approved_x, approved_dg_dr = self._generate_descriptors_and_gradients(approved_xyz, approved_classes)
+            approved_dgdr = check_dgdr(dgdr)
 
-            check_sizes(x=approved_x, classes=approved_classes)
+            check_sizes(x=approved_g, classes=approved_classes)
 
-        return approved_x, approved_dg_dr, approved_classes
+        return approved_g, approved_classes, approved_dgdr
 
     def _check_score_input(self, x, y, dy):
         """
@@ -2687,8 +2753,13 @@ class ARMP_G(ARMP, _NN):
         """
 
         if is_none(xyz) and is_none(classes) and is_none(self.xyz) and is_none(self.classes):
-            raise InputError("Cartesian coordinates need to be passed in or set in advance in order to generate the "
-                             "descriptor and its gradients.")
+            if is_none(self.compounds):
+                raise InputError("Cartesian coordinates need to be passed in or set in advance in order to generate the "
+                                 "descriptor and its gradients.")
+            else:
+                idx_tot = range(len(self.compounds))
+                self.xyz = self._get_xyz_from_compounds(idx_tot)
+                self.classes = self._get_classes_from_compounds(idx_tot)
         elif not is_none(xyz) and not is_none(classes) and not is_none(self.xyz) and not is_none(self.classes):
             raise InputError("Cartesian coordinates have already been set!")
         elif not is_none(xyz) and not is_none(classes) and is_none(self.xyz) and is_none(self.classes):
@@ -2697,9 +2768,9 @@ class ARMP_G(ARMP, _NN):
         if not is_none(self.descriptor):
             raise InputError("The descriptors have already been set!")
 
-        self.descriptor, self.dg_dr = self._generate_descriptors_and_gradients()
+        self.descriptor, self.dg_dr = self._generate_descriptors_and_dgdr(self.xyz, self.classes)
 
-    def save_descriptors_and_gradients(self, filename="descrpt_and_grad.hdf5"):
+    def save_descriptors_and_dgdr(self, filename="descrpt_and_grad.hdf5"):
         """
         This function stores the descriptors and their gradients wrt the cartesian coordinates that have been generated
         for later re-use.
@@ -2722,7 +2793,7 @@ class ARMP_G(ARMP, _NN):
 
         f.close()
 
-    def load_descriptors_and_gradients(self, filename="descrpt_and_grad.hdf5"):
+    def load_descriptors_and_dgdr(self, filename="descrpt_and_grad.hdf5"):
 
         try:
             import h5py
@@ -2736,13 +2807,30 @@ class ARMP_G(ARMP, _NN):
 
         f.close()
 
-    def _generate_descriptors_and_gradients(self):
+    def set_dgdr(self, dgdr):
+        """
+        This function sets the gradients of the descriptor with respect to the cartesian coordinates.
+
+        :param dgdr: Derivative of the descriptor with respect to the cartesian coordinates
+        :type dgdr: numpy array of shape (n_samples, n_atoms, n_features, n_atoms, 3)
+        :return: None
+        """
+
+        if not is_none(self.dg_dr):
+            raise InputError("The gradients of the descriptors wrt to xyz have already been set!")
+
+        if is_none(dgdr):
+            raise InputError("The gradients of the descriptors wrt to xyz cannot be set to none.")
+        else:
+            self.dg_dr = check_dgdr(dgdr)
+
+    def _generate_descriptors_and_dgdr(self, xyz, classes):
         """
         This function takes in the coordinates and the classes and returns the descriptor and its derivative with
         respect to the cartesian coordinates.
 
         :return: the descriptors and their gradients wrt to the cartesian coordinates
-        :rtype: numpy arrays of shape (n_samples, n_atoms, n_features) and (n_samples, n_atoms, 3)
+        :rtype: numpy arrays of shape (n_samples, n_atoms, n_features) and (n_samples, n_atoms, n_features, n_atoms, 3)
         """
         if is_none(self.element_pairs) and is_none(self.elements):
             self.elements, self.element_pairs = self._get_elements_and_pairs(self.classes)
@@ -2750,8 +2838,8 @@ class ARMP_G(ARMP, _NN):
                               self.element_pairs.shape[0] * self.acsf_parameters['angular_rs'].shape[0] * \
                               self.acsf_parameters['theta_s'].shape[0]
 
-        n_samples = self.xyz.shape[0]
-        n_atoms = self.xyz.shape[1]
+        n_samples = xyz.shape[0]
+        n_atoms = xyz.shape[1]
 
         # NOTE: Resets graph, so make sure model is created afterwards
         # tf.reset_default_graph()
@@ -2782,7 +2870,7 @@ class ARMP_G(ARMP, _NN):
 
         sess = tf.Session()
         sess.run(tf.global_variables_initializer())
-        sess.run(iterator.make_initializer(dataset), feed_dict={xyz_tf: self.xyz, zs_tf: self.classes})
+        sess.run(iterator.make_initializer(dataset), feed_dict={xyz_tf: xyz, zs_tf: classes})
 
         # Do representations and gradients one by one
         gradients_slices = []
@@ -2838,7 +2926,7 @@ class ARMP_G(ARMP, _NN):
 
         return forces
 
-    def _fit(self, xyz, y, dy, classes):
+    def _fit(self, x, y, classes, dy, dgdr):
         """
         This function fits the weights of the neural networks to the properties and their gradient.
 
@@ -2850,13 +2938,15 @@ class ARMP_G(ARMP, _NN):
         :type dy: numpy array of shape (n_samples, n_atoms, 3)
         :param classes: type of the atoms in the system
         :type classes: numpy array of shape (n_samples, n_atoms)
+        :param dg_dr: gradients of the descriptor with respect to the cartesian coordinates
+        :type dg_dr: numpy array of shape (n_samples, n_atoms, n_features, n_atoms, 3)
         :return: None
         """
 
-        g_approved, dg_dr_approved, y_approved, dy_approved, classes_approved = self._check_inputs(xyz, y, dy, classes)
+        g_approved, y_approved, classes_approved, dy_approved, dg_dr_approved = self._check_inputs(x, y, classes, dy, dgdr)
 
         if is_none(self.element_pairs) and is_none(self.elements):
-            self.elements, self.element_pairs = self._get_elements_and_pairs(self.classes)
+            self.elements, self.element_pairs = self._get_elements_and_pairs(classes_approved)
             self.n_features = self.elements.shape[0] * self.acsf_parameters['radial_rs'].shape[0] + \
                               self.element_pairs.shape[0] * self.acsf_parameters['angular_rs'].shape[0] * \
                               self.acsf_parameters['theta_s'].shape[0]
@@ -2879,7 +2969,7 @@ class ARMP_G(ARMP, _NN):
             true_forces = tf.placeholder(shape=[self.n_samples, max_n_atoms, 3], dtype=tf.float32)
 
             dataset = tf.data.Dataset.from_tensor_slices((g_tf, dg_dr_tf, true_ene, true_forces, zs_tf))
-            dataset = dataset.batch(self.batch_size)
+            dataset = dataset.batch(batch_size)
             iterator = tf.data.Iterator.from_structure(dataset.output_types, dataset.output_shapes)
             batch_g, batch_dg_dr, batch_y, batch_dy, batch_zs = iterator.get_next()
 
@@ -2937,7 +3027,7 @@ class ARMP_G(ARMP, _NN):
                 if i % self.tensorboard_logger_training.store_frequency == 0:
                     self.tensorboard_logger_training.write_summary(self.session, i)
 
-    def predict(self, x, classes=None):
+    def predict(self, x, classes=None, dgdr=None):
         """
         This function overwrites the parent predict, because it needs to return not only the properties but also the
         gradients.
@@ -2946,18 +3036,20 @@ class ARMP_G(ARMP, _NN):
         :type x: numpy array of shape (n_samples, n_features) or (n_samples, n_atoms, n_features) or an array of ints
         :param classes: the classes to use for atomic decomposition
         :type classes: numpy array of shape (n_sample, n_atoms)
+        :param dg_dr: gradients of the descriptor with respect to the cartesian coordinates
+        :type dg_dr: numpy array of shape (n_samples, n_atoms, n_features, n_atoms, 3)
 
         :return: predictions of the molecular properties and their gradients.
         :rtype: numpy array of shape (n_samples,) and (n_samples, n_atoms, 3)
         """
-        prop_predictions, grad_predictions = self._predict(x, classes)
+        prop_predictions, grad_predictions = self._predict(x, classes, dgdr)
 
         if prop_predictions.ndim > 1 and prop_predictions.shape[1] == 1:
             prop_predictions = prop_predictions.ravel()
 
         return prop_predictions, grad_predictions
 
-    def _predict(self, xyz, classes):
+    def _predict(self, x, classes, dgdr):
         """
         This function predicts the properties and their gradient starting from the cartesian coordinates and the atom
         types.
@@ -2966,11 +3058,14 @@ class ARMP_G(ARMP, _NN):
         :type xyz: numpy array of shape (n_samples, n_atoms, 3)
         :param classes: the different atom types present in the system
         :type classes: numpy array of shape (n_samples, n_atoms)
+        :param dg_dr: gradients of the descriptor with respect to the cartesian coordinates
+        :type dg_dr: numpy array of shape (n_samples, n_atoms, n_features, n_atoms, 3)
+
         :return: predicted properties and their gradients
         :rtype: numpy arrays of shape (n_samples,) and (n_samples, n_atoms, 3)
         """
 
-        g_approved, dg_dr_approved, classes_approved = self._check_predict_input(xyz, classes)
+        g_approved, classes_approved, dg_dr_approved = self._check_predict_input(x, classes, dgdr)
 
         if self.session == None:
             raise InputError("Model needs to be fit before predictions can be made.")
@@ -2987,7 +3082,7 @@ class ARMP_G(ARMP, _NN):
 
         return y_pred, dy_pred
 
-    def _score_r2(self, x, y=None, dy=None, classes=None):
+    def _score_r2(self, x, y=None, classes=None, dy=None, dgdr=None):
         """
         Calculate the coefficient of determination (R^2).
         Larger values corresponds to a better prediction.
@@ -3000,6 +3095,8 @@ class ARMP_G(ARMP, _NN):
         :type dy: either a numpy array of shape (n_samples, n_atoms, 3)
         :param classes: either the classes or None
         :type classes: either a numpy array of shape (n_samples, n_atoms) or None
+        :param dg_dr: gradients of the descriptor with respect to the cartesian coordinates
+        :type dg_dr: numpy array of shape (n_samples, n_atoms, n_features, n_atoms, 3)
 
         :return: average R^2 of the properties and the gradient
         :rtype: float
@@ -3007,7 +3104,7 @@ class ARMP_G(ARMP, _NN):
 
         y_approved, dy_approved = self._check_score_input(x, y, dy)
 
-        y_pred, dy_pred = self.predict(x, classes)
+        y_pred, dy_pred = self.predict(x, classes, dgdr)
 
         y_r2 = r2_score(y_approved, y_pred, sample_weight = None)
         dy_approved = np.reshape(dy_approved, (dy_approved.shape[0], dy_approved.shape[1]*dy_approved.shape[2]))
@@ -3016,7 +3113,7 @@ class ARMP_G(ARMP, _NN):
         r2 = (y_r2 + dy_r2)*0.5
         return r2
 
-    def _score_mae(self, x, y=None, dy=None, classes=None):
+    def _score_mae(self, x, y=None, classes=None, dy=None, dgdr=None):
         """
         Calculate the mean absolute error.
         Smaller values corresponds to a better prediction.
@@ -3029,6 +3126,8 @@ class ARMP_G(ARMP, _NN):
         :type dy: either a numpy array of shape (n_samples, n_atoms, 3)
         :param classes: either the classes or None
         :type classes: either a numpy array of shape (n_samples, n_atoms) or None
+        :param dg_dr: gradients of the descriptor with respect to the cartesian coordinates
+        :type dg_dr: numpy array of shape (n_samples, n_atoms, n_features, n_atoms, 3)
 
         :param sample_weight: Weights of the samples. None indicates that that each sample has the same weight.
         :type sample_weight: array of shape (n_samples,)
@@ -3039,7 +3138,7 @@ class ARMP_G(ARMP, _NN):
 
         y_approved, dy_approved = self._check_score_input(x, y, dy)
 
-        y_pred, dy_pred = self.predict(x, classes)
+        y_pred, dy_pred = self.predict(x, classes, dgdr)
 
         dy_approved = np.reshape(dy_approved, (dy_approved.shape[0], dy_approved.shape[1] * dy_approved.shape[2]))
         dy_pred = np.reshape(dy_pred, (dy_pred.shape[0], dy_pred.shape[1] * dy_pred.shape[2]))
@@ -3049,7 +3148,7 @@ class ARMP_G(ARMP, _NN):
         print("Warning! The mae is multiplied by -1 so that it can be minimised in Osprey!")
         return mae
 
-    def _score_rmse(self, x, y=None, dy=None, classes=None):
+    def _score_rmse(self, x, y=None, classes=None, dy=None, dgdr=None):
         """
         Calculate the root mean squared error.
         Smaller values corresponds to a better prediction.
@@ -3062,6 +3161,8 @@ class ARMP_G(ARMP, _NN):
         :type dy: either a numpy array of shape (n_samples, n_atoms, 3)
         :param classes: either the classes or None
         :type classes: either a numpy array of shape (n_samples, n_atoms) or None
+        :param dg_dr: gradients of the descriptor with respect to the cartesian coordinates
+        :type dg_dr: numpy array of shape (n_samples, n_atoms, n_features, n_atoms, 3)
 
         :return: Average root mean square error of the properties and the gradient
         :rtype: float
@@ -3069,7 +3170,7 @@ class ARMP_G(ARMP, _NN):
 
         y_approved, dy_approved = self._check_score_input(x, y, dy)
 
-        y_pred, dy_pred = self.predict(x, classes)
+        y_pred, dy_pred = self.predict(x, classes, dgdr)
         dy_approved = np.reshape(dy_approved, (dy_approved.shape[0], dy_approved.shape[1] * dy_approved.shape[2]))
         dy_pred = np.reshape(dy_pred, (dy_pred.shape[0], dy_pred.shape[1] * dy_pred.shape[2]))
         y_rmse = np.sqrt(mean_squared_error(y_approved, y_pred, sample_weight = None))

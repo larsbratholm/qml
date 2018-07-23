@@ -12,8 +12,8 @@ import os
 ## ------------- ** Loading the data ** ---------------
 
 current_dir = os.path.dirname(os.path.realpath(__file__))
-filenames = glob.glob(current_dir + '/../test/CN_isobutane/*.xyz')
-energies = np.loadtxt(current_dir + '/../test/CN_isobutane/prop_kjmol_training.txt', usecols=[1])
+filenames = glob.glob(current_dir + '/../test/CN_isopentane/*.xyz')
+energies = np.loadtxt(current_dir + '/../test/CN_isopentane/prop_kjmol_training.txt', usecols=[1])
 filenames.sort()
 
 ## ------------- ** Setting up the estimator ** ---------------

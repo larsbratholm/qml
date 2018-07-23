@@ -24,11 +24,11 @@
 This test checks if all the ways of setting up the estimator ARMP work.
 """
 
-
 import numpy as np
-from qml.aglaia.aglaia import ARMP
+from qml.aglaia.aglaia import ARMP_G
 from qml.aglaia.utils import InputError
 import glob
+from qml.aglaia.utils import is_array_like
 import os
 
 def test_set_representation():
@@ -36,30 +36,35 @@ def test_set_representation():
     This function tests the function _set_representation.
     """
     try:
-        ARMP(representation='slatm', descriptor_params={'slatm_sigma12': 0.05})
+        ARMP_G(representation='acsf', descriptor_params={'slatm_sigma12': 0.05})
         raise Exception
     except InputError:
         pass
 
     try:
-        ARMP(representation='coulomb_matrix')
+        ARMP_G(representation='coulomb_matrix')
         raise Exception
     except InputError:
         pass
 
     try:
-        ARMP(representation='slatm', descriptor_params={'slatm_alchemy': 0.05})
+        ARMP_G(representation='slatm')
         raise Exception
     except InputError:
         pass
 
-    parameters = {'slatm_sigma1': 0.07, 'slatm_sigma2': 0.04, 'slatm_dgrid1': 0.02, 'slatm_dgrid2': 0.06,
-                  'slatm_rcut': 5.0, 'slatm_rpower': 7, 'slatm_alchemy': True}
+    parameters = {'radial_cutoff': 8.0, 'angular_cutoff': 8.0, 'radial_rs': [0.0, 0.4, 0.2],
+                                'angular_rs': [0.0, 0.1, 0.3], 'theta_s': [3.0, 1.0], 'zeta': 4.0, 'eta': 5.0}
 
-    estimator = ARMP(representation='slatm', descriptor_params=parameters)
+    estimator = ARMP_G(representation='acsf', descriptor_params=parameters)
 
-    assert estimator.representation == 'slatm'
-    assert estimator.slatm_parameters == parameters
+    assert estimator.representation == 'acsf'
+
+    for key, value in estimator.acsf_parameters.items():
+        if is_array_like(value):
+            assert np.all(estimator.acsf_parameters[key] == parameters[key])
+        else:
+            assert estimator.acsf_parameters[key] == parameters[key]
 
 def test_set_properties():
     """
@@ -71,7 +76,7 @@ def test_set_properties():
     energies = np.loadtxt(test_dir + '/CN_isopentane/prop_kjmol_training.txt',
                           usecols=[1])
 
-    estimator = ARMP(representation='slatm')
+    estimator = ARMP_G()
 
     assert estimator.properties == None
 
@@ -79,7 +84,7 @@ def test_set_properties():
 
     assert np.all(estimator.properties == energies)
 
-def test_set_descriptor():
+def test_set_descriptor_and_dgdr():
     """
     This test checks that the set_descriptor function works as expected.
     :return:
@@ -88,11 +93,14 @@ def test_set_descriptor():
 
     data_incorrect = np.load(test_dir + "/data/CN_isopent_light_UCM.npz")
     data_correct = np.load(test_dir + "/data/local_slatm_ch4cn_light.npz")
-    descriptor_correct = data_correct["arr_0"]
-    descriptor_incorrect = data_incorrect["arr_0"]
+    descriptor_correct = np.asarray(data_correct["arr_0"])
+    descriptor_incorrect = np.asarray(data_incorrect["arr_0"])
+
+    dgdr_correct = np.ones((3, 4, 5, 4, 3))
+    dgdr_incorrect = np.ones((3, 1, 2, 3, 4))
 
 
-    estimator = ARMP()
+    estimator = ARMP_G()
 
     assert estimator.descriptor == None
 
@@ -100,9 +108,22 @@ def test_set_descriptor():
 
     assert np.all(estimator.descriptor == descriptor_correct)
 
+    assert estimator.dg_dr == None
+
+    estimator.set_dgdr(dgdr_correct)
+
+    assert np.all(estimator.dg_dr == dgdr_correct)
+
     # Pass a descriptor with the wrong shape
     try:
         estimator.set_descriptors(descriptors=descriptor_incorrect)
+        raise Exception
+    except InputError:
+        pass
+
+    # Pass a dgdr with the wrong shape
+    try:
+        estimator.set_dgdr(dgdr_incorrect)
         raise Exception
     except InputError:
         pass
@@ -117,14 +138,17 @@ def test_fit_1():
     filenames = glob.glob(test_dir + "/CN_isopentane/*.xyz")
     energies = np.loadtxt(test_dir + '/CN_isopentane/prop_kjmol_training.txt',
                           usecols=[1])
+    data = np.load(test_dir + "/data/CN_isopentane_forces.npz")
     filenames.sort()
+    forces =  data["arr_3"][:2]
 
-    estimator = ARMP(representation="acsf")
-    estimator.generate_compounds(filenames[:50])
-    estimator.set_properties(energies[:50])
+    estimator = ARMP_G(representation="acsf")
+    estimator.generate_compounds(filenames[:2])
+    estimator.set_properties(energies[:2])
+    estimator.set_gradients(forces)
     estimator.generate_descriptors()
 
-    idx = np.arange(0, 50)
+    idx = np.arange(0, 2)
     estimator.fit(idx)
 
 def test_fit_2():
@@ -134,17 +158,21 @@ def test_fit_2():
     """
     test_dir = os.path.dirname(os.path.realpath(__file__))
 
-    data = np.load(test_dir + "/data/local_slatm_ch4cn_light.npz")
+    data = np.load(test_dir + "/data/local_acsf_light.npz")
     descriptor = data["arr_0"]
-    classes = data["arr_1"]
+    dg_dr = data["arr_1"]
     energies = data["arr_2"]
+    forces = data["arr_3"]
+    classes = data["arr_4"]
 
-    estimator = ARMP()
+    estimator = ARMP_G()
     estimator.set_descriptors(descriptors=descriptor)
+    estimator.set_dgdr(dg_dr)
     estimator.set_classes(classes=classes)
     estimator.set_properties(energies)
+    estimator.set_gradients(forces)
 
-    idx = np.arange(0, 100)
+    idx = np.arange(0, 2)
     estimator.fit(idx)
 
 def test_fit_3():
@@ -153,13 +181,15 @@ def test_fit_3():
     """
     test_dir = os.path.dirname(os.path.realpath(__file__))
 
-    data = np.load(test_dir + "/data/local_slatm_ch4cn_light.npz")
+    data = np.load(test_dir + "/data/local_acsf_light.npz")
     descriptor = data["arr_0"]
-    classes = data["arr_1"]
+    dg_dr = data["arr_1"]
     energies = data["arr_2"]
+    forces = data["arr_3"]
+    classes = data["arr_4"]
 
-    estimator = ARMP()
-    estimator.fit(x=descriptor, y=energies, classes=classes)
+    estimator = ARMP_G()
+    estimator.fit(x=descriptor, y=energies, classes=classes, dy=forces, dgdr=dg_dr)
 
 def test_score_3():
     """
@@ -167,41 +197,46 @@ def test_score_3():
     """
     test_dir = os.path.dirname(os.path.realpath(__file__))
 
-    data = np.load(test_dir + "/data/local_slatm_ch4cn_light.npz")
+    data = np.load(test_dir + "/data/local_acsf_light.npz")
     descriptor = data["arr_0"]
-    classes = data["arr_1"]
+    dg_dr = data["arr_1"]
     energies = data["arr_2"]
+    forces = data["arr_3"]
+    classes = data["arr_4"]
 
-    estimator_1 = ARMP(scoring_function='mae')
-    estimator_1.fit(x=descriptor, y=energies, classes=classes)
-    estimator_1.score(x=descriptor, y=energies, classes=classes)
+    estimator_1 = ARMP_G(scoring_function='mae')
+    estimator_1.fit(x=descriptor, y=energies, classes=classes, dy=forces, dgdr=dg_dr)
+    estimator_1.score(x=descriptor, y=energies, classes=classes, dy=forces, dgdr=dg_dr)
 
-    estimator_2 = ARMP(scoring_function='r2')
-    estimator_2.fit(x=descriptor, y=energies, classes=classes)
-    estimator_2.score(x=descriptor, y=energies, classes=classes)
+    estimator_2 = ARMP_G(scoring_function='r2')
+    estimator_2.fit(x=descriptor, y=energies, classes=classes, dy=forces, dgdr=dg_dr)
+    estimator_2.score(x=descriptor, y=energies, classes=classes, dy=forces, dgdr=dg_dr)
 
-    estimator_3 = ARMP(scoring_function='rmse')
-    estimator_3.fit(x=descriptor, y=energies, classes=classes)
-    estimator_3.score(x=descriptor, y=energies, classes=classes)
+    estimator_3 = ARMP_G(scoring_function='rmse')
+    estimator_3.fit(x=descriptor, y=energies, classes=classes, dy=forces, dgdr=dg_dr)
+    estimator_3.score(x=descriptor, y=energies, classes=classes, dy=forces, dgdr=dg_dr)
 
 def test_predict_3():
     test_dir = os.path.dirname(os.path.realpath(__file__))
 
-    data = np.load(test_dir + "/data/local_slatm_ch4cn_light.npz")
+    data = np.load(test_dir + "/data/local_acsf_light.npz")
     descriptor = data["arr_0"]
-    classes = data["arr_1"]
+    dg_dr = data["arr_1"]
     energies = data["arr_2"]
+    forces = data["arr_3"]
+    classes = data["arr_4"]
 
-    estimator = ARMP()
-    estimator.fit(x=descriptor, y=energies, classes=classes)
-    energies_pred = estimator.predict(x=descriptor, classes=classes)
+    estimator = ARMP_G()
+    estimator.fit(x=descriptor, y=energies, classes=classes, dy=forces, dgdr=dg_dr)
+    energies_pred, dy_pred = estimator.predict(x=descriptor, classes=classes, dgdr=dg_dr)
 
     assert energies.shape == energies_pred.shape
+    assert forces.shape == dy_pred.shape
 
 if __name__ == "__main__":
     test_set_representation()
     test_set_properties()
-    test_set_descriptor()
+    test_set_descriptor_and_dgdr()
     test_fit_1()
     test_fit_2()
     test_fit_3()
