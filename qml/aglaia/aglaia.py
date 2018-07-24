@@ -2743,16 +2743,13 @@ class ARMP_G(ARMP, _NN):
 
     def generate_descriptors(self, xyz=None, classes=None):
         """
-        This function takes in the coordinates and the classes and makes the descriptor and its derivative with
+        This function takes the coordinates and the classes and makes the descriptor and its derivative with
         respect to the cartesian coordinates.
 
-        :param xyz: cartesian coordinates
-        :type xyz: numpy array of shape (n_samples, n_atoms, 3)
-        :param classes: the different types of atoms present
-        :type classes: numpy array of shape (n_samples, n_atoms)
+        The parameters here are present just so that the function matches the signature of the parent class.
         """
 
-        if is_none(xyz) and is_none(classes) and is_none(self.xyz) and is_none(self.classes):
+        if is_none(self.xyz) and is_none(self.classes):
             if is_none(self.compounds):
                 raise InputError("Cartesian coordinates need to be passed in or set in advance in order to generate the "
                                  "descriptor and its gradients.")
@@ -2760,10 +2757,6 @@ class ARMP_G(ARMP, _NN):
                 idx_tot = range(len(self.compounds))
                 self.xyz = self._get_xyz_from_compounds(idx_tot)
                 self.classes = self._get_classes_from_compounds(idx_tot)
-        elif not is_none(xyz) and not is_none(classes) and not is_none(self.xyz) and not is_none(self.classes):
-            raise InputError("Cartesian coordinates have already been set!")
-        elif not is_none(xyz) and not is_none(classes) and is_none(self.xyz) and is_none(self.classes):
-            self.xyz, self.classes = self._check_predict_input(xyz, classes)
 
         if not is_none(self.descriptor):
             raise InputError("The descriptors have already been set!")
@@ -3145,7 +3138,7 @@ class ARMP_G(ARMP, _NN):
 
         element_weights, element_biases = self._load_weights()
 
-        with tf.name_scope("Inputs"):
+        with tf.name_scope("Inputs_xyz"):
             zs_tf = tf.placeholder(shape=[n_samples, n_atoms], dtype=tf.int32, name="zs")
             xyz_tf = tf.placeholder(shape=[n_samples, n_atoms, 3], dtype=tf.float32, name="xyz")
 
