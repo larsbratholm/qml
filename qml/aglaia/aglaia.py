@@ -2841,7 +2841,7 @@ class ARMP_G(ARMP, _NN):
             self.tensorboard_logger_descriptor.initialise()
 
         # since it has to be 1
-        with tf.name_scope("Inputs"):
+        with tf.name_scope("Inputs_G"):
             zs_tf = tf.placeholder(shape=[n_samples, n_atoms], dtype=tf.int32, name="zs")
             xyz_tf = tf.placeholder(shape=[n_samples, n_atoms, 3], dtype=tf.float32, name="xyz")
 
@@ -2849,7 +2849,9 @@ class ARMP_G(ARMP, _NN):
             iterator = tf.data.Iterator.from_structure(dataset.output_types, dataset.output_shapes)
             batch_xyz, batch_zs = iterator.get_next()
 
-        representation = generate_parkhill_acsf_single(xyzs=batch_xyz, Zs=batch_zs, elements=self.elements,
+        with tf.name_scope("Descriptor"):
+
+            representation = generate_parkhill_acsf_single(xyzs=batch_xyz, Zs=batch_zs, elements=self.elements,
                                                        element_pairs=self.element_pairs,
                                                        radial_cutoff=self.acsf_parameters['radial_cutoff'],
                                                        angular_cutoff=self.acsf_parameters['angular_cutoff'],
@@ -2859,7 +2861,7 @@ class ARMP_G(ARMP, _NN):
                                                        eta=self.acsf_parameters['eta'],
                                                        zeta=self.acsf_parameters['zeta'])
 
-        jacobian = partial_derivatives(representation, batch_xyz)
+            jacobian = partial_derivatives(representation, batch_xyz)
 
         sess = tf.Session()
         sess.run(tf.global_variables_initializer())
@@ -3021,50 +3023,8 @@ class ARMP_G(ARMP, _NN):
                 if i % self.tensorboard_logger_training.store_frequency == 0:
                     self.tensorboard_logger_training.write_summary(self.session, i)
 
-        self._save_weights(element_weights, element_biases, self.session)
-
-    def _save_weights(self, element_weights, element_biases, sess):
-        """
-        This function is used to save the weights once the model has been trained, so that they can be reused within
-        the same script.
-
-        :param element_weights: dictionary of tf.tensors
-        :param element_biases: dictionary of tf.tensors
-        :param sess: the session where the model was trained
-        :return: None
-        """
-
-        self.all_weights = {}
-        self.all_biases = {}
-
-        for key in self.elements:
-            w = []
-            b = []
-            for ii in range(len(element_weights[key])):
-                w.append(sess.run(element_weights[key][ii]))
-                b.append(sess.run(element_biases[key][ii]))
-            self.all_weights[key] = w
-            self.all_biases[key] = b
-
-    def _load_weights(self):
-        """
-        This function is used to reload the weights that have been fit to some data
-        :return: two dictionaries of tensors.
-        """
-
-        all_weights = {}
-        all_biases = {}
-
-        for key in self.elements:
-            w = []
-            b = []
-            for ii in range(len(self.all_weights[key])):
-                w.append(tf.constant(self.all_weights[key][ii]))
-                b.append(tf.constant(self.all_biases[key][ii]))
-            all_weights[key] = w
-            all_biases[key] = b
-
-        return all_weights, all_biases
+        # This is called so that predictions can be made from xyz as well as from the descriptor
+        self._build_model_from_xyz(max_n_atoms, element_weights, element_biases)
 
     def predict(self, x, classes=None, dgdr=None):
         """
@@ -3123,6 +3083,31 @@ class ARMP_G(ARMP, _NN):
 
     def predict_from_xyz(self, xyz, classes):
         """
+        This function takes in the cartesian coordinates and the atom types and returns energies and forces.
+        :param xyz: cartesian coordinates
+        :type xyz: numpy array of shape (n_samples, n_atoms, 3)
+        :param classes: atom types
+        :type classes: numpy array of shape (n_samples, n_atoms)
+        :return: energies and forces
+        :rtype: numpy array of shape  (n_samples,) and (n_samples, n_atoms, 3)
+        """
+
+        if self.session == None:
+            raise InputError("Model needs to be fit before predictions can be made.")
+
+        graph = tf.get_default_graph()
+
+        with graph.as_default():
+            xyz_tf = graph.get_tensor_by_name("Inputs_pred/xyz:0")
+            classes_tf = graph.get_tensor_by_name("Inputs_pred/Classes:0")
+            ene_nn = graph.get_tensor_by_name("Model_pred/output:0")
+            forces_nn = graph.get_tensor_by_name("Model_pred/Forces_nn:0")
+            y_pred, dy_pred = self.session.run([ene_nn, forces_nn], feed_dict={xyz_tf: xyz, classes_tf: classes})
+
+        return y_pred, dy_pred
+
+    def _build_model_from_xyz(self, n_atoms, element_weights, element_biases):
+        """
         This function can be used to predict energies and forces straight from xyz data.
         :param xyz: Cartesian coordinates
         :type xyz: numpy array of shape (n_samples, n_atoms, 3)
@@ -3133,21 +3118,23 @@ class ARMP_G(ARMP, _NN):
         :rtype: numpy arrays of shape (n_samples,) and (n_samples, n_atoms, 3)
         """
 
-        n_samples = xyz.shape[0]
-        n_atoms = xyz.shape[1]
+        # element_weights, element_biases = self._load_weights()
 
-        element_weights, element_biases = self._load_weights()
-
-        with tf.name_scope("Inputs_xyz"):
-            zs_tf = tf.placeholder(shape=[n_samples, n_atoms], dtype=tf.int32, name="zs")
-            xyz_tf = tf.placeholder(shape=[n_samples, n_atoms, 3], dtype=tf.float32, name="xyz")
+        with tf.name_scope("Inputs_pred"):
+            zs_tf = tf.placeholder(shape=[self.n_samples, n_atoms], dtype=tf.int32)
+            xyz_tf = tf.placeholder(shape=[self.n_samples, n_atoms, 3], dtype=tf.float32)
 
             dataset = tf.data.Dataset.from_tensor_slices((xyz_tf, zs_tf))
             dataset = dataset.batch(2)
             iterator = tf.data.Iterator.from_structure(dataset.output_types, dataset.output_shapes)
             batch_xyz, batch_zs = iterator.get_next()
 
-        batch_representation = generate_parkhill_acsf(xyzs=batch_xyz, Zs=batch_zs, elements=self.elements,
+            batch_xyz = tf.identity(batch_xyz, name="xyz")
+            batch_zs = tf.identity(batch_zs, name="Classes")
+
+        with tf.name_scope("Descriptor_pred"):
+
+            batch_representation = generate_parkhill_acsf(xyzs=batch_xyz, Zs=batch_zs, elements=self.elements,
                                                        element_pairs=self.element_pairs,
                                                        radial_cutoff=self.acsf_parameters['radial_cutoff'],
                                                        angular_cutoff=self.acsf_parameters['angular_cutoff'],
@@ -3157,28 +3144,10 @@ class ARMP_G(ARMP, _NN):
                                                        eta=self.acsf_parameters['eta'],
                                                        zeta=self.acsf_parameters['zeta'])
 
-        with tf.name_scope("Model"):
+        with tf.name_scope("Model_pred"):
             batch_energies_nn = self._model(batch_representation, batch_zs, element_weights, element_biases)
             batch_forces_nn = - tf.gradients(batch_energies_nn, batch_xyz)[0]
-
-        energies_nn = []
-        forces_nn = []
-
-        self.session.run(tf.global_variables_initializer())
-        self.session.run(iterator.make_initializer(dataset), feed_dict={xyz_tf:xyz, zs_tf:classes})
-
-        while True:
-            try:
-                batch_ene_np, batch_forces_np = self.session.run([batch_energies_nn, batch_forces_nn])
-                energies_nn.append(batch_ene_np)
-                forces_nn.append(batch_forces_np)
-            except tf.errors.OutOfRangeError:
-                break
-
-        energies_nn = np.concatenate(energies_nn, axis=0)
-        forces_nn = np.concatenate(forces_nn, axis=0)
-
-        return energies_nn, forces_nn
+            batch_forces_nn = tf.identity(batch_forces_nn, name="Forces_nn")
 
     def _score_r2(self, x, y=None, classes=None, dy=None, dgdr=None):
         """
@@ -3275,6 +3244,49 @@ class ARMP_G(ARMP, _NN):
         dy_rmse = np.sqrt(mean_squared_error(dy_approved, dy_pred, sample_weight=None))
         rmse = 0.5*y_rmse + 0.5*dy_rmse
         return rmse
+
+    def save_model(self, save_dir="saved_model"):
+        """
+        This function saves the trained model to be used for later prediction.
+
+        :param save_dir: directory in which to save the model
+        :type save_dir: string
+        :return: None
+        """
+
+        if self.session == None:
+            raise InputError("Model needs to be fit before predictions can be made.")
+
+        graph = tf.get_default_graph()
+
+        with graph.as_default():
+            g = graph.get_tensor_by_name("Data/Descriptors:0")
+            dg_dr = graph.get_tensor_by_name("Data/dG_dr:0")
+            zs = graph.get_tensor_by_name("Data/Classes:0")
+            model = graph.get_tensor_by_name("Model/output:0")
+
+            xyz = graph.get_tensor_by_name("Inputs_pred/xyz:0")
+            classes = graph.get_tensor_by_name("Inputs_pred/Classes:0")
+            ene_nn = graph.get_tensor_by_name("Model_pred/output:0")
+            forces_nn = graph.get_tensor_by_name("Model_pred/Forces_nn:0")
+
+        tf.saved_model.simple_save(self.session, export_dir=save_dir,
+                                   inputs={"Data/Descriptors:0": g, "Data/dG_dr:0": dg_dr, "Data/Classes:0":zs,
+                                           "Inputs_pred/xyz:0": xyz, "Inputs_pred/Classes:0": classes},
+                                   outputs={"Model/output:0": model, "Model_pred/output:0": ene_nn,
+                                            "Model_pred/Forces_nn:0":forces_nn})
+
+    def load_model(self, save_dir="saved_model"):
+        """
+        This function reloads a model for predictions.
+
+        :param save_dir: the name of the directory where the model is saved.
+        :type save_dir: string
+        :return: None
+        """
+
+        self.session = tf.Session(graph=tf.get_default_graph())
+        tf.saved_model.loader.load(self.session, [tf.saved_model.tag_constants.SERVING], save_dir)
 
 
 
