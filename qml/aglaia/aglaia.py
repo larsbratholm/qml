@@ -767,10 +767,10 @@ class _NN(BaseEstimator):
         if is_none(classes):
             raise InputError("Classes cannot be set to none.")
         else:
-            if is_positive_integer_array(classes):
+            if is_positive_integer_or_zero_array(classes):
                 self.classes = np.asarray(classes)
             else:
-                raise InputError('Variable "gradients" expected to be array like of positive integers.')
+                raise InputError('Variable "classes" expected to be array like of positive integers.')
 
     def fit(self, x, y=None, classes=None, dy=None, dgdr=None):
         """
