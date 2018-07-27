@@ -2795,8 +2795,8 @@ class ARMP_G(ARMP, _NN):
 
         f = h5py.File(filename, "w")
 
-        descript = f.create_dataset("representation", self.representation.shape, data=self.representation)
-        grad = f.create_dataset("dg_dr", self.dg_dr.shape, data=self.dg_dr)
+        f.create_dataset("representation", self.representation.shape, data=self.representation)
+        f.create_dataset("dg_dr", self.dg_dr.shape, data=self.dg_dr)
 
         f.close()
 
@@ -3062,22 +3062,16 @@ class ARMP_G(ARMP, _NN):
 
         # Turning the quantities into tensors
         with tf.name_scope("Data"):
-            zs_tf = tf.placeholder(shape=[self.n_samples, max_n_atoms], dtype=tf.int32, name="Classes")
-            g_tf = tf.placeholder(shape=[self.n_samples, max_n_atoms, self.n_features], dtype=tf.float32, name="Descriptors")
-            dg_dr_tf = tf.placeholder(shape=[self.n_samples, max_n_atoms, self.n_features, max_n_atoms, 3], dtype=tf.float32, name="dG_dr")
-            true_ene = tf.placeholder(shape=[self.n_samples, 1], dtype=tf.float32, name="Properties")
-            true_forces = tf.placeholder(shape=[self.n_samples, max_n_atoms, 3], dtype=tf.float32, name="Forces")
+            zs_tf = tf.placeholder(shape=[None, max_n_atoms], dtype=tf.int32, name="Classes")
+            g_tf = tf.placeholder(shape=[None, max_n_atoms, self.n_features], dtype=tf.float32, name="Descriptors")
+            dg_dr_tf = tf.placeholder(shape=[None, max_n_atoms, self.n_features, max_n_atoms, 3], dtype=tf.float32, name="dG_dr")
+            true_ene = tf.placeholder(shape=[None, 1], dtype=tf.float32, name="Properties")
+            true_forces = tf.placeholder(shape=[None, max_n_atoms, 3], dtype=tf.float32, name="Forces")
 
             dataset = tf.data.Dataset.from_tensor_slices((g_tf, dg_dr_tf, true_ene, true_forces, zs_tf))
             dataset = dataset.batch(batch_size)
             iterator = tf.data.Iterator.from_structure(dataset.output_types, dataset.output_shapes)
             batch_g, batch_dg_dr, batch_y, batch_dy, batch_zs = iterator.get_next()
-
-            # batch_g = tf.identity(batch_g, name="Descriptors")
-            # batch_dg_dr = tf.identity(batch_dg_dr, name="dG_dr")
-            # batch_y = tf.identity(batch_y, name="Properties")
-            # batch_dy = tf.identity(batch_dy, name="Forces")
-            # batch_zs = tf.identity(batch_zs, name="Classes")
 
         element_weights, element_biases = self._make_weights_biases(self.elements)
 
@@ -3172,18 +3166,30 @@ class ARMP_G(ARMP, _NN):
 
         g_approved, classes_approved, dg_dr_approved = self._check_predict_input(x, classes, dgdr)
 
+        empty_ene = np.empty((g_approved.shape[0], 1))
+        empty_forces = np.empty((g_approved.shape[0], g_approved.shape[1], 3))
+
         if self.session == None:
             raise InputError("Model needs to be fit before predictions can be made.")
 
         graph = tf.get_default_graph()
 
         with graph.as_default():
-            batch_g = graph.get_tensor_by_name("Data/Descriptors:0")
-            batch_zs = graph.get_tensor_by_name("Data/Classes:0")
-            batch_dg_dr = graph.get_tensor_by_name("Data/dG_dr:0")
+            g_tf = graph.get_tensor_by_name("Data/Descriptors:0")
+            zs_tf = graph.get_tensor_by_name("Data/Classes:0")
+            dg_dr_tf = graph.get_tensor_by_name("Data/dG_dr:0")
             model = graph.get_tensor_by_name("Model/output:0")
             output_grad = graph.get_tensor_by_name("Model/output_grad:0")
-            y_pred, dy_pred = self.session.run([model, output_grad], feed_dict={batch_g: g_approved, batch_zs:classes_approved, batch_dg_dr: dg_dr_approved})
+            true_ene = graph.get_tensor_by_name("Data/Properties:0")
+            true_forces = graph.get_tensor_by_name("Data/Forces:0")
+
+            dataset_init_op = graph.get_operation_by_name("dataset_init")
+
+            self.session.run(dataset_init_op, feed_dict={g_tf: g_approved, zs_tf:classes_approved, dg_dr_tf: dg_dr_approved,
+                                                         true_ene: empty_ene, true_forces: empty_forces})
+            y_pred, dy_pred = self.session.run([model, output_grad],
+                                               feed_dict={g_tf: g_approved, zs_tf:classes_approved, dg_dr_tf: dg_dr_approved,
+                                                          true_ene: empty_ene, true_forces: empty_forces})
 
         return y_pred, dy_pred
 
@@ -3227,8 +3233,8 @@ class ARMP_G(ARMP, _NN):
         # element_weights, element_biases = self._load_weights()
 
         with tf.name_scope("Inputs_pred"):
-            zs_tf = tf.placeholder(shape=[self.n_samples, n_atoms], dtype=tf.int32, name="Classes")
-            xyz_tf = tf.placeholder(shape=[self.n_samples, n_atoms, 3], dtype=tf.float32, name="xyz")
+            zs_tf = tf.placeholder(shape=[None, n_atoms], dtype=tf.int32, name="Classes")
+            xyz_tf = tf.placeholder(shape=[None, n_atoms, 3], dtype=tf.float32, name="xyz")
 
             dataset = tf.data.Dataset.from_tensor_slices((xyz_tf, zs_tf))
             dataset = dataset.batch(2)
