@@ -12,7 +12,7 @@ from qml.aglaia.symm_funct import generate_parkhill_acsf, generate_parkhill_acsf
 from qml.aglaia.utils import InputError, ceil, is_positive_or_zero, is_positive_integer, is_positive, \
         is_bool, is_positive_integer_or_zero, is_string, is_positive_integer_array, is_array_like, is_none, \
         check_global_representation, check_y, check_sizes, check_dy, check_classes, is_numeric_array, is_non_zero_integer, \
-    is_positive_integer_or_zero_array, check_local_representation
+    is_positive_integer_or_zero_array, check_local_representation, check_dgdr
 
 from qml.aglaia.tf_utils import TensorBoardLogger, partial_derivatives
 
@@ -604,7 +604,7 @@ class _NN(BaseEstimator):
         :type dy: either a numpy array of shape (n_samples, n_atoms, 3) or None
         :param classes: either the classes to do the NN decomposition or None
         :type classes: either a numpy array of shape (n_samples, n_atoms) or None
-        :param dg_dr: gradients of the descriptor with respect to the cartesian coordinates or None
+        :param dg_dr: gradients of the representation with respect to the cartesian coordinates or None
         :type dg_dr: numpy array of shape (n_samples, n_atoms, n_features, n_atoms, 3)
 
         :return: score
@@ -626,7 +626,7 @@ class _NN(BaseEstimator):
         :type dy: either a numpy array of shape (n_samples, n_atoms, 3) or None
         :param classes: either the classes to do the NN decomposition or None
         :type classes: either a numpy array of shape (n_samples, n_atoms) or None
-        :param dg_dr: gradients of the descriptor with respect to the cartesian coordinates or None
+        :param dg_dr: gradients of the representation with respect to the cartesian coordinates or None
         :type dg_dr: numpy array of shape (n_samples, n_atoms, n_features, n_atoms, 3)
 
         :return: score
@@ -718,7 +718,6 @@ class _NN(BaseEstimator):
                 raise InputError(
                     'Variable "xyz" expected to be array like of dimension 3. Got %s' % str(xyz.shape))
 
-    def set_descriptors(self, descriptors):
     def set_representations(self, representations):
         """
         This function takes representations as input and stores them inside the class.
@@ -785,7 +784,7 @@ class _NN(BaseEstimator):
         :type classes: either a numpy array of shape (n_samples, n_atoms) or None
         :param dy: either the gradients of the properties or none
         :type dy: either a numpy array of shape (n_samples, n_atoms, 3) or None
-        :param dg_dr: gradients of the descriptor with respect to the cartesian coordinates or None
+        :param dg_dr: gradients of the representation with respect to the cartesian coordinates or None
         :type dg_dr: numpy array of shape (n_samples, n_atoms, n_features, n_atoms, 3)
 
         :return: None
@@ -996,7 +995,7 @@ class _NN(BaseEstimator):
         :type x: numpy array of shape (n_samples, n_features) or (n_samples, n_atoms, n_features) or an array of ints
         :param classes: the classes to use for atomic decomposition
         :type classes: numpy array of shape (n_sample, n_atoms)
-        :param dg_dr: gradients of the descriptor with respect to the cartesian coordinates or None
+        :param dg_dr: gradients of the representation with respect to the cartesian coordinates or None
         :type dg_dr: numpy array of shape (n_samples, n_atoms, n_features, n_atoms, 3)
 
 
@@ -1443,7 +1442,7 @@ class MRMP(_NN):
             raise InputError("MRMP estimator cannot do atomic decomposition.")
 
         if not is_none(dgdr):
-            raise InputError("MRMP does not need gradients of the descriptor.")
+            raise InputError("MRMP does not need gradients of the representation.")
 
         # Check if x is made up of indices or data
         if is_positive_integer_or_zero_array(x):
@@ -1697,7 +1696,7 @@ class ARMP(_NN):
             item.reverse()
 
         if self.tensorboard:
-            self.tensorboard_logger_descriptor.initialise()
+            self.tensorboard_logger_representation.initialise()
 
         n_samples = xyz.shape[0]
         max_n_atoms = xyz.shape[1]
@@ -1727,14 +1726,14 @@ class ARMP(_NN):
         representation_slices = []
 
         if self.tensorboard:
-            self.tensorboard_logger_descriptor.set_summary_writer(sess)
+            self.tensorboard_logger_representation.set_summary_writer(sess)
             batch_counter = 0
             while True:
                 try:
-                    descriptor_np = sess.run(descriptor, options=self.tensorboard_logger_descriptor.options,
-                                             run_metadata=self.tensorboard_logger_descriptor.run_metadata)
-                    self.tensorboard_logger_descriptor.write_metadata(batch_counter)
-                    descriptor_slices.append(descriptor_np)
+                    representation_np = sess.run(representation, options=self.tensorboard_logger_representation.options,
+                                             run_metadata=self.tensorboard_logger_representation.run_metadata)
+                    self.tensorboard_logger_representation.write_metadata(batch_counter)
+                    representation_slices.append(representation_np)
                     batch_counter += 1
                 except tf.errors.OutOfRangeError:
                     print("Generated all the representations.")
@@ -1744,7 +1743,6 @@ class ARMP(_NN):
                 try:
                     representation_np = sess.run(representation)
                     representation_slices.append(representation_np)
-                    batch_counter += 1
                 except tf.errors.OutOfRangeError:
                     print("Generated all the representations.")
                     break
@@ -2114,7 +2112,7 @@ class ARMP(_NN):
             raise InputError("x should be an array either containing indices or data.")
 
         if not is_none(dgdr):
-            raise InputError("ARMP does not require gradients of the descriptor.")
+            raise InputError("ARMP does not require gradients of the representation.")
 
         # Check if x is made up of indices or data
         if is_positive_integer_or_zero_array(x):
@@ -2475,7 +2473,7 @@ class ARMP_G(ARMP, _NN):
                  epsilon=1e-08,
                  rho=0.95, initial_accumulator_value=0.1, initial_gradient_squared_accumulator_value=0.1,
                  l1_regularization_strength=0.0, l2_regularization_strength=0.0,
-                 tensorboard_subdir=os.getcwd() + '/tensorboard', representation='acsf', descriptor_params=None):
+                 tensorboard_subdir=os.getcwd() + '/tensorboard', representation='acsf', representation_params=None):
 
         super(ARMP_G, self).__init__(hidden_layer_sizes, l1_reg, l2_reg, batch_size, learning_rate,
                                    iterations, tensorboard, store_frequency, tf_dtype, scoring_function,
@@ -2484,16 +2482,16 @@ class ARMP_G(ARMP, _NN):
                                    l1_regularization_strength, l2_regularization_strength, tensorboard_subdir)
 
         if representation != 'acsf':
-            raise InputError("Only the acsf descriptor can currently be used with gradients.")
+            raise InputError("Only the acsf representation can currently be used with gradients.")
 
-        self._set_representation(representation, descriptor_params)
+        self._initialise_representation(representation, representation_params)
 
     def _check_inputs(self, x, y, classes, dy, dgdr):
         """
         This function checks that the data passed to the fit function makes sense. If X represent indices, it extracts
-        the data from the variables self.xyz, self.properties, self.gradients and self.classes. If the descriptors have
-        been generated prior to calling this function, it uses self.descriptor and self.dg_dr instead of self.xyz.
-        Otherwise the descriptors and their gradients wrt the Cartesian coordinates are generated.
+        the data from the variables self.xyz, self.properties, self.gradients and self.classes. If the representations have
+        been generated prior to calling this function, it uses self.representation and self.dg_dr instead of self.xyz.
+        Otherwise the representations and their gradients wrt the Cartesian coordinates are generated.
 
         :param x: Indices or the cartesian coordinates
         :type x: Either 1D numpy array of ints or numpy array of floats of shape (n_samples, n_atoms, 3)
@@ -2503,10 +2501,10 @@ class ARMP_G(ARMP, _NN):
         :type classes: numpy array of shape (n_samples, n_atoms)
         :param dy: Gradients of the molecular properties - for example the forces (or None if x represents indices)
         :type dy: numpy array of shape (n_samples, n_atoms, 3)
-        :param dg_dr: gradients of the descriptor with respect to the cartesian coordinates
+        :param dg_dr: gradients of the representation with respect to the cartesian coordinates
         :type dg_dr: numpy array of shape (n_samples, n_atoms, n_features, n_atoms, 3)
 
-        :return: The descriptor, the properties, classes, gradients, the gradients of the descriptor wrt xyz
+        :return: The representation, the properties, classes, gradients, the gradients of the representation wrt xyz
         :rtype: (n_samples, n_atoms, n_features), (n_samples,), (n_samples, n_atoms), (n_samples, n_atoms, 3),
         (n_samples, n_atoms, n_features, n_atoms, 3)
         """
@@ -2517,22 +2515,22 @@ class ARMP_G(ARMP, _NN):
         # Check if x is made up of indices or data
         if is_positive_integer_or_zero_array(x):
 
-            if is_none(self.descriptor):
+            if is_none(self.representation):
 
                 if is_none(self.xyz) or is_none(self.classes):
                     if not is_none(self.compounds):
                         idx_tot = len(self.compounds)
                         self.xyz = self._get_xyz_from_compounds(idx_tot)
                         self.classes = self._get_classes_from_compounds(idx_tot)
-                        approved_g, approved_dgdr = self._generate_descriptors_and_dgdr(self.xyz[x], self.classes[x])
+                        approved_g, approved_dgdr = self._generate_representations_and_dgdr(self.xyz[x], self.classes[x])
                         approved_classes = self.classes[x]
                     else:
                         raise InputError("The xyz coordinates and the classes need to have been set in advance.")
                 else:
-                    approved_g, approved_dgdr = self._generate_descriptors_and_dgdr(self.xyz[x], self.classes[x])
+                    approved_g, approved_dgdr = self._generate_representations_and_dgdr(self.xyz[x], self.classes[x])
                     approved_classes = self.classes[x]
             else:
-                approved_g = self.descriptor[x]
+                approved_g = self.representation[x]
                 approved_dgdr = self.dg_dr[x]
                 approved_classes = self.classes[x]
 
@@ -2554,9 +2552,9 @@ class ARMP_G(ARMP, _NN):
             if is_none(classes):
                 raise InputError("ARMP_G estimator needs the classes to do atomic decomposition.")
             if is_none(dgdr):
-                raise InputError("ARM_G class needs the gradients of the descriptor wrt to xyz.")
+                raise InputError("ARM_G class needs the gradients of the representation wrt to xyz.")
 
-            approved_g = check_local_descriptor(x)
+            approved_g = check_local_representation(x)
             approved_y = check_y(y)
             approved_dy = check_dy(dy)
             approved_classes = check_classes(classes)
@@ -2574,10 +2572,10 @@ class ARMP_G(ARMP, _NN):
         :type x: numpy array of ints of shape (n_samples,) or floats of shape (n_samples, n_atoms, n_features)
         :param classes: classes to use for the atomic decomposition or None
         :type classes: either a numpy array of shape (n_samples, n_atoms) or None
-        :param dg_dr: gradients of the descriptor with respect to the cartesian coordinates or None
+        :param dg_dr: gradients of the representation with respect to the cartesian coordinates or None
         :type dg_dr: numpy array of shape (n_samples, n_atoms, n_features, n_atoms, 3)
 
-        :return: The descriptor, the gradients of the descriptor wrt xyz and classes
+        :return: The representation, the gradients of the representation wrt xyz and classes
         :rtype: (n_samples, n_atoms, n_features), (n_samples, n_atoms, n_features, n_atoms, 3), (n_samples, n_atoms)
         """
 
@@ -2587,24 +2585,24 @@ class ARMP_G(ARMP, _NN):
         # Check if x is made up of indices or data
         if is_positive_integer_or_zero_array(x):
 
-            if is_none(self.descriptor):
+            if is_none(self.representation):
 
                 if is_none(self.xyz) or is_none(self.classes):
                     if not is_none(self.compounds):
                         idx_tot = len(self.compounds)
                         self.xyz = self._get_xyz_from_compounds(idx_tot)
                         self.classes = self._get_classes_from_compounds(idx_tot)
-                        approved_g, approved_dgdr = self._generate_descriptors_and_dgdr(self.xyz[x], self.classes[x])
+                        approved_g, approved_dgdr = self._generate_representations_and_dgdr(self.xyz[x], self.classes[x])
                         approved_classes = self.classes[x]
                     else:
                         raise InputError("The xyz coordinates and the classes need to have been set in advance.")
                 else:
-                    approved_g,approved_dgdr = self._generate_descriptors_and_dgdr(self.xyz[x], self.classes[x])
+                    approved_g,approved_dgdr = self._generate_representations_and_dgdr(self.xyz[x], self.classes[x])
                     approved_classes = self.classes[x]
                 check_sizes(x=approved_g, classes=approved_classes)
 
             else:
-                approved_g = self.descriptor[x]
+                approved_g = self.representation[x]
                 approved_dgdr = self.dg_dr[x]
                 approved_classes = self.classes[x]
 
@@ -2613,9 +2611,9 @@ class ARMP_G(ARMP, _NN):
             if is_none(classes):
                 raise InputError("ARMP_G needs the classes to do atomic decomposition for predictions.")
             if is_none(dgdr):
-                raise InputError("ARMP_G needs the descriptor gradients for predictions.")
+                raise InputError("ARMP_G needs the representation gradients for predictions.")
 
-            approved_g = check_local_descriptor(x)
+            approved_g = check_local_representation(x)
             approved_classes = check_classes(classes)
             approved_dgdr = check_dgdr(dgdr)
 
@@ -2676,7 +2674,7 @@ class ARMP_G(ARMP, _NN):
         """
 
         # Obtaining the total elements and the element pairs
-        mbtypes = representations.get_slatm_mbtypes(classes)
+        mbtypes = qml_rep.get_slatm_mbtypes(classes)
 
         elements = []
         element_pairs = []
@@ -2754,9 +2752,9 @@ class ARMP_G(ARMP, _NN):
 
         return cost_function
 
-    def generate_descriptors(self, xyz=None, classes=None):
+    def generate_representation(self, xyz=None, classes=None):
         """
-        This function takes the coordinates and the classes and makes the descriptor and its derivative with
+        This function takes the coordinates and the classes and makes the representation and its derivative with
         respect to the cartesian coordinates.
 
         The parameters here are present just so that the function matches the signature of the parent class.
@@ -2765,27 +2763,27 @@ class ARMP_G(ARMP, _NN):
         if is_none(self.xyz) and is_none(self.classes):
             if is_none(self.compounds):
                 raise InputError("Cartesian coordinates need to be passed in or set in advance in order to generate the "
-                                 "descriptor and its gradients.")
+                                 "representation and its gradients.")
             else:
                 idx_tot = range(len(self.compounds))
                 self.xyz = self._get_xyz_from_compounds(idx_tot)
                 self.classes = self._get_classes_from_compounds(idx_tot)
 
-        if not is_none(self.descriptor):
-            raise InputError("The descriptors have already been set!")
+        if not is_none(self.representation):
+            raise InputError("The representations have already been set!")
 
-        self.descriptor, self.dg_dr = self._generate_descriptors_and_dgdr(self.xyz, self.classes)
+        self.representation, self.dg_dr = self._generate_representations_and_dgdr(self.xyz, self.classes)
 
-    def save_descriptors_and_dgdr(self, filename="descrpt_and_grad.hdf5"):
+    def save_representations_and_dgdr(self, filename="rep_and_grad.hdf5"):
         """
-        This function stores the descriptors and their gradients wrt the cartesian coordinates that have been generated
+        This function stores the representations and their gradients wrt the cartesian coordinates that have been generated
         for later re-use.
 
         :return: None
         """
 
-        if is_none(self.descriptor) or is_none(self.dg_dr):
-            raise InputError("The descriptors and their gradients wrt to the Cartesian coordinates have not been calculated yet.")
+        if is_none(self.representation) or is_none(self.dg_dr):
+            raise InputError("The representations and their gradients wrt to the Cartesian coordinates have not been calculated yet.")
 
         try:
             import h5py
@@ -2794,12 +2792,12 @@ class ARMP_G(ARMP, _NN):
 
         f = h5py.File(filename, "w")
 
-        descript = f.create_dataset("descriptor", self.descriptor.shape, data=self.descriptor)
+        descript = f.create_dataset("representation", self.representation.shape, data=self.representation)
         grad = f.create_dataset("dg_dr", self.dg_dr.shape, data=self.dg_dr)
 
         f.close()
 
-    def load_descriptors_and_dgdr(self, filename="descrpt_and_grad.hdf5"):
+    def load_representations_and_dgdr(self, filename="rep_and_grad.hdf5"):
 
         try:
             import h5py
@@ -2808,34 +2806,34 @@ class ARMP_G(ARMP, _NN):
 
         f = h5py.File(filename, "r")
 
-        self.descriptor = f["descriptor"][:]
+        self.representation = f["representation"][:]
         self.dg_dr = f["dg_dr"][:]
 
         f.close()
 
     def set_dgdr(self, dgdr):
         """
-        This function sets the gradients of the descriptor with respect to the cartesian coordinates.
+        This function sets the gradients of the representation with respect to the cartesian coordinates.
 
-        :param dgdr: Derivative of the descriptor with respect to the cartesian coordinates
+        :param dgdr: Derivative of the representation with respect to the cartesian coordinates
         :type dgdr: numpy array of shape (n_samples, n_atoms, n_features, n_atoms, 3)
         :return: None
         """
 
         if not is_none(self.dg_dr):
-            raise InputError("The gradients of the descriptors wrt to xyz have already been set!")
+            raise InputError("The gradients of the representations wrt to xyz have already been set!")
 
         if is_none(dgdr):
-            raise InputError("The gradients of the descriptors wrt to xyz cannot be set to none.")
+            raise InputError("The gradients of the representations wrt to xyz cannot be set to none.")
         else:
             self.dg_dr = check_dgdr(dgdr)
 
-    def _generate_descriptors_and_dgdr(self, xyz, classes):
+    def _generate_representations_and_dgdr(self, xyz, classes):
         """
-        This function takes in the coordinates and the classes and returns the descriptor and its derivative with
+        This function takes in the coordinates and the classes and returns the representation and its derivative with
         respect to the cartesian coordinates.
 
-        :return: the descriptors and their gradients wrt to the cartesian coordinates
+        :return: the representations and their gradients wrt to the cartesian coordinates
         :rtype: numpy arrays of shape (n_samples, n_atoms, n_features) and (n_samples, n_atoms, n_features, n_atoms, 3)
         """
         if is_none(self.element_pairs) and is_none(self.elements):
@@ -2851,7 +2849,7 @@ class ARMP_G(ARMP, _NN):
         # tf.reset_default_graph()
 
         if self.tensorboard:
-            self.tensorboard_logger_descriptor.initialise()
+            self.tensorboard_logger_representation.initialise()
 
         # since it has to be 1
         with tf.name_scope("Inputs_G"):
@@ -2885,14 +2883,14 @@ class ARMP_G(ARMP, _NN):
         representation_slices = []
 
         if self.tensorboard:
-            self.tensorboard_logger_descriptor.set_summary_writer(sess)
+            self.tensorboard_logger_representation.set_summary_writer(sess)
             counter = 0
             while True:
                 try:
                     representation_np, gradient_np = sess.run([representation, jacobian],
-                                                              options=self.tensorboard_logger_descriptor.options,
-                                                              run_metadata=self.tensorboard_logger_descriptor.run_metadata)
-                    self.tensorboard_logger_descriptor.write_metadata(counter)
+                                                              options=self.tensorboard_logger_representation.options,
+                                                              run_metadata=self.tensorboard_logger_representation.run_metadata)
+                    self.tensorboard_logger_representation.write_metadata(counter)
                     representation_slices.append(representation_np)
                     gradients_slices.append(gradient_np)
                     counter += 1
@@ -2918,15 +2916,15 @@ class ARMP_G(ARMP, _NN):
 
         :param nn_ene: the output from the neural network (energy)
         :type nn_ene: tf tensor of shape (n_samples, 1)
-        :param g: descriptor
+        :param g: representation
         :type g: tf tensor of shape (n_samples, n_atoms, n_features)
-        :param dg_dr: derivative of the descriptor with respect to the cartesian coordinates
+        :param dg_dr: derivative of the representation with respect to the cartesian coordinates
         :type dg_dr: tf tensor of shape (n_samples, n_atoms, n_features, atoms, 3)
         :return: forces
         :rtype: tf tensor of shape (n_samples, n_atoms, 3)
         """
 
-        # Derivative of the total energy with respect to the descriptor. Shape (n_samples, n_atoms, n_features)
+        # Derivative of the total energy with respect to the representation. Shape (n_samples, n_atoms, n_features)
         dene_dg = tf.gradients(nn_ene, g, name='dEne_dG')[0]
 
         forces = - tf.einsum('abcij,abc->aij', dg_dr, dene_dg)
@@ -2946,7 +2944,7 @@ class ARMP_G(ARMP, _NN):
         :type dy: numpy array of shape (n_samples, n_atoms, 3)
         :param classes: type of the atoms in the system
         :type classes: numpy array of shape (n_samples, n_atoms)
-        :param dg_dr: gradients of the descriptor with respect to the cartesian coordinates
+        :param dg_dr: gradients of the representation with respect to the cartesian coordinates
         :type dg_dr: numpy array of shape (n_samples, n_atoms, n_features, n_atoms, 3)
         :return: None
         """
@@ -3036,7 +3034,7 @@ class ARMP_G(ARMP, _NN):
                 if i % self.tensorboard_logger_training.store_frequency == 0:
                     self.tensorboard_logger_training.write_summary(self.session, i)
 
-        # This is called so that predictions can be made from xyz as well as from the descriptor
+        # This is called so that predictions can be made from xyz as well as from the representation
         self._build_model_from_xyz(max_n_atoms, element_weights, element_biases)
 
     def predict(self, x, classes=None, dgdr=None):
@@ -3044,11 +3042,11 @@ class ARMP_G(ARMP, _NN):
         This function overwrites the parent predict, because it needs to return not only the properties but also the
         gradients.
 
-        :param x: descriptor or indices
+        :param x: representation or indices
         :type x: numpy array of shape (n_samples, n_features) or (n_samples, n_atoms, n_features) or an array of ints
         :param classes: the classes to use for atomic decomposition
         :type classes: numpy array of shape (n_sample, n_atoms)
-        :param dg_dr: gradients of the descriptor with respect to the cartesian coordinates
+        :param dg_dr: gradients of the representation with respect to the cartesian coordinates
         :type dg_dr: numpy array of shape (n_samples, n_atoms, n_features, n_atoms, 3)
 
         :return: predictions of the molecular properties and their gradients.
@@ -3070,7 +3068,7 @@ class ARMP_G(ARMP, _NN):
         :type xyz: numpy array of shape (n_samples, n_atoms, 3)
         :param classes: the different atom types present in the system
         :type classes: numpy array of shape (n_samples, n_atoms)
-        :param dg_dr: gradients of the descriptor with respect to the cartesian coordinates
+        :param dg_dr: gradients of the representation with respect to the cartesian coordinates
         :type dg_dr: numpy array of shape (n_samples, n_atoms, n_features, n_atoms, 3)
 
         :return: predicted properties and their gradients
@@ -3175,7 +3173,7 @@ class ARMP_G(ARMP, _NN):
         :type dy: either a numpy array of shape (n_samples, n_atoms, 3)
         :param classes: either the classes or None
         :type classes: either a numpy array of shape (n_samples, n_atoms) or None
-        :param dg_dr: gradients of the descriptor with respect to the cartesian coordinates
+        :param dg_dr: gradients of the representation with respect to the cartesian coordinates
         :type dg_dr: numpy array of shape (n_samples, n_atoms, n_features, n_atoms, 3)
 
         :return: average R^2 of the properties and the gradient
@@ -3198,7 +3196,7 @@ class ARMP_G(ARMP, _NN):
         Calculate the mean absolute error.
         Smaller values corresponds to a better prediction.
 
-        :param x: either the descriptors or the indices to the descriptors
+        :param x: either the representations or the indices to the representations
         :type x: either a numpy array of shape (n_samples, n_atoms, n_features) or a numpy array of ints
         :param y: either the properties or None
         :type y: either a numpy array of shape (n_samples,) or None
@@ -3206,7 +3204,7 @@ class ARMP_G(ARMP, _NN):
         :type dy: either a numpy array of shape (n_samples, n_atoms, 3)
         :param classes: either the classes or None
         :type classes: either a numpy array of shape (n_samples, n_atoms) or None
-        :param dg_dr: gradients of the descriptor with respect to the cartesian coordinates
+        :param dg_dr: gradients of the representation with respect to the cartesian coordinates
         :type dg_dr: numpy array of shape (n_samples, n_atoms, n_features, n_atoms, 3)
 
         :param sample_weight: Weights of the samples. None indicates that that each sample has the same weight.
@@ -3233,7 +3231,7 @@ class ARMP_G(ARMP, _NN):
         Calculate the root mean squared error.
         Smaller values corresponds to a better prediction.
 
-        :param x: either the descriptors or the indices to the descriptors
+        :param x: either the representations or the indices to the representations
         :type x: either a numpy array of shape (n_samples, n_atoms, n_features) or a numpy array of ints
         :param y: either the properties or None
         :type y: either a numpy array of shape (n_samples,) or None
@@ -3241,7 +3239,7 @@ class ARMP_G(ARMP, _NN):
         :type dy: either a numpy array of shape (n_samples, n_atoms, 3)
         :param classes: either the classes or None
         :type classes: either a numpy array of shape (n_samples, n_atoms) or None
-        :param dg_dr: gradients of the descriptor with respect to the cartesian coordinates
+        :param dg_dr: gradients of the representation with respect to the cartesian coordinates
         :type dg_dr: numpy array of shape (n_samples, n_atoms, n_features, n_atoms, 3)
 
         :return: Average root mean square error of the properties and the gradient
