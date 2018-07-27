@@ -123,6 +123,9 @@ class _NN(BaseEstimator):
         self.elements = None
         self.element_pairs = None
 
+        # To enable restart model
+        self.loaded_model = False
+
     def _set_activation_function(self, activation_function):
         """
         This function sets which activation function will be used in the model.
@@ -2806,7 +2809,7 @@ class ARMP_G(ARMP, _NN):
 
         f = h5py.File(filename, "r")
 
-        self.representation = f["representation"][:]
+        self.representation = f["descriptor"][:]
         self.dg_dr = f["dg_dr"][:]
 
         f.close()
@@ -2934,7 +2937,98 @@ class ARMP_G(ARMP, _NN):
 
     def _fit(self, x, y, classes, dy, dgdr):
         """
-        This function fits the weights of the neural networks to the properties and their gradient.
+        This fit function checks whether there is a model that has already been loaded. If yes, it calls the fit function
+        that restarts training from where it was left off. Otherwise, the fitting is started from scratch.
+
+        :param xyz: cartesian coordinates
+        :type xyz: numpy array of shape (n_samples, n_atoms, 3)
+        :param y: molecular properties
+        :type y: numpy array of shape (n_samples,)
+        :param dy: gradients of the properties wrt to cartesian coordinates
+        :type dy: numpy array of shape (n_samples, n_atoms, 3)
+        :param classes: type of the atoms in the system
+        :type classes: numpy array of shape (n_samples, n_atoms)
+        :param dg_dr: gradients of the representation with respect to the cartesian coordinates
+        :type dg_dr: numpy array of shape (n_samples, n_atoms, n_features, n_atoms, 3)
+        :return: None
+        """
+        if not self.loaded_model:
+            self._fit_from_scratch(x, y, classes, dy, dgdr)
+        else:
+            self._fit_from_loaded(x, y, classes, dy, dgdr)
+
+    def _fit_from_loaded(self, x, y, classes, dy, dgdr):
+
+        if self.session == None:
+            raise InputError("The Tensorflow session appears to not exisit.")
+
+        g_approved, y_approved, classes_approved, dy_approved, dg_dr_approved = self._check_inputs(x, y, classes, dy,
+                                                                                                   dgdr)
+        if is_none(self.element_pairs) and is_none(self.elements):
+            self.elements, self.element_pairs = self._get_elements_and_pairs(classes_approved)
+            self.n_features = self.elements.shape[0] * self.acsf_parameters['radial_rs'].shape[0] + \
+                              self.element_pairs.shape[0] * self.acsf_parameters['angular_rs'].shape[0] * \
+                              self.acsf_parameters['theta_s'].shape[0]
+
+        self.n_samples = g_approved.shape[0]
+        max_n_atoms = g_approved.shape[1]
+
+        batch_size = self._get_batch_size()
+        n_batches = ceil(self.n_samples, batch_size)
+
+        if self.tensorboard:
+            self.tensorboard_logger_training.initialise()
+            self.tensorboard_logger_training.set_summary_writer(self.session)
+
+        graph = tf.get_default_graph()
+
+        with graph.as_default():
+            # Reloading all the needed operations and tensors
+            g_tf = graph.get_tensor_by_name("Data/Descriptors:0")
+            zs_tf = graph.get_tensor_by_name("Data/Classes:0")
+            dg_dr_tf = graph.get_tensor_by_name("Data/dG_dr:0")
+            true_ene = graph.get_tensor_by_name("Data/Properties:0")
+            true_forces = graph.get_tensor_by_name("Data/Forces:0")
+
+            cost = graph.get_tensor_by_name("Cost/add_6:0")
+
+            optimisation_op = graph.get_operation_by_name("optimisation_op")
+            dataset_init_op = graph.get_operation_by_name("dataset_init")
+
+            output_grad = graph.get_tensor_by_name("Model/output_grad:0")
+
+            # Recording cost to tensorboard
+            if self.tensorboard:
+                cost_summary = self.tensorboard_logger_training.write_cost_summary(cost)
+
+            # Running the operations needed
+            self.session.run(dataset_init_op,
+                             feed_dict={g_tf: g_approved, dg_dr_tf: dg_dr_approved, zs_tf: classes_approved,
+                                        true_ene: y_approved, true_forces: dy_approved})
+
+            for i in range(self.iterations):
+
+                self.session.run(dataset_init_op,
+                                 feed_dict={g_tf: g_approved, dg_dr_tf: dg_dr_approved, zs_tf: classes_approved,
+                                            true_ene: y_approved, true_forces: dy_approved})
+
+                for j in range(n_batches):
+                    if self.tensorboard:
+                        self.session.run(optimisation_op, options=self.tensorboard_logger_training.options,
+                                         run_metadata=self.tensorboard_logger_training.run_metadata)
+                    else:
+                        self.session.run(optimisation_op)
+
+                self.session.run(dataset_init_op,
+                                 feed_dict={g_tf: g_approved, dg_dr_tf: dg_dr_approved, zs_tf: classes_approved,
+                                            true_ene: y_approved, true_forces: dy_approved})
+                if self.tensorboard:
+                    if i % self.tensorboard_logger_training.store_frequency == 0:
+                        self.tensorboard_logger_training.write_summary(self.session, i)
+
+    def _fit_from_scratch(self, x, y, classes, dy, dgdr):
+        """
+        This function fits the weights of the neural networks to the properties and their gradient from scratch.
 
         :param xyz: cartesian coordinates
         :type xyz: numpy array of shape (n_samples, n_atoms, 3)
@@ -2968,23 +3062,22 @@ class ARMP_G(ARMP, _NN):
 
         # Turning the quantities into tensors
         with tf.name_scope("Data"):
-            zs_tf = tf.placeholder(shape=[self.n_samples, max_n_atoms], dtype=tf.int32)
-            g_tf = tf.placeholder(shape=[self.n_samples, max_n_atoms, self.n_features], dtype=tf.float32)
-            dg_dr_tf = tf.placeholder(shape=[self.n_samples, max_n_atoms, self.n_features, max_n_atoms, 3], dtype=tf.float32)
-            true_ene = tf.placeholder(shape=[self.n_samples, 1], dtype=tf.float32)
-            true_forces = tf.placeholder(shape=[self.n_samples, max_n_atoms, 3], dtype=tf.float32)
+            zs_tf = tf.placeholder(shape=[self.n_samples, max_n_atoms], dtype=tf.int32, name="Classes")
+            g_tf = tf.placeholder(shape=[self.n_samples, max_n_atoms, self.n_features], dtype=tf.float32, name="Descriptors")
+            dg_dr_tf = tf.placeholder(shape=[self.n_samples, max_n_atoms, self.n_features, max_n_atoms, 3], dtype=tf.float32, name="dG_dr")
+            true_ene = tf.placeholder(shape=[self.n_samples, 1], dtype=tf.float32, name="Properties")
+            true_forces = tf.placeholder(shape=[self.n_samples, max_n_atoms, 3], dtype=tf.float32, name="Forces")
 
             dataset = tf.data.Dataset.from_tensor_slices((g_tf, dg_dr_tf, true_ene, true_forces, zs_tf))
             dataset = dataset.batch(batch_size)
             iterator = tf.data.Iterator.from_structure(dataset.output_types, dataset.output_shapes)
             batch_g, batch_dg_dr, batch_y, batch_dy, batch_zs = iterator.get_next()
 
-            batch_g = tf.identity(batch_g, name="Descriptors")
-            batch_dg_dr = tf.identity(batch_dg_dr, name="dG_dr")
-            batch_y = tf.identity(batch_y, name="Properties")
-            batch_dy = tf.identity(batch_dy, name="Forces")
-            batch_zs = tf.identity(batch_zs, name="Classes")
-
+            # batch_g = tf.identity(batch_g, name="Descriptors")
+            # batch_dg_dr = tf.identity(batch_dg_dr, name="dG_dr")
+            # batch_y = tf.identity(batch_y, name="Properties")
+            # batch_dy = tf.identity(batch_dy, name="Forces")
+            # batch_zs = tf.identity(batch_zs, name="Classes")
 
         element_weights, element_biases = self._make_weights_biases(self.elements)
 
@@ -3001,11 +3094,11 @@ class ARMP_G(ARMP, _NN):
             cost_summary = self.tensorboard_logger_training.write_cost_summary(cost)
 
         optimiser = self._set_optimiser()
-        optimisation_op = optimiser.minimize(cost)
+        optimisation_op = optimiser.minimize(cost, name="optimisation_op")
 
         # Initialisation of variables and iterators
         init = tf.global_variables_initializer()
-        iterator_init = iterator.make_initializer(dataset)
+        iterator_init = iterator.make_initializer(dataset, name="dataset_init")
 
         # Starting the session
         self.session = tf.Session()
@@ -3036,6 +3129,8 @@ class ARMP_G(ARMP, _NN):
 
         # This is called so that predictions can be made from xyz as well as from the representation
         self._build_model_from_xyz(max_n_atoms, element_weights, element_biases)
+
+        self.loaded_model = True
 
     def predict(self, x, classes=None, dgdr=None):
         """
@@ -3132,16 +3227,16 @@ class ARMP_G(ARMP, _NN):
         # element_weights, element_biases = self._load_weights()
 
         with tf.name_scope("Inputs_pred"):
-            zs_tf = tf.placeholder(shape=[self.n_samples, n_atoms], dtype=tf.int32)
-            xyz_tf = tf.placeholder(shape=[self.n_samples, n_atoms, 3], dtype=tf.float32)
+            zs_tf = tf.placeholder(shape=[self.n_samples, n_atoms], dtype=tf.int32, name="Classes")
+            xyz_tf = tf.placeholder(shape=[self.n_samples, n_atoms, 3], dtype=tf.float32, name="xyz")
 
             dataset = tf.data.Dataset.from_tensor_slices((xyz_tf, zs_tf))
             dataset = dataset.batch(2)
             iterator = tf.data.Iterator.from_structure(dataset.output_types, dataset.output_shapes)
             batch_xyz, batch_zs = iterator.get_next()
 
-            batch_xyz = tf.identity(batch_xyz, name="xyz")
-            batch_zs = tf.identity(batch_zs, name="Classes")
+            # batch_xyz = tf.identity(batch_xyz, name="xyz")
+            # batch_zs = tf.identity(batch_zs, name="Classes")
 
         with tf.name_scope("Descriptor_pred"):
 
@@ -3256,7 +3351,7 @@ class ARMP_G(ARMP, _NN):
         rmse = 0.5*y_rmse + 0.5*dy_rmse
         return rmse
 
-    def save_model(self, save_dir="saved_model"):
+    def save_nn(self, save_dir="saved_model"):
         """
         This function saves the trained model to be used for later prediction.
 
@@ -3274,6 +3369,8 @@ class ARMP_G(ARMP, _NN):
             g = graph.get_tensor_by_name("Data/Descriptors:0")
             dg_dr = graph.get_tensor_by_name("Data/dG_dr:0")
             zs = graph.get_tensor_by_name("Data/Classes:0")
+            true_ene = graph.get_tensor_by_name("Data/Properties:0")
+            true_forces = graph.get_tensor_by_name("Data/Forces:0")
             model = graph.get_tensor_by_name("Model/output:0")
 
             xyz = graph.get_tensor_by_name("Inputs_pred/xyz:0")
@@ -3283,11 +3380,12 @@ class ARMP_G(ARMP, _NN):
 
         tf.saved_model.simple_save(self.session, export_dir=save_dir,
                                    inputs={"Data/Descriptors:0": g, "Data/dG_dr:0": dg_dr, "Data/Classes:0":zs,
-                                           "Inputs_pred/xyz:0": xyz, "Inputs_pred/Classes:0": classes},
+                                           "Inputs_pred/xyz:0": xyz, "Inputs_pred/Classes:0": classes,
+                                           "Data/Properties:0": true_ene, "Data/Forces:0": true_forces},
                                    outputs={"Model/output:0": model, "Model_pred/output:0": ene_nn,
                                             "Model_pred/Forces_nn:0":forces_nn})
 
-    def load_model(self, save_dir="saved_model"):
+    def load_nn(self, save_dir="saved_model"):
         """
         This function reloads a model for predictions.
 
@@ -3298,6 +3396,8 @@ class ARMP_G(ARMP, _NN):
 
         self.session = tf.Session(graph=tf.get_default_graph())
         tf.saved_model.loader.load(self.session, [tf.saved_model.tag_constants.SERVING], save_dir)
+
+        self.loaded_model = True
 
 
 
