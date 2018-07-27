@@ -20,63 +20,8 @@
 ! OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 ! SOFTWARE.
 
-module acsf_utils
 
-    implicit none
-
-contains
-
-function decay(r, invrc, natoms) result(f)
-
-    implicit none
-
-    double precision, intent(in), dimension(:,:) :: r
-    double precision, intent(in) :: invrc
-    integer, intent(in) :: natoms
-    double precision, dimension(natoms, natoms) :: f
-
-    double precision, parameter :: pi = 4.0d0 * atan(1.0d0)
-
-    ! Decaying function reaching 0 at rc
-    f = 0.5d0 * (cos(pi * r * invrc) + 1.0d0)
-
-
-end function decay
-
-function calc_angle(a, b, c) result(angle)
-
-    implicit none
-
-    double precision, intent(in), dimension(3) :: a
-    double precision, intent(in), dimension(3) :: b
-    double precision, intent(in), dimension(3) :: c
-
-    double precision, dimension(3) :: v1
-    double precision, dimension(3) :: v2
-
-    double precision :: cos_angle
-    double precision :: angle
-
-    v1 = a - b
-    v2 = c - b
-
-    v1 = v1 / norm2(v1)
-    v2 = v2 / norm2(v2)
-
-    cos_angle = dot_product(v1,v2)
-
-    ! Clipping
-    if (cos_angle > 1.0d0) cos_angle = 1.0d0
-    if (cos_angle < -1.0d0) cos_angle = -1.0d0
-
-    angle = acos(cos_angle)
-
-end function calc_angle
-
-end module acsf_utils
-
-
-subroutine fgenerate_acsf(coordinates, nuclear_charges, elements, &
+subroutine fgenerate_jcoupling(coordinates, nuclear_charges, elements, &
                           & Rs2, Rs3, Ts, eta2, eta3, zeta, rcut, acut, natoms, rep_size, rep)
 
     use acsf_utils, only: decay, calc_angle
