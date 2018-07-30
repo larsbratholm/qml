@@ -367,3 +367,27 @@ class Compound(object):
             self.coordinates[i] = np.asarray(tokens[1:4], dtype=float)
    
         self.natypes = dict([(key, len(value)) for key,value in self.atomtype_indices.items()])
+
+    def use_xyz_zs_array(self, xyz, zs):
+        """
+        This reinitialises the compound with data from xyz and zs arrays.
+        :param xyz: cartesian coordintes
+        :type xyz: numpy array of shape (n_atoms, 3)
+        :param zs: nuclear charges
+        :type zs: numpy array of shape (n_atoms, )
+        :return: None
+        """
+
+        elements = {6: 'C', 7: 'N', 1: 'H', 8:'O'}
+
+        self.natoms = xyz.shape[0]
+        self.nuclear_charges = zs
+        self.coordinates = xyz
+        self.atomtypes = []
+
+        for i in range(len(zs)):
+            self.atomtypes.append(elements[zs[i]])  # same as zs, but with letters instead of numbers
+            self.atomtype_indices[elements[zs[i]]].append(i)
+
+        self.natypes = dict([(key, len(value)) for key, value in self.atomtype_indices.items()])
+
