@@ -37,6 +37,7 @@ from qml.aglaia.utils import InputError, ceil, is_positive_or_zero, is_positive_
     is_positive_integer_or_zero_array, check_local_representation, check_dgdr
 
 from qml.aglaia.tf_utils import TensorBoardLogger, partial_derivatives
+from qml.ml.representations import generate_acsf
 
 try:
     from qml.data import Compound
@@ -686,7 +687,25 @@ class _NN(BaseEstimator):
         for i, filename in enumerate(filenames):
             self.compounds[i] = Compound(filename)
 
-    def generate_representation(self, xyz=None, classes=None):
+    def generate_compounds_from_xyz(self, xyz, zs):
+        """
+        Creates QML compounds. It initialises them from xyz and zs arrays rather than *.xyz files.
+        :param xyz: cartesian coordintes
+        :type xyz: numpy array of shape (n_atoms, 3)
+        :param zs: nuclear charges
+        :type zs: numpy array of shape (n_atoms, )
+        :return: None
+        """
+
+        self.compounds = np.empty(xyz.shape[0], dtype=object)
+        elements = {6:'C', 7:'N', 1:'H'}
+
+        for i in range(xyz.shape[0]):
+            a_compound = Compound()
+            a_compound.use_xyz_zs_array(xyz[i], zs[i])
+            self.compounds[i] = a_compound
+
+    def generate_representation(self, xyz=None, classes=None, method="fortran"):
         """
         This function can generate representations either from the data contained in the compounds or from xyz data passed
         through the argument. If the Compounds have already being set and xyz data is given, it complains.
@@ -695,9 +714,12 @@ class _NN(BaseEstimator):
         :type xyz: numpy array of shape (n_samples, n_atoms, 3)
         :param classes: The classes to do the atomic decomposition of the networks (most commonly nuclear charges)
         :type classes: numpy array of shape (n_samples, n_atoms)
+        :param method: for ARMP_G there are 2 ways of generating the descriptor, one with fortran and one with tf. This flag enables to chose
+        :type method: string
         :return: None
         """
 
+        # TODO need to add a way of just setting XYZ
         if is_none(self.compounds) and is_none(xyz) and is_none(classes):
             raise InputError("QML compounds need to be created in advance or Cartesian coordinates need to be passed in "
                              "order to generate the representation.")
@@ -2547,12 +2569,12 @@ class ARMP_G(ARMP, _NN):
                         idx_tot = len(self.compounds)
                         self.xyz = self._get_xyz_from_compounds(idx_tot)
                         self.classes = self._get_classes_from_compounds(idx_tot)
-                        approved_g, approved_dgdr = self._generate_representations_and_dgdr(self.xyz[x], self.classes[x])
+                        approved_g, approved_dgdr = self._generate_rep_and_dgdr_tf(self.xyz[x], self.classes[x])
                         approved_classes = self.classes[x]
                     else:
                         raise InputError("The xyz coordinates and the classes need to have been set in advance.")
                 else:
-                    approved_g, approved_dgdr = self._generate_representations_and_dgdr(self.xyz[x], self.classes[x])
+                    approved_g, approved_dgdr = self._generate_rep_and_dgdr_tf(self.xyz[x], self.classes[x])
                     approved_classes = self.classes[x]
             else:
                 approved_g = self.representation[x]
@@ -2617,12 +2639,12 @@ class ARMP_G(ARMP, _NN):
                         idx_tot = len(self.compounds)
                         self.xyz = self._get_xyz_from_compounds(idx_tot)
                         self.classes = self._get_classes_from_compounds(idx_tot)
-                        approved_g, approved_dgdr = self._generate_representations_and_dgdr(self.xyz[x], self.classes[x])
+                        approved_g, approved_dgdr = self._generate_rep_and_dgdr_tf(self.xyz[x], self.classes[x])
                         approved_classes = self.classes[x]
                     else:
                         raise InputError("The xyz coordinates and the classes need to have been set in advance.")
                 else:
-                    approved_g,approved_dgdr = self._generate_representations_and_dgdr(self.xyz[x], self.classes[x])
+                    approved_g,approved_dgdr = self._generate_rep_and_dgdr_tf(self.xyz[x], self.classes[x])
                     approved_classes = self.classes[x]
                 check_sizes(x=approved_g, classes=approved_classes)
 
@@ -2777,13 +2799,16 @@ class ARMP_G(ARMP, _NN):
 
         return cost_function
 
-    def generate_representation(self, xyz=None, classes=None):
+    def generate_representation(self, xyz=None, classes=None, method='fortran'):
         """
         This function takes the coordinates and the classes and makes the representation and its derivative with
         respect to the cartesian coordinates.
 
         The parameters here are present just so that the function matches the signature of the parent class.
         """
+
+        if method not in ['fortran', 'tf']:
+            raise InputError("The method to generate the acsf can only be 'fortran' or 'tf'. Got %s." % (method))
 
         if is_none(self.xyz) and is_none(self.classes):
             if is_none(self.compounds):
@@ -2797,7 +2822,10 @@ class ARMP_G(ARMP, _NN):
         if not is_none(self.representation):
             raise InputError("The representations have already been set!")
 
-        self.representation, self.dg_dr = self._generate_representations_and_dgdr(self.xyz, self.classes)
+        if method == 'tf':
+            self.representation, self.dg_dr = self._generate_rep_and_dgdr_tf(self.xyz, self.classes)
+        else:
+            self.representation, self.dg_dr = self._generate_rep_and_dgdr_fortran(self.xyz, self.classes)
 
     def save_representations_and_dgdr(self, filename="rep_and_grad.hdf5"):
         """
@@ -2853,13 +2881,17 @@ class ARMP_G(ARMP, _NN):
         else:
             self.dg_dr = check_dgdr(dgdr)
 
-    def _generate_representations_and_dgdr(self, xyz, classes):
+    def _generate_rep_and_dgdr_tf(self, xyz, classes):
         """
         This function takes in the coordinates and the classes and returns the representation and its derivative with
         respect to the cartesian coordinates.
 
-        :return: the representations and their gradients wrt to the cartesian coordinates
-        :rtype: numpy arrays of shape (n_samples, n_atoms, n_features) and (n_samples, n_atoms, n_features, n_atoms, 3)
+        :param xyz: cartesian coordinates
+        :type xyz: numpy array of shape (n_samples, n_atoms, 3)
+        :param classes: the atom types
+        :type classes: numpy array of shape (n_samples, n_atoms)
+        :return: representations and their derivatives wrt to xyz
+        :rtype: numpy array of shape (n_samples, n_atoms, n_features) and (n_samples, n_atoms, n_features, n_atoms, 3)
         """
         if is_none(self.element_pairs) and is_none(self.elements):
             self.elements, self.element_pairs = self._get_elements_and_pairs(self.classes)
@@ -2933,6 +2965,39 @@ class ARMP_G(ARMP, _NN):
         sess.close()
 
         return np.asarray(representation_slices), np.asarray(gradients_slices)
+
+    def _generate_rep_and_dgdr_fortran(self, xyz, classes):
+        """
+        This function uses fortran to generate the representation and the derivative of the representation with respect
+        to the cartesian coordinates.
+
+        :param xyz: cartesian coordinates
+        :type xyz: numpy array of shape (n_samples, n_atoms, 3)
+        :param classes: the atom types
+        :type classes: numpy array of shape (n_samples, n_atoms)
+        :return: representations and their derivatives wrt to xyz
+        :rtype: numpy array of shape (n_samples, n_atoms, n_features) and (n_samples, n_atoms, n_features, n_atoms, 3)
+        """
+
+        elements, element_paris = self._get_elements_and_pairs(classes)
+
+        representation = []
+        dgdr = []
+
+        for i in range(xyz.shape[0]):
+            g, dg = generate_acsf(coordinates=xyz[i], elements=elements, gradients=True, nuclear_charges=classes[i],
+                                  rcut=self.acsf_parameters['radial_cutoff'],
+                                  acut=self.acsf_parameters['angular_cutoff'],
+                                  nRs2=len(self.acsf_parameters['radial_rs']),
+                                  nRs3=len(self.acsf_parameters['angular_rs']),
+                                  nTs=len(self.acsf_parameters['theta_s']),
+                                  eta2=self.acsf_parameters['eta'],
+                                  eta3=self.acsf_parameters['eta'],
+                                  zeta=self.acsf_parameters['zeta'])
+            representation.append(g)
+            dgdr.append(dg)
+
+        return np.asarray(representation), np.asarray(dgdr)
 
     def _get_nn_forces(self, nn_ene, g, dg_dr):
         """
@@ -3188,6 +3253,7 @@ class ARMP_G(ARMP, _NN):
 
         g_approved, classes_approved, dg_dr_approved = self._check_predict_input(x, classes, dgdr)
 
+        # TODO find a cleaner way of doing this
         empty_ene = np.empty((g_approved.shape[0], 1))
         empty_forces = np.empty((g_approved.shape[0], g_approved.shape[1], 3))
 
@@ -3209,11 +3275,22 @@ class ARMP_G(ARMP, _NN):
 
             self.session.run(dataset_init_op, feed_dict={g_tf: g_approved, zs_tf:classes_approved, dg_dr_tf: dg_dr_approved,
                                                          true_ene: empty_ene, true_forces: empty_forces})
-            y_pred, dy_pred = self.session.run([model, output_grad],
-                                               feed_dict={g_tf: g_approved, zs_tf:classes_approved, dg_dr_tf: dg_dr_approved,
-                                                          true_ene: empty_ene, true_forces: empty_forces})
 
-        return y_pred, dy_pred
+            tot_y_pred = []
+            tot_dy_pred = []
+
+            while True:
+                try:
+                    y_pred, dy_pred = self.session.run([model, output_grad],
+                                                       feed_dict={g_tf: g_approved, zs_tf: classes_approved,
+                                                                  dg_dr_tf: dg_dr_approved,
+                                                                  true_ene: empty_ene, true_forces: empty_forces})
+                    tot_y_pred.append(y_pred)
+                    tot_dy_pred.append(dy_pred)
+                except tf.errors.OutOfRangeError:
+                    break
+
+        return np.concatenate(tot_y_pred, axis=0), np.concatenate(tot_dy_pred, axis=0)
 
     def predict_from_xyz(self, xyz, classes):
         """
