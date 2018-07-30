@@ -63,7 +63,7 @@ def test_acsf():
              "qm7/0110.xyz"]
 
 
-    path = test_dir = os.path.dirname(os.path.realpath(__file__))
+    path = os.path.dirname(os.path.realpath(__file__))
 
     mols = []
     for xyz_file in files:
