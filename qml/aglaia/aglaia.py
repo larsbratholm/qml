@@ -138,7 +138,7 @@ class _NN(BaseEstimator):
         # Placholder variables for data
         self.xyz = None
         self.compounds = None
-        self.representation = None
+        self.g = None
         self.properties = None
         self.gradients = None
         self.classes = None
@@ -585,13 +585,13 @@ class _NN(BaseEstimator):
         :return: None
         """
 
-        self.slatm_parameters = {'slatm_sigma1': 0.05, 'slatm_sigma2': 0.05, 'slatm_dgrid1': 0.03, 'slatm_dgrid2': 0.03,
+        self.representation_params = {'slatm_sigma1': 0.05, 'slatm_sigma2': 0.05, 'slatm_dgrid1': 0.03, 'slatm_dgrid2': 0.03,
                                  'slatm_rcut': 4.8, 'slatm_rpower': 6, 'slatm_alchemy': False}
 
         if not is_none(params):
             for key, value in params.items():
-                if key in self.slatm_parameters:
-                    self.slatm_parameters[key] = value
+                if key in self.representation_params:
+                    self.representation_params[key] = value
 
             self._check_slatm_values()
 
@@ -602,17 +602,17 @@ class _NN(BaseEstimator):
         :return: None
         """
 
-        self.acsf_parameters = {'radial_cutoff': 10.0, 'angular_cutoff': 10.0, 'radial_rs': np.asarray([0.0, 0.1, 0.2]),
+        self.representation_params = {'radial_cutoff': 10.0, 'angular_cutoff': 10.0, 'radial_rs': np.asarray([0.0, 0.1, 0.2]),
                                 'angular_rs': np.asarray([0.0, 0.1, 0.2]), 'theta_s': np.asarray([3.0, 2.0]),
                                 'zeta': 3.0, 'eta': 2.0}
 
         if not is_none(params):
             for key, value in params.items():
-                if key in self.acsf_parameters:
+                if key in self.representation_params:
                     if is_numeric_array(value):
-                        self.acsf_parameters[key] = np.asarray(value)
+                        self.representation_params[key] = np.asarray(value)
                     else:
-                        self.acsf_parameters[key] = value
+                        self.representation_params[key] = value
 
             self._check_acsf_values()
 
@@ -724,17 +724,17 @@ class _NN(BaseEstimator):
             raise InputError("QML compounds need to be created in advance or Cartesian coordinates need to be passed in "
                              "order to generate the representation.")
 
-        if not is_none(self.representation):
+        if not is_none(self.g):
             raise InputError("The representations have already been set!")
 
         if is_none(self.compounds):
 
-            self.representation, self.classes = self._generate_representations_from_data(xyz, classes)
+            self.g, self.classes = self._generate_representations_from_data(xyz, classes)
 
         elif is_none(xyz):
             # Make representations from compounds
 
-            self.representation, self.classes = self._generate_representations_from_compounds()
+            self.g, self.classes = self._generate_representations_from_compounds()
         else:
             raise InputError("Compounds have already been set but new xyz data is being passed.")
 
@@ -773,7 +773,7 @@ class _NN(BaseEstimator):
         :type representations: numpy array of shape (n_samples, n_features) or (n_samples, n_atoms, n_features)
         """
 
-        if not is_none(self.representation):
+        if not is_none(self.g):
             raise InputError("The representations have already been set!")
 
         if is_none(representations):
@@ -844,26 +844,26 @@ class _NN(BaseEstimator):
         This function checks that the parameters passed to slatm make sense.
         :return: None
         """
-        if not is_positive(self.slatm_parameters['slatm_sigma1']):
-            raise InputError("Expected positive float for variable 'slatm_sigma1'. Got %s." % str(self.slatm_parameters['slatm_sigma1']))
+        if not is_positive(self.representation_params['slatm_sigma1']):
+            raise InputError("Expected positive float for variable 'slatm_sigma1'. Got %s." % str(self.representation_params['slatm_sigma1']))
 
-        if not is_positive(self.slatm_parameters['slatm_sigma2']):
-            raise InputError("Expected positive float for variable 'slatm_sigma2'. Got %s." % str(self.slatm_parameters['slatm_sigma2']))
+        if not is_positive(self.representation_params['slatm_sigma2']):
+            raise InputError("Expected positive float for variable 'slatm_sigma2'. Got %s." % str(self.representation_params['slatm_sigma2']))
 
-        if not is_positive(self.slatm_parameters['slatm_dgrid1']):
-            raise InputError("Expected positive float for variable 'slatm_dgrid1'. Got %s." % str(self.slatm_parameters['slatm_dgrid1']))
+        if not is_positive(self.representation_params['slatm_dgrid1']):
+            raise InputError("Expected positive float for variable 'slatm_dgrid1'. Got %s." % str(self.representation_params['slatm_dgrid1']))
 
-        if not is_positive(self.slatm_parameters['slatm_dgrid2']):
-            raise InputError("Expected positive float for variable 'slatm_dgrid2'. Got %s." % str(self.slatm_parameters['slatm_dgrid2']))
+        if not is_positive(self.representation_params['slatm_dgrid2']):
+            raise InputError("Expected positive float for variable 'slatm_dgrid2'. Got %s." % str(self.representation_params['slatm_dgrid2']))
 
-        if not is_positive(self.slatm_parameters['slatm_rcut']):
-            raise InputError("Expected positive float for variable 'slatm_rcut'. Got %s." % str(self.slatm_parameters['slatm_rcut']))
+        if not is_positive(self.representation_params['slatm_rcut']):
+            raise InputError("Expected positive float for variable 'slatm_rcut'. Got %s." % str(self.representation_params['slatm_rcut']))
 
-        if not is_non_zero_integer(self.slatm_parameters['slatm_rpower']):
-            raise InputError("Expected non-zero integer for variable 'slatm_rpower'. Got %s." % str(self.slatm_parameters['slatm_rpower']))
+        if not is_non_zero_integer(self.representation_params['slatm_rpower']):
+            raise InputError("Expected non-zero integer for variable 'slatm_rpower'. Got %s." % str(self.representation_params['slatm_rpower']))
 
-        if not is_bool(self.slatm_parameters['slatm_alchemy']):
-            raise InputError("Expected boolean value for variable 'slatm_alchemy'. Got %s." % str(self.slatm_parameters['slatm_alchemy']))
+        if not is_bool(self.representation_params['slatm_alchemy']):
+            raise InputError("Expected boolean value for variable 'slatm_alchemy'. Got %s." % str(self.representation_params['slatm_alchemy']))
 
     def _check_acsf_values(self):
         """
@@ -871,32 +871,32 @@ class _NN(BaseEstimator):
         :return: None
         """
 
-        if not is_positive(self.acsf_parameters['radial_cutoff']):
-            raise InputError("Expected positive float for variable 'radial_cutoff'. Got %s." % str(self.acsf_parameters['radial_cutoff']))
+        if not is_positive(self.representation_params['radial_cutoff']):
+            raise InputError("Expected positive float for variable 'radial_cutoff'. Got %s." % str(self.representation_params['radial_cutoff']))
 
-        if not is_positive(self.acsf_parameters['angular_cutoff']):
-            raise InputError("Expected positive float for variable 'angular_cutoff'. Got %s." % str(self.acsf_parameters['angular_cutoff']))
+        if not is_positive(self.representation_params['angular_cutoff']):
+            raise InputError("Expected positive float for variable 'angular_cutoff'. Got %s." % str(self.representation_params['angular_cutoff']))
 
-        if not is_numeric_array(self.acsf_parameters['radial_rs']):
-            raise InputError("Expecting an array like radial_rs. Got %s." % (self.acsf_parameters['radial_rs']) )
-        if not len(self.acsf_parameters['radial_rs'])>0:
+        if not is_numeric_array(self.representation_params['radial_rs']):
+            raise InputError("Expecting an array like radial_rs. Got %s." % (self.representation_params['radial_rs']))
+        if not len(self.representation_params['radial_rs'])>0:
             raise InputError("No radial_rs values were given." )
 
-        if not is_numeric_array(self.acsf_parameters['angular_rs']):
-            raise InputError("Expecting an array like angular_rs. Got %s." % (self.acsf_parameters['angular_rs']) )
-        if not len(self.acsf_parameters['angular_rs'])>0:
+        if not is_numeric_array(self.representation_params['angular_rs']):
+            raise InputError("Expecting an array like angular_rs. Got %s." % (self.representation_params['angular_rs']))
+        if not len(self.representation_params['angular_rs'])>0:
             raise InputError("No angular_rs values were given." )
 
-        if not is_numeric_array(self.acsf_parameters['theta_s']):
-            raise InputError("Expecting an array like theta_s. Got %s." % (self.acsf_parameters['theta_s']) )
-        if not len(self.acsf_parameters['theta_s'])>0:
+        if not is_numeric_array(self.representation_params['theta_s']):
+            raise InputError("Expecting an array like theta_s. Got %s." % (self.representation_params['theta_s']))
+        if not len(self.representation_params['theta_s'])>0:
             raise InputError("No theta_s values were given. " )
 
-        if is_numeric_array(self.acsf_parameters['eta']):
-            raise InputError("Expecting a scalar value for eta. Got %s." % (self.acsf_parameters['eta']))
+        if is_numeric_array(self.representation_params['eta']):
+            raise InputError("Expecting a scalar value for eta. Got %s." % (self.representation_params['eta']))
 
-        if is_numeric_array(self.acsf_parameters['zeta']):
-            raise InputError("Expecting a scalar value for zeta. Got %s." % (self.acsf_parameters['zeta']))
+        if is_numeric_array(self.representation_params['zeta']):
+            raise InputError("Expecting a scalar value for zeta. Got %s." % (self.representation_params['zeta']))
 
     def _get_msize(self, pad = 0):
         """
@@ -1101,20 +1101,20 @@ class MRMP(_NN):
             raise InputError("Expected string for variable 'representation'. Got %s" % str(representation))
         if representation.lower() not in ['sorted_coulomb_matrix', 'unsorted_coulomb_matrix', 'bag_of_bonds', 'slatm']:
             raise InputError("Unknown representation %s" % representation)
-        self.representation_name = representation.lower()
+        self.representation = representation.lower()
 
         if not is_none(parameters):
             if not type(parameters) is dict:
                 raise InputError("The representation parameters passed should be either None or a dictionary.")
 
-        if self.representation_name == 'slatm':
+        if self.representation == 'slatm':
 
             self._set_slatm_parameters(parameters)
 
         else:
 
             if not is_none(parameters):
-                raise InputError("The representation %s does not take any additional parameters." % (self.representation_name))
+                raise InputError("The representation %s does not take any additional parameters." % (self.representation))
 
     def _set_representation(self, representation):
         """
@@ -1156,7 +1156,7 @@ class MRMP(_NN):
 
         n_samples = len(self.compounds)
 
-        if self.representation_name == 'unsorted_coulomb_matrix':
+        if self.representation == 'unsorted_coulomb_matrix':
 
             nmax = self._get_msize()
             representation_size = (nmax*(nmax+1))//2
@@ -1165,7 +1165,7 @@ class MRMP(_NN):
                 mol.generate_coulomb_matrix(size = nmax, sorting = "unsorted")
                 x[i] = mol.representation
 
-        elif self.representation_name == 'sorted_coulomb_matrix':
+        elif self.representation == 'sorted_coulomb_matrix':
 
             nmax = self._get_msize()
             representation_size = (nmax*(nmax+1))//2
@@ -1174,7 +1174,7 @@ class MRMP(_NN):
                 mol.generate_coulomb_matrix(size = nmax, sorting = "row-norm")
                 x[i] = mol.representation
 
-        elif self.representation_name == "bag_of_bonds":
+        elif self.representation == "bag_of_bonds":
             asize = self._get_asize()
             x = np.empty(n_samples, dtype=object)
             for i, mol in enumerate(self.compounds):
@@ -1182,22 +1182,22 @@ class MRMP(_NN):
                 x[i] = mol.representation
             x = np.asarray(list(x), dtype=float)
 
-        elif self.representation_name == "slatm":
+        elif self.representation == "slatm":
             mbtypes = self._get_slatm_mbtypes([mol.nuclear_charges for mol in self.compounds])
             x = np.empty(n_samples, dtype=object)
             for i, mol in enumerate(self.compounds):
-                mol.generate_slatm(mbtypes, local = False, sigmas = [self.slatm_parameters['slatm_sigma1'],
-                                                                     self.slatm_parameters['slatm_sigma2']],
-                        dgrids = [self.slatm_parameters['slatm_dgrid1'], self.slatm_parameters['slatm_dgrid2']],
-                                   rcut = self.slatm_parameters['slatm_rcut'],
-                                   alchemy = self.slatm_parameters['slatm_alchemy'],
-                        rpower = self.slatm_parameters['slatm_rpower'])
+                mol.generate_slatm(mbtypes, local = False, sigmas = [self.representation_params['slatm_sigma1'],
+                                                                     self.representation_params['slatm_sigma2']],
+                                   dgrids = [self.representation_params['slatm_dgrid1'], self.representation_params['slatm_dgrid2']],
+                                   rcut = self.representation_params['slatm_rcut'],
+                                   alchemy = self.representation_params['slatm_alchemy'],
+                                   rpower = self.representation_params['slatm_rpower'])
                 x[i] = mol.representation
             x = np.asarray(list(x), dtype=float)
 
         else:
 
-            raise InputError("This should never happen. Unrecognised representation. Got %s." % str(self.representation_name))
+            raise InputError("This should never happen. Unrecognised representation. Got %s." % str(self.representation))
 
         return x, None
 
@@ -1759,12 +1759,12 @@ class ARMP(_NN):
             batch_xyz, batch_zs = iterator.get_next()
 
         representation = generate_parkhill_acsf(xyzs=batch_xyz, Zs=batch_zs, elements=elements, element_pairs=element_pairs,
-                                            radial_cutoff=self.acsf_parameters['radial_cutoff'],
-                                            angular_cutoff=self.acsf_parameters['angular_cutoff'],
-                                            radial_rs=self.acsf_parameters['radial_rs'],
-                                            angular_rs=self.acsf_parameters['angular_rs'],
-                                            theta_s=self.acsf_parameters['theta_s'], eta=self.acsf_parameters['eta'],
-                                            zeta=self.acsf_parameters['zeta'])
+                                                radial_cutoff=self.representation_params['radial_cutoff'],
+                                                angular_cutoff=self.representation_params['angular_cutoff'],
+                                                radial_rs=self.representation_params['radial_rs'],
+                                                angular_rs=self.representation_params['angular_rs'],
+                                                theta_s=self.representation_params['theta_s'], eta=self.representation_params['eta'],
+                                                zeta=self.representation_params['zeta'])
 
         sess = tf.Session()
         sess.run(tf.global_variables_initializer())
@@ -1891,12 +1891,12 @@ class ARMP(_NN):
             batch_xyz, batch_zs = iterator.get_next()
 
         representations = generate_parkhill_acsf(xyzs=batch_xyz, Zs=batch_zs, elements=elements, element_pairs=element_pairs,
-                                            radial_cutoff=self.acsf_parameters['radial_cutoff'],
-                                            angular_cutoff=self.acsf_parameters['angular_cutoff'],
-                                            radial_rs=self.acsf_parameters['radial_rs'],
-                                            angular_rs=self.acsf_parameters['angular_rs'],
-                                            theta_s=self.acsf_parameters['theta_s'], eta=self.acsf_parameters['eta'],
-                                            zeta=self.acsf_parameters['zeta'])
+                                                 radial_cutoff=self.representation_params['radial_cutoff'],
+                                                 angular_cutoff=self.representation_params['angular_cutoff'],
+                                                 radial_rs=self.representation_params['radial_rs'],
+                                                 angular_rs=self.representation_params['angular_rs'],
+                                                 theta_s=self.representation_params['theta_s'], eta=self.representation_params['eta'],
+                                                 zeta=self.representation_params['zeta'])
 
         sess = tf.Session()
         sess.run(tf.global_variables_initializer())
@@ -1947,13 +1947,13 @@ class ARMP(_NN):
 
         # Generating the representation in the shape that ARMP requires it
         for compound in self.compounds:
-            compound.generate_slatm(mbtypes, local=True, sigmas=[self.slatm_parameters['slatm_sigma1'],
-                                                                  self.slatm_parameters['slatm_sigma2']],
-                                    dgrids=[self.slatm_parameters['slatm_dgrid1'],
-                                            self.slatm_parameters['slatm_dgrid2']],
-                                    rcut=self.slatm_parameters['slatm_rcut'],
-                                    alchemy=self.slatm_parameters['slatm_alchemy'],
-                                    rpower=self.slatm_parameters['slatm_rpower'])
+            compound.generate_slatm(mbtypes, local=True, sigmas=[self.representation_params['slatm_sigma1'],
+                                                                 self.representation_params['slatm_sigma2']],
+                                    dgrids=[self.representation_params['slatm_dgrid1'],
+                                            self.representation_params['slatm_dgrid2']],
+                                    rcut=self.representation_params['slatm_rcut'],
+                                    alchemy=self.representation_params['slatm_alchemy'],
+                                    rpower=self.representation_params['slatm_rpower'])
             representation = compound.representation
             if max_n_atoms < representation.shape[0]:
                 max_n_atoms = representation.shape[0]
@@ -2895,9 +2895,9 @@ class ARMP_G(ARMP, _NN):
         """
         if is_none(self.element_pairs) and is_none(self.elements):
             self.elements, self.element_pairs = self._get_elements_and_pairs(self.classes)
-            self.n_features = self.elements.shape[0] * self.acsf_parameters['radial_rs'].shape[0] + \
-                              self.element_pairs.shape[0] * self.acsf_parameters['angular_rs'].shape[0] * \
-                              self.acsf_parameters['theta_s'].shape[0]
+            self.n_features = self.elements.shape[0] * self.representation_params['radial_rs'].shape[0] + \
+                              self.element_pairs.shape[0] * self.representation_params['angular_rs'].shape[0] * \
+                              self.representation_params['theta_s'].shape[0]
 
         n_samples = xyz.shape[0]
         n_atoms = xyz.shape[1]
@@ -2920,14 +2920,14 @@ class ARMP_G(ARMP, _NN):
         with tf.name_scope("Descriptor"):
 
             representation = generate_parkhill_acsf_single(xyzs=batch_xyz, Zs=batch_zs, elements=self.elements,
-                                                       element_pairs=self.element_pairs,
-                                                       radial_cutoff=self.acsf_parameters['radial_cutoff'],
-                                                       angular_cutoff=self.acsf_parameters['angular_cutoff'],
-                                                       radial_rs=self.acsf_parameters['radial_rs'],
-                                                       angular_rs=self.acsf_parameters['angular_rs'],
-                                                       theta_s=self.acsf_parameters['theta_s'],
-                                                       eta=self.acsf_parameters['eta'],
-                                                       zeta=self.acsf_parameters['zeta'])
+                                                           element_pairs=self.element_pairs,
+                                                           radial_cutoff=self.representation_params['radial_cutoff'],
+                                                           angular_cutoff=self.representation_params['angular_cutoff'],
+                                                           radial_rs=self.representation_params['radial_rs'],
+                                                           angular_rs=self.representation_params['angular_rs'],
+                                                           theta_s=self.representation_params['theta_s'],
+                                                           eta=self.representation_params['eta'],
+                                                           zeta=self.representation_params['zeta'])
 
             jacobian = partial_derivatives(representation, batch_xyz)
 
@@ -2986,14 +2986,14 @@ class ARMP_G(ARMP, _NN):
 
         for i in range(xyz.shape[0]):
             g, dg = generate_acsf(coordinates=xyz[i], elements=elements, gradients=True, nuclear_charges=classes[i],
-                                  rcut=self.acsf_parameters['radial_cutoff'],
-                                  acut=self.acsf_parameters['angular_cutoff'],
-                                  nRs2=len(self.acsf_parameters['radial_rs']),
-                                  nRs3=len(self.acsf_parameters['angular_rs']),
-                                  nTs=len(self.acsf_parameters['theta_s']),
-                                  eta2=self.acsf_parameters['eta'],
-                                  eta3=self.acsf_parameters['eta'],
-                                  zeta=self.acsf_parameters['zeta'])
+                                  rcut=self.representation_params['radial_cutoff'],
+                                  acut=self.representation_params['angular_cutoff'],
+                                  nRs2=len(self.representation_params['radial_rs']),
+                                  nRs3=len(self.representation_params['angular_rs']),
+                                  nTs=len(self.representation_params['theta_s']),
+                                  eta2=self.representation_params['eta'],
+                                  eta3=self.representation_params['eta'],
+                                  zeta=self.representation_params['zeta'])
             representation.append(g)
             dgdr.append(dg)
 
@@ -3053,9 +3053,9 @@ class ARMP_G(ARMP, _NN):
                                                                                                    dgdr)
         if is_none(self.element_pairs) and is_none(self.elements):
             self.elements, self.element_pairs = self._get_elements_and_pairs(classes_approved)
-            self.n_features = self.elements.shape[0] * self.acsf_parameters['radial_rs'].shape[0] + \
-                              self.element_pairs.shape[0] * self.acsf_parameters['angular_rs'].shape[0] * \
-                              self.acsf_parameters['theta_s'].shape[0]
+            self.n_features = self.elements.shape[0] * self.representation_params['radial_rs'].shape[0] + \
+                              self.element_pairs.shape[0] * self.representation_params['angular_rs'].shape[0] * \
+                              self.representation_params['theta_s'].shape[0]
 
         self.n_samples = g_approved.shape[0]
         max_n_atoms = g_approved.shape[1]
@@ -3134,9 +3134,9 @@ class ARMP_G(ARMP, _NN):
 
         if is_none(self.element_pairs) and is_none(self.elements):
             self.elements, self.element_pairs = self._get_elements_and_pairs(classes_approved)
-            self.n_features = self.elements.shape[0] * self.acsf_parameters['radial_rs'].shape[0] + \
-                              self.element_pairs.shape[0] * self.acsf_parameters['angular_rs'].shape[0] * \
-                              self.acsf_parameters['theta_s'].shape[0]
+            self.n_features = self.elements.shape[0] * self.representation_params['radial_rs'].shape[0] + \
+                              self.element_pairs.shape[0] * self.representation_params['angular_rs'].shape[0] * \
+                              self.representation_params['theta_s'].shape[0]
 
         self.n_samples = g_approved.shape[0]
         max_n_atoms = g_approved.shape[1]
@@ -3346,14 +3346,14 @@ class ARMP_G(ARMP, _NN):
         with tf.name_scope("Descriptor_pred"):
 
             batch_representation = generate_parkhill_acsf(xyzs=batch_xyz, Zs=batch_zs, elements=self.elements,
-                                                       element_pairs=self.element_pairs,
-                                                       radial_cutoff=self.acsf_parameters['radial_cutoff'],
-                                                       angular_cutoff=self.acsf_parameters['angular_cutoff'],
-                                                       radial_rs=self.acsf_parameters['radial_rs'],
-                                                       angular_rs=self.acsf_parameters['angular_rs'],
-                                                       theta_s=self.acsf_parameters['theta_s'],
-                                                       eta=self.acsf_parameters['eta'],
-                                                       zeta=self.acsf_parameters['zeta'])
+                                                          element_pairs=self.element_pairs,
+                                                          radial_cutoff=self.representation_params['radial_cutoff'],
+                                                          angular_cutoff=self.representation_params['angular_cutoff'],
+                                                          radial_rs=self.representation_params['radial_rs'],
+                                                          angular_rs=self.representation_params['angular_rs'],
+                                                          theta_s=self.representation_params['theta_s'],
+                                                          eta=self.representation_params['eta'],
+                                                          zeta=self.representation_params['zeta'])
 
         with tf.name_scope("Model_pred"):
             batch_energies_nn = self._model(batch_representation, batch_zs, element_weights, element_biases)

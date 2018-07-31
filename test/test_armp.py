@@ -59,7 +59,7 @@ def test_set_representation():
     estimator = ARMP(representation='slatm', representation_params=parameters)
 
     assert estimator.representation_name == 'slatm'
-    assert estimator.slatm_parameters == parameters
+    assert estimator.representation_params == parameters
 
 def test_set_properties():
     """

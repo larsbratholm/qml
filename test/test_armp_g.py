@@ -60,11 +60,11 @@ def test_set_representation():
 
     assert estimator.representation_name == 'acsf'
 
-    for key, value in estimator.acsf_parameters.items():
+    for key, value in estimator.representation_params.items():
         if is_array_like(value):
-            assert np.all(estimator.acsf_parameters[key] == parameters[key])
+            assert np.all(estimator.representation_params[key] == parameters[key])
         else:
-            assert estimator.acsf_parameters[key] == parameters[key]
+            assert estimator.representation_params[key] == parameters[key]
 
 def test_set_properties():
     """

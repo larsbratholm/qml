@@ -59,8 +59,8 @@ def test_set_representation():
 
     estimator = MRMP(representation='slatm', representation_params=parameters)
 
-    assert estimator.representation_name == 'slatm'
-    assert estimator.slatm_parameters == parameters
+    assert estimator.representation == 'slatm'
+    assert estimator.representation_params == parameters
 
 def test_set_properties():
     """
