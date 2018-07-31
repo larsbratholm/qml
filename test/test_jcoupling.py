@@ -26,7 +26,7 @@ import numpy as np
 import glob
 
 import qml
-#from qml.ml.representations import generate_jcoupling
+from qml.ml.representations import generate_jcoupling
 import os
 
 def calc_angle(a,b,c):
@@ -73,8 +73,6 @@ def two_body_basis(R, Rs, Rc, eta):
     return np.exp(-eta*(R-Rs)**2) * decay(R, Rc)
 
 def three_body_basis(R, T, Rs, Ts, eta, zeta):
-    print(np.exp(-eta * (R - Rs)**2)[:,None] *  (2 * ((1 + np.cos(T - Ts)) * 0.5) ** zeta)[None,:])
-    quit()
     return np.exp(-eta * (R - Rs)**2)[:,None] * \
             (2 * ((1 + np.cos(T - Ts)) * 0.5) ** zeta)[None,:]
 
@@ -149,7 +147,7 @@ def two_body_other_symmetric(distances, idx, z, ele, basis, eta, rcut):
         return arep
 
     nbasis = len(basis)
-    natoms = distances.shape[0]
+    natoms = z.size
     rep = []
 
     # two body term between coupling atoms and non-coupling
@@ -172,35 +170,6 @@ def three_body_coupling_coupling(coordinates, idx):
                 angle = calc_angle(coordinates[idx1], coordinates[idx0], coordinates[idx2])
                 # cos(angle) to match how the dihedral must be, but probably doesn't matter
                 rep.append(np.cos(angle))
-
-    return rep
-
-def three_body_coupling_other(coordinates, distances, idx, z, ele, rbasis, abasis, eta, zeta, rcut):
-    def pair_to_other(idx0, idx1):
-        pair_rep = np.zeros((len(ele), nrbasis, nabasis))
-        for idx2 in range(natoms):
-            if idx2 in idx:
-                continue
-            d = (distances[idx0, idx2] + distances[idx1, idx2]) * 0.5
-            if d > rcut:
-                continue
-
-            ele_idx = np.where(z[idx2] == ele)[0]
-            angle = calc_angle(coordinates[idx0], coordinates[idx2], coordinates[idx1])
-            pair_rep[ele_idx] += three_body_basis(d, angle, rbasis, abasis, eta, zeta) * \
-                    decay(d, rcut)
-
-        return pair_rep
-
-    nrbasis = len(rbasis)
-    nabasis = len(abasis)
-    natoms = z.size
-
-    rep = []
-    # three body term between two coupling atoms and one non-coupling
-    for i, idx0 in enumerate(idx):
-        for idx1 in idx[i+1:]:
-            rep.append(pair_to_other(idx0, idx1))
 
     return rep
 
@@ -228,6 +197,75 @@ def three_body_coupling_coupling_symmetric(coordinates, distances, idx, rbasis, 
 
     return rep
 
+def three_body_coupling_other(coordinates, distances, idx, z, ele, rbasis, abasis, eta, zeta, rcut):
+    def pair_to_other(idx0, idx1):
+        pair_rep = np.zeros((len(ele), nrbasis, nabasis))
+        for idx2 in range(natoms):
+            if idx2 in idx:
+                continue
+            d = (distances[idx0, idx2] + distances[idx1, idx2]) * 0.5
+            if d > rcut:
+                continue
+
+            ele_idx = np.where(z[idx2] == ele)[0]
+            # Should be centered around one of the coupling atoms
+            angle = calc_angle(coordinates[idx1], coordinates[idx0], coordinates[idx2])
+            pair_rep[ele_idx] += three_body_basis(d, angle, rbasis, abasis, eta, zeta) * \
+                    decay(d, rcut)
+
+        return pair_rep
+
+    nrbasis = len(rbasis)
+    nabasis = len(abasis)
+    natoms = z.size
+
+    rep = []
+    # three body term between two coupling atoms and one non-coupling
+    for i, idx0 in enumerate(idx):
+        for idx1 in idx[i+1:]:
+            rep.append(pair_to_other(idx0, idx1))
+
+    return rep
+
+def three_body_coupling_other_symmetric(coordinates, distances, idx, z, ele, rbasis, abasis, eta, zeta, rcut):
+    def pair_to_other(idx0, idx1):
+        pair_rep = np.zeros((len(ele), nrbasis, nabasis))
+        for idx2 in range(natoms):
+            if idx2 in idx:
+                continue
+            d = (distances[idx0, idx2] + distances[idx1, idx2]) * 0.5
+            if d > rcut:
+                continue
+
+            ele_idx = np.where(z[idx2] == ele)[0]
+            angle = calc_angle(coordinates[idx1], coordinates[idx0], coordinates[idx2])
+            pair_rep[ele_idx] += three_body_basis(d, angle, rbasis, abasis, eta, zeta) * \
+                    decay(d, rcut)
+
+        return pair_rep
+
+    nrbasis = len(rbasis)
+    nabasis = len(abasis)
+    natoms = z.size
+    rep = []
+
+    # three body term between two coupling atoms and one non-coupling
+    # atom 0,1/2,3 to environment
+    pair_rep = pair_to_other(idx[0], idx[1])
+    pair_rep += pair_to_other(idx[3], idx[2]) # The order here matters
+    rep.append(pair_rep)
+    # atom 0,2/1,3
+    pair_rep = pair_to_other(idx[0], idx[2])
+    pair_rep += pair_to_other(idx[3], idx[1])
+    rep.append(pair_rep)
+    # atom 0,3
+    pair_rep = pair_to_other(idx[0], idx[3])
+    rep.append(pair_rep)
+    # atom 1,2
+    pair_rep = pair_to_other(idx[1], idx[2])
+    rep.append(pair_rep)
+
+    return rep
 
 def three_body_other_other(coordinates, distances, idx, z, pairs, rbasis, abasis, eta, zeta, rcut):
     def atom_to_other_pair(idx0):
@@ -268,18 +306,56 @@ def three_body_other_other(coordinates, distances, idx, z, pairs, rbasis, abasis
 
     return rep
 
-def four_body(coordinates, idx):
-    calc_cosdihedral(coordinates[idx])
+def three_body_other_other_symmetric(coordinates, distances, idx, z, pairs, rbasis, abasis, eta, zeta, rcut):
+    def atom_to_other_pair(idx0):
+        pair_rep = np.zeros((len(pairs), nrbasis, nabasis))
+        for idx1 in range(natoms):
+            if idx1 in idx:
+                continue
+            d1 = distances[idx0, idx1]
+            if d1 > rcut:
+                continue
+            for idx2 in range(natoms):
+                if idx2 in idx:
+                    continue
+                d2 = distances[idx0, idx2]
+                if d2 > rcut:
+                    continue
+
+                sorted_z = np.sort([z[idx1], z[idx2]])
+
+                pair_idx = np.where((pairs[:,0] == sorted_z[0]) & 
+                        (pairs[:,1] == sorted_z[1]))[0][0]
+
+                angle = calc_angle(coordinates[idx1], coordinates[idx0], coordinates[idx2])
+
+                pair_rep[pair_idx] += three_body_basis((d1+d2)/2, angle, rbasis, abasis, eta, zeta) \
+                        * decay(d1, rcut) * decay(d2, rcut)
+
+        return pair_rep
+
+    nrbasis = len(rbasis)
+    nabasis = len(abasis)
+    natoms = z.size
 
     rep = []
-    # three body term between coupling atoms
-    for i, idx0 in enumerate(idx):
-        for j, idx1 in enumerate(idx[i+1:]):
-            for idx2 in idx[i+j+2:]:
-                angle = calc_angle(coordinates[idx1], coordinates[idx0], coordinates[idx2])
-                rep.append(angle)
+
+    # three body term between two coupling atoms and one non-coupling
+    # atom 0/3
+    three_body_rep = atom_to_other_pair(idx[0])
+    three_body_rep += atom_to_other_pair(idx[3])
+    rep.append(three_body_rep)
+    # atom 0/3
+    three_body_rep = atom_to_other_pair(idx[1])
+    three_body_rep += atom_to_other_pair(idx[2])
+    rep.append(three_body_rep)
 
     return rep
+
+def four_body(coordinates, idx):
+    dihedral = calc_cosdihedral(coordinates[idx])
+    return [dihedral]
+
 
 def pycoupling(coordinates, coupling_idx, nuclear_charges, elements,
         rbasis2, eta2, rcut2, rbasis3, abasis, eta3, zeta, rcut3):
@@ -323,6 +399,24 @@ def pycoupling(coordinates, coupling_idx, nuclear_charges, elements,
         this_representation.append(
                 four_body(coordinates, idx))
 
+        all_representations.append(nd_to_1d(this_representation))
+
+
+
+def nd_to_1d(x):
+    """
+    Ravels a list of lists or floats to a 1d representation
+    """
+
+    rep = []
+
+    for item in x:
+        if isinstance(item, float):
+            rep.append(item)
+        else:
+            rep.extend(nd_to_1d(item))
+
+    return np.asarray(rep)
 
 def pycoupling_symmetric(coordinates, coupling_idx, nuclear_charges, elements,
         rbasis2, eta2, rcut2, rbasis3, abasis, eta3, zeta, rcut3,
@@ -356,28 +450,19 @@ def pycoupling_symmetric(coordinates, coupling_idx, nuclear_charges, elements,
                 three_body_coupling_coupling_symmetric(
                     coordinates, distances, idx, rbasis2_12, abasis_123, abasis_124, eta2_12, zeta_3))
 
-        #this_representation.append(
-        #        three_body_coupling_other(
-        #            coordinates, distances, idx, nuclear_charges, elements,
-        #            rbasis3, abasis, eta3, zeta, rcut3))
+        this_representation.append(
+                three_body_coupling_other_symmetric(
+                    coordinates, distances, idx, nuclear_charges, elements,
+                    rbasis3, abasis, eta3, zeta, rcut3))
 
-        #this_representation.append(
-        #        three_body_other_other(
-        #            coordinates, distances, idx, nuclear_charges, pairs,
-        #            rbasis3, abasis, eta3, zeta, rcut3))
+        this_representation.append(
+                three_body_other_other_symmetric(
+                    coordinates, distances, idx, nuclear_charges, pairs,
+                    rbasis3, abasis, eta3, zeta, rcut3))
 
-        #this_representation.append(
-        #        four_body(coordinates, idx))
+        this_representation.append(
+                four_body(coordinates, idx))
 
-        #for i in this_representation:
-        #    if isinstance(i[0], float):
-        #        print(i)
-        #    else:
-        #        for j in i:
-        #            print(j)
-
-        print((this_representation[-1]))
-        quit()
 
 
 
@@ -396,11 +481,11 @@ def test_jcoupling():
     # Joint asymmetric and symmetric
     rcut2 = 5
     rbasis2 = np.linspace(0, rcut2, 3)
-    eta2 = 0.9
+    eta2 = 1.1
     rcut3 = 5
     rbasis3 = np.linspace(0, rcut3, 3)
     abasis = np.linspace(0, np.pi, 3)
-    eta3 = 1.1
+    eta3 = 0.9
     zeta = 0.8
     # Only symmetric
     rbasis2_12 = np.linspace(0.5, 2.0, 3)
@@ -428,14 +513,16 @@ def test_jcoupling():
 
     elements = list(elements)
 
+    
 
     for mol in mols:
-        #pycoupling(mol.coordinates, [[5,0,1,2],[6,2,1,0]], mol.nuclear_charges,
-        #        elements, rbasis2, eta2, rcut2, rbasis3, abasis, eta3, zeta, rcut3)
-        pycoupling_symmetric(mol.coordinates, [[5,0,1,2],[6,2,1,0]], mol.nuclear_charges,
-                elements, rbasis2, eta2, rcut2, rbasis3, abasis, eta3, zeta, rcut3,
-                rbasis2_12, rbasis2_13, rbasis2_14, rbasis2_23, eta2_12, eta2_13, eta2_14, eta2_23,
-                abasis_123, abasis_124, zeta_3)
+        fort_rep = generate_jcoupling(mol.nuclear_charges, mol.coordinates, elements, 3, 3, 3, 1.1, 0.9, 0.8, 5, 5)
+        py_rep = pycoupling(mol.coordinates, [[5,0,1,2],[6,2,1,0]], mol.nuclear_charges,
+                    elements, rbasis2, eta2, rcut2, rbasis3, abasis, eta3, zeta, rcut3)
+        py_rep_sym = pycoupling_symmetric(mol.coordinates, [[5,0,1,2],[6,2,1,0]], mol.nuclear_charges,
+                        elements, rbasis2, eta2, rcut2, rbasis3, abasis, eta3, zeta, rcut3,
+                        rbasis2_12, rbasis2_13, rbasis2_14, rbasis2_23, eta2_12, eta2_13, eta2_14, eta2_23,
+                        abasis_123, abasis_124, zeta_3)
 
 
 if __name__ == "__main__":

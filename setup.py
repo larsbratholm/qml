@@ -137,6 +137,15 @@ ext_facsf = Extension(name = '.ml.representations.facsf',
                           language = FORTRAN,
                           f2py_options=['--quiet'])
 
+ext_fjcoupling = Extension(name = '.ml.representations.fjcoupling',
+                          sources = ['qml/ml/representations/fjcoupling.f90'],
+                          extra_f90_compile_args = COMPILER_FLAGS,
+                          extra_f77_compile_args = COMPILER_FLAGS,
+                          extra_compile_args = COMPILER_FLAGS,
+                          extra_link_args = LINKER_FLAGS,
+                          language = FORTRAN,
+                          f2py_options=['--quiet'])
+
 def requirements():
     with open('requirements.txt') as f:
         return [line.rstrip() for line in f]
@@ -186,6 +195,7 @@ def setup_qml():
               ext_fslatm,
               ext_fsolvers,
               ext_facsf,
+              ext_fjcoupling,
               ext_fdistance,
               ext_farad_kernels,
         ],
