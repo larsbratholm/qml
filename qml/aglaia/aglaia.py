@@ -2859,7 +2859,7 @@ class ARMP_G(ARMP, _NN):
 
         f = h5py.File(filename, "r")
 
-        self.g = f["descriptor"][:]
+        self.g = f["representation"][:]
         self.dg_dr = f["dg_dr"][:]
 
         f.close()
