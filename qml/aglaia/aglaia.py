@@ -1128,7 +1128,7 @@ class MRMP(_NN):
         if len(representation.shape) != 2:
             raise InputError("The representation should have a shape (n_samples, n_features). Got %s" % (str(representation.shape)))
 
-        self.representation = representation
+        self.g = representation
 
     def _generate_representations_from_data(self, xyz, classes):
         """
@@ -1437,15 +1437,15 @@ class MRMP(_NN):
         # Check if x is made up of indices or data
         if is_positive_integer_or_zero_array(x):
 
-            if is_none(self.representation):
+            if is_none(self.g):
                 if is_none(self.compounds):
                     raise InputError("No representations or QML compounds have been set yet.")
                 else:
-                    self.representation, _ = self._generate_representations_from_compounds()
+                    self.g, _ = self._generate_representations_from_compounds()
             if is_none(self.properties):
                 raise InputError("The properties need to be set in advance.")
 
-            approved_x = self.representation[x]
+            approved_x = self.g[x]
             approved_y = self._get_properties(x)
             approved_dy = None
             approved_classes = None
@@ -1494,15 +1494,15 @@ class MRMP(_NN):
         # Check if x is made up of indices or data
         if is_positive_integer_or_zero_array(x):
 
-            if is_none(self.representation):
+            if is_none(self.g):
                 if is_none(self.compounds):
                     raise InputError("No representations or QML compounds have been set yet.")
                 else:
-                    self.representation, _ = self._generate_representations_from_compounds()
+                    self.g, _ = self._generate_representations_from_compounds()
             if is_none(self.properties):
                 raise InputError("The properties need to be set in advance.")
 
-            approved_x = self.representation[x]
+            approved_x = self.g[x]
             approved_classes = None
 
         else:
@@ -1654,25 +1654,25 @@ class ARMP(_NN):
             raise InputError("Expected string for variable 'representation'. Got %s" % str(representation))
         if representation.lower() not in ['slatm', 'acsf']:
             raise InputError("Unknown representation %s" % representation)
-        self.representation_name = representation.lower()
+        self.representation = representation.lower()
 
         if not is_none(parameters):
             if not type(parameters) is dict:
                 raise InputError("The representation parameters passed should be either None or a dictionary.")
             self._check_representation_parameters(parameters)
 
-        if self.representation_name == 'slatm':
+        if self.representation == 'slatm':
 
             self._set_slatm_parameters(parameters)
 
-        elif self.representation_name == 'acsf':
+        elif self.representation == 'acsf':
 
             self._set_acsf_parameters(parameters)
 
         else:
 
             if not is_none(parameters):
-                raise InputError("The representation %s does not take any additional parameters." % (self.representation_name))
+                raise InputError("The representation %s does not take any additional parameters." % (self.representation))
 
     def _set_representation(self, representation):
 
@@ -1703,11 +1703,11 @@ class ARMP(_NN):
 
         representation = None
 
-        if self.representation_name == 'slatm':
+        if self.representation == 'slatm':
             # TODO implement
             raise InputError("Slatm from data has not been implemented yet. Use Compounds.")
 
-        elif self.representation_name == 'acsf':
+        elif self.representation == 'acsf':
 
             representation = self._generate_acsf_from_data(xyz, classes)
 
@@ -1811,16 +1811,16 @@ class ARMP(_NN):
         if is_none(self.compounds):
             raise InputError("QML compounds needs to be created in advance")
 
-        if self.representation_name == 'slatm':
+        if self.representation == 'slatm':
 
             representations, classes = self._generate_slatm_from_compounds()
 
-        elif self.representation_name == 'acsf':
+        elif self.representation == 'acsf':
 
             representations, classes = self._generate_acsf_from_compounds()
 
         else:
-            raise InputError("This should never happen, unrecognised representation %s." % (self.representation_name))
+            raise InputError("This should never happen, unrecognised representation %s." % (self.representation))
 
         return representations, classes
 
@@ -2104,19 +2104,19 @@ class ARMP(_NN):
         # Check if x is made up of indices or data
         if is_positive_integer_or_zero_array(x):
 
-            if is_none(self.representation):
+            if is_none(self.g):
 
                 if is_none(self.compounds):
                     raise InputError("No representations or QML compounds have been set yet.")
                 else:
-                    self.representation, self.classes = self._generate_representations_from_compounds()
+                    self.g, self.classes = self._generate_representations_from_compounds()
 
             if is_none(self.properties):
                 raise InputError("The properties need to be set in advance.")
             if is_none(self.classes):
                 raise InputError("The classes need to be set in advance.")
 
-            approved_x = self.representation[x]
+            approved_x = self.g[x]
             approved_y = self._get_properties(x)
             approved_dy = None
             approved_classes = self.classes[x]
@@ -2164,15 +2164,15 @@ class ARMP(_NN):
         # Check if x is made up of indices or data
         if is_positive_integer_or_zero_array(x):
 
-            if is_none(self.representation):
+            if is_none(self.g):
                 if is_none(self.compounds):
                     raise InputError("No representations or QML compounds have been set yet.")
                 else:
-                    self.representation, self.classes = self._generate_representations_from_compounds()
+                    self.g, self.classes = self._generate_representations_from_compounds()
             if is_none(self.properties):
                 raise InputError("The properties need to be set in advance.")
 
-            approved_x = self.representation[x]
+            approved_x = self.g[x]
             approved_classes = self.classes[x]
 
             check_sizes(x=approved_x, classes=approved_classes)
@@ -2199,7 +2199,7 @@ class ARMP(_NN):
         :return: None
         """
 
-        if self.representation_name == "slatm":
+        if self.representation == "slatm":
 
             slatm_parameters = {'slatm_sigma1': 0.05, 'slatm_sigma2': 0.05, 'slatm_dgrid1': 0.03, 'slatm_dgrid2': 0.03,
                                 'slatm_rcut': 4.8, 'slatm_rpower': 6, 'slatm_alchemy': False}
@@ -2210,7 +2210,7 @@ class ARMP(_NN):
                 except Exception:
                     raise InputError("Unrecognised parameter for slatm representation: %s" % (key))
 
-        elif self.representation_name == "acsf":
+        elif self.representation == "acsf":
 
             acsf_parameters = {'radial_cutoff': 10.0, 'angular_cutoff': 10.0, 'radial_rs': (0.0, 0.1, 0.2),
                                     'angular_rs': (0.0, 0.1, 0.2), 'theta_s': (3.0, 2.0), 'zeta': 3.0, 'eta': 2.0}
@@ -2537,7 +2537,7 @@ class ARMP_G(ARMP, _NN):
         """
         This function checks that the data passed to the fit function makes sense. If X represent indices, it extracts
         the data from the variables self.xyz, self.properties, self.gradients and self.classes. If the representations have
-        been generated prior to calling this function, it uses self.representation and self.dg_dr instead of self.xyz.
+        been generated prior to calling this function, it uses self.g and self.dg_dr instead of self.xyz.
         Otherwise the representations and their gradients wrt the Cartesian coordinates are generated.
 
         :param x: Indices or the cartesian coordinates
@@ -2562,7 +2562,7 @@ class ARMP_G(ARMP, _NN):
         # Check if x is made up of indices or data
         if is_positive_integer_or_zero_array(x):
 
-            if is_none(self.representation):
+            if is_none(self.g):
 
                 if is_none(self.xyz) or is_none(self.classes):
                     if not is_none(self.compounds):
@@ -2577,7 +2577,7 @@ class ARMP_G(ARMP, _NN):
                     approved_g, approved_dgdr = self._generate_rep_and_dgdr_tf(self.xyz[x], self.classes[x])
                     approved_classes = self.classes[x]
             else:
-                approved_g = self.representation[x]
+                approved_g = self.g[x]
                 approved_dgdr = self.dg_dr[x]
                 approved_classes = self.classes[x]
 
@@ -2632,7 +2632,7 @@ class ARMP_G(ARMP, _NN):
         # Check if x is made up of indices or data
         if is_positive_integer_or_zero_array(x):
 
-            if is_none(self.representation):
+            if is_none(self.g):
 
                 if is_none(self.xyz) or is_none(self.classes):
                     if not is_none(self.compounds):
@@ -2649,7 +2649,7 @@ class ARMP_G(ARMP, _NN):
                 check_sizes(x=approved_g, classes=approved_classes)
 
             else:
-                approved_g = self.representation[x]
+                approved_g = self.g[x]
                 approved_dgdr = self.dg_dr[x]
                 approved_classes = self.classes[x]
 
@@ -2819,13 +2819,13 @@ class ARMP_G(ARMP, _NN):
                 self.xyz = self._get_xyz_from_compounds(idx_tot)
                 self.classes = self._get_classes_from_compounds(idx_tot)
 
-        if not is_none(self.representation):
+        if not is_none(self.g):
             raise InputError("The representations have already been set!")
 
         if method == 'tf':
-            self.representation, self.dg_dr = self._generate_rep_and_dgdr_tf(self.xyz, self.classes)
+            self.g, self.dg_dr = self._generate_rep_and_dgdr_tf(self.xyz, self.classes)
         else:
-            self.representation, self.dg_dr = self._generate_rep_and_dgdr_fortran(self.xyz, self.classes)
+            self.g, self.dg_dr = self._generate_rep_and_dgdr_fortran(self.xyz, self.classes)
 
     def save_representations_and_dgdr(self, filename="rep_and_grad.hdf5"):
         """
@@ -2835,7 +2835,7 @@ class ARMP_G(ARMP, _NN):
         :return: None
         """
 
-        if is_none(self.representation) or is_none(self.dg_dr):
+        if is_none(self.g) or is_none(self.dg_dr):
             raise InputError("The representations and their gradients wrt to the Cartesian coordinates have not been calculated yet.")
 
         try:
@@ -2845,7 +2845,7 @@ class ARMP_G(ARMP, _NN):
 
         f = h5py.File(filename, "w")
 
-        f.create_dataset("representation", self.representation.shape, data=self.representation)
+        f.create_dataset("representation", self.g.shape, data=self.g)
         f.create_dataset("dg_dr", self.dg_dr.shape, data=self.dg_dr)
 
         f.close()
@@ -2859,7 +2859,7 @@ class ARMP_G(ARMP, _NN):
 
         f = h5py.File(filename, "r")
 
-        self.representation = f["descriptor"][:]
+        self.g = f["descriptor"][:]
         self.dg_dr = f["dg_dr"][:]
 
         f.close()

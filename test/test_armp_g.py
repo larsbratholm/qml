@@ -58,7 +58,7 @@ def test_set_representation():
 
     estimator = ARMP_G(representation='acsf', representation_params=parameters)
 
-    assert estimator.representation_name == 'acsf'
+    assert estimator.representation == 'acsf'
 
     for key, value in estimator.representation_params.items():
         if is_array_like(value):
