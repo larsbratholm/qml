@@ -1529,10 +1529,10 @@ class MRMP(_NN):
         err = tf.square(tf.subtract(y,y_pred))
         loss = tf.reduce_mean(err, name="loss")
         cost = loss
-        if self.l2_reg > 0:
+        if self.l2_reg >= 0:
             l2_loss = self._l2_loss(weights)
             cost = cost + l2_loss
-        if self.l1_reg > 0:
+        if self.l1_reg >= 0:
             l1_loss = self._l1_loss(weights)
             cost = cost + l1_loss
 
@@ -2060,12 +2060,12 @@ class ARMP(_NN):
         err =  tf.square(tf.subtract(y, y_pred))
         cost_function = tf.reduce_mean(err, name="loss")
 
-        if self.l2_reg > 0:
+        if self.l2_reg >= 0:
             l2_loss = 0
             for element in weights_dict:
                 l2_loss += self._l2_loss(weights_dict[element])
             cost_function += l2_loss
-        if self.l1_reg > 0:
+        if self.l1_reg >= 0:
             l1_loss = 0
             for element in weights_dict:
                 l1_loss += self._l1_loss(weights_dict[element])
@@ -2786,12 +2786,12 @@ class ARMP_G(ARMP, _NN):
 
         cost_function = tf.add(tf.reduce_mean(ene_err), tf.reduce_mean(force_err), name="loss")
 
-        if self.l2_reg > 0:
+        if self.l2_reg >= 0:
             l2_loss = 0
             for element in weights_dict:
                 l2_loss += self._l2_loss(weights_dict[element])
             cost_function += l2_loss
-        if self.l1_reg > 0:
+        if self.l1_reg >= 0:
             l1_loss = 0
             for element in weights_dict:
                 l1_loss += self._l1_loss(weights_dict[element])
