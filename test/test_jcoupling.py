@@ -374,32 +374,50 @@ def pycoupling(coordinates, coupling_idx, nuclear_charges, elements,
     for idx in coupling_idx:
         this_representation = []
 
+        print(1)
+
         this_representation.append(
                 two_body_coupling(
                     distances, idx))
+
+        print(nd_to_1d(this_representation).size + 1)
 
         this_representation.append(
                 two_body_other(
                     distances, idx, nuclear_charges, elements, rbasis2, eta2, rcut2))
 
+        print(nd_to_1d(this_representation).size + 1)
+
         this_representation.append(
                 three_body_coupling_coupling(
                     coordinates, idx))
+
+        print(nd_to_1d(this_representation).size + 1)
 
         this_representation.append(
                 three_body_coupling_other(
                     coordinates, distances, idx, nuclear_charges, elements,
                     rbasis3, abasis, eta3, zeta, rcut3))
 
+        print(nd_to_1d(this_representation).size + 1)
+
         this_representation.append(
                 three_body_other_other(
                     coordinates, distances, idx, nuclear_charges, pairs,
                     rbasis3, abasis, eta3, zeta, rcut3))
 
+        print(nd_to_1d(this_representation).size + 1)
+
         this_representation.append(
                 four_body(coordinates, idx))
 
+        print(nd_to_1d(this_representation).size + 1)
+
         all_representations.append(nd_to_1d(this_representation))
+
+    all_representations = np.asarray(all_representations)
+
+    return all_representations
 
 
 
@@ -513,12 +531,15 @@ def test_jcoupling():
 
     elements = list(elements)
 
-    
 
     for mol in mols:
-        fort_rep = generate_jcoupling(mol.nuclear_charges, mol.coordinates, elements, 3, 3, 3, 1.1, 0.9, 0.8, 5, 5)
+        fort_rep = generate_jcoupling(mol.nuclear_charges, mol.coordinates, [[5,0,1,2],[6,2,1,0]], 
+                elements, 3, 3, 3, 1.1, 0.9, 0.8, 5, 5)
         py_rep = pycoupling(mol.coordinates, [[5,0,1,2],[6,2,1,0]], mol.nuclear_charges,
                     elements, rbasis2, eta2, rcut2, rbasis3, abasis, eta3, zeta, rcut3)
+        print(fort_rep[:,:6])
+        print(py_rep[:,:6])
+        quit()
         py_rep_sym = pycoupling_symmetric(mol.coordinates, [[5,0,1,2],[6,2,1,0]], mol.nuclear_charges,
                         elements, rbasis2, eta2, rcut2, rbasis3, abasis, eta3, zeta, rcut3,
                         rbasis2_12, rbasis2_13, rbasis2_14, rbasis2_23, eta2_12, eta2_13, eta2_14, eta2_23,

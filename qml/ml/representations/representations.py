@@ -639,5 +639,7 @@ def generate_jcoupling(nuclear_charges, coordinates, index_pairs, elements = [1,
     rep_size = 11 + 4 * n_elements * nRs2 + 6 * n_elements * nRs3 * nTs + \
         4 * (n_elements * (n_elements + 1))//2 * nRs3 * nTs
 
+    index_pairs = np.asarray(index_pairs) + 1
+
     return fgenerate_jcoupling(coordinates, nuclear_charges, elements, index_pairs,
             Rs2, Rs3, Ts, eta2, eta3, zeta, rcut, acut, n_index_pairs, rep_size)
