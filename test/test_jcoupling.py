@@ -73,8 +73,8 @@ def two_body_basis(R, Rs, Rc, eta):
     return np.exp(-eta*(R-Rs)**2) * decay(R, Rc)
 
 def three_body_basis(R, T, Rs, Ts, eta, zeta):
-    return np.exp(-eta * (R - Rs)**2)[:,None] * \
-            (2 * ((1 + np.cos(T - Ts)) * 0.5) ** zeta)[None,:]
+    return np.exp(-eta * (R - Rs)**2)[None,:] * \
+            (2 * ((1 + np.cos(T - Ts)) * 0.5) ** zeta)[:,None]
 
 def two_body_coupling(d, idx):
     rep = []
@@ -122,7 +122,7 @@ def two_body_other(distances, idx, z, ele, basis, eta, rcut):
             if d > rcut:
                 continue
             ele_idx = np.where(z[idx1] == ele)[0][0]
-            arep[ele_idx] += two_body_basis(d, basis, eta, rcut)
+            arep[ele_idx] += two_body_basis(d, basis, rcut, eta)
         return arep
 
     nbasis = len(basis)
@@ -276,7 +276,7 @@ def three_body_other_other(coordinates, distances, idx, z, pairs, rbasis, abasis
             d1 = distances[idx0, idx1]
             if d1 > rcut:
                 continue
-            for idx2 in range(natoms):
+            for idx2 in range(idx1+1, natoms):
                 if idx2 in idx:
                     continue
                 d2 = distances[idx0, idx2]
@@ -292,6 +292,7 @@ def three_body_other_other(coordinates, distances, idx, z, pairs, rbasis, abasis
 
                 pair_rep[pair_idx] += three_body_basis((d1+d2)/2, angle, rbasis, abasis, eta, zeta) \
                         * decay(d1, rcut) * decay(d2, rcut)
+
 
         return pair_rep
 
@@ -354,6 +355,7 @@ def three_body_other_other_symmetric(coordinates, distances, idx, z, pairs, rbas
 
 def four_body(coordinates, idx):
     dihedral = calc_cosdihedral(coordinates[idx])
+    print(dihedral)
     return [dihedral]
 
 
@@ -375,44 +377,37 @@ def pycoupling(coordinates, coupling_idx, nuclear_charges, elements,
         this_representation = []
 
         print(1)
-
         this_representation.append(
                 two_body_coupling(
                     distances, idx))
 
         print(nd_to_1d(this_representation).size + 1)
-
         this_representation.append(
                 two_body_other(
                     distances, idx, nuclear_charges, elements, rbasis2, eta2, rcut2))
 
         print(nd_to_1d(this_representation).size + 1)
-
         this_representation.append(
                 three_body_coupling_coupling(
                     coordinates, idx))
 
         print(nd_to_1d(this_representation).size + 1)
-
         this_representation.append(
                 three_body_coupling_other(
                     coordinates, distances, idx, nuclear_charges, elements,
                     rbasis3, abasis, eta3, zeta, rcut3))
 
         print(nd_to_1d(this_representation).size + 1)
-
         this_representation.append(
                 three_body_other_other(
                     coordinates, distances, idx, nuclear_charges, pairs,
                     rbasis3, abasis, eta3, zeta, rcut3))
 
         print(nd_to_1d(this_representation).size + 1)
-
         this_representation.append(
                 four_body(coordinates, idx))
 
         print(nd_to_1d(this_representation).size + 1)
-
         all_representations.append(nd_to_1d(this_representation))
 
     all_representations = np.asarray(all_representations)
@@ -496,6 +491,8 @@ def test_jcoupling():
              "qm7/0109.xyz",
              "qm7/0110.xyz"]
 
+    files = glob.glob("qm7/*.xyz")
+
     # Joint asymmetric and symmetric
     rcut2 = 5
     rbasis2 = np.linspace(0, rcut2, 3)
@@ -529,17 +526,22 @@ def test_jcoupling():
     for mol in mols:
         elements = elements.union(mol.nuclear_charges)
 
-    elements = list(elements)
+    elements = sorted(list(elements))
 
 
-    for mol in mols:
-        fort_rep = generate_jcoupling(mol.nuclear_charges, mol.coordinates, [[5,0,1,2],[6,2,1,0]], 
+    for i, mol in enumerate(mols):
+        fort_rep = generate_jcoupling(mol.nuclear_charges, mol.coordinates, [[5,0,1,2],[6,2,1,0]],
                 elements, 3, 3, 3, 1.1, 0.9, 0.8, 5, 5)
         py_rep = pycoupling(mol.coordinates, [[5,0,1,2],[6,2,1,0]], mol.nuclear_charges,
                     elements, rbasis2, eta2, rcut2, rbasis3, abasis, eta3, zeta, rcut3)
-        print(fort_rep[:,:6])
-        print(py_rep[:,:6])
-        quit()
+        start_idx = 7
+        end_idx = 66
+        print(flush = True)
+        print(fort_rep[:,start_idx:end_idx][0])
+        print(py_rep[:,start_idx:end_idx][0])
+        print((fort_rep[:,start_idx:end_idx] - py_rep[:,start_idx:end_idx])[0])
+        print(i, files[i], elements)
+        assert(np.allclose(fort_rep[:,:end_idx], py_rep[:,:end_idx]))
         py_rep_sym = pycoupling_symmetric(mol.coordinates, [[5,0,1,2],[6,2,1,0]], mol.nuclear_charges,
                         elements, rbasis2, eta2, rcut2, rbasis3, abasis, eta3, zeta, rcut3,
                         rbasis2_12, rbasis2_13, rbasis2_14, rbasis2_23, eta2_12, eta2_13, eta2_14, eta2_23,
