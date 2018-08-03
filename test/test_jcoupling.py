@@ -84,8 +84,8 @@ def two_body_coupling(d, idx):
             rep.append(d[idx0, idx1])
     return rep
 
-def two_body_coupling_symmetric(distances, idx, rbasis2_12, rbasis2_13, rbasis2_14, 
-        rbasis2_23, eta2_12, eta2_13, eta2_14, eta2_23):
+def two_body_coupling_symmetric(distances, idx, rbasis2_12, rbasis2_13,
+        eta2_12, eta2_13):
     rep = []
 
     # atom 0 to 1 plus atom 2 to 3
@@ -189,10 +189,10 @@ def three_body_coupling_coupling_symmetric(coordinates, distances, idx, rbasis, 
     # atom 0, 1, 3 plus atom 0, 2, 3
     d = distances[idx[0], idx[1]]
     angle = calc_angle(coordinates[idx[0]], coordinates[idx[1]], coordinates[idx[3]])
-    pair_rep = three_body_basis(d, angle, rbasis, abasis1, eta, zeta)
+    pair_rep = three_body_basis(d, angle, rbasis, abasis2, eta, zeta)
     d = distances[idx[2], idx[3]]
     angle = calc_angle(coordinates[idx[0]], coordinates[idx[2]], coordinates[idx[3]])
-    pair_rep += three_body_basis(d, angle, rbasis, abasis1, eta, zeta)
+    pair_rep += three_body_basis(d, angle, rbasis, abasis2, eta, zeta)
     rep.append(pair_rep)
 
     return rep
@@ -355,7 +355,6 @@ def three_body_other_other_symmetric(coordinates, distances, idx, z, pairs, rbas
 
 def four_body(coordinates, idx):
     dihedral = calc_cosdihedral(coordinates[idx])
-    print(dihedral)
     return [dihedral]
 
 
@@ -376,38 +375,31 @@ def pycoupling(coordinates, coupling_idx, nuclear_charges, elements,
     for idx in coupling_idx:
         this_representation = []
 
-        print(1)
         this_representation.append(
                 two_body_coupling(
                     distances, idx))
 
-        print(nd_to_1d(this_representation).size + 1)
         this_representation.append(
                 two_body_other(
                     distances, idx, nuclear_charges, elements, rbasis2, eta2, rcut2))
 
-        print(nd_to_1d(this_representation).size + 1)
         this_representation.append(
                 three_body_coupling_coupling(
                     coordinates, idx))
 
-        print(nd_to_1d(this_representation).size + 1)
         this_representation.append(
                 three_body_coupling_other(
                     coordinates, distances, idx, nuclear_charges, elements,
                     rbasis3, abasis, eta3, zeta, rcut3))
 
-        print(nd_to_1d(this_representation).size + 1)
         this_representation.append(
                 three_body_other_other(
                     coordinates, distances, idx, nuclear_charges, pairs,
                     rbasis3, abasis, eta3, zeta, rcut3))
 
-        print(nd_to_1d(this_representation).size + 1)
         this_representation.append(
                 four_body(coordinates, idx))
 
-        print(nd_to_1d(this_representation).size + 1)
         all_representations.append(nd_to_1d(this_representation))
 
     all_representations = np.asarray(all_representations)
@@ -433,7 +425,7 @@ def nd_to_1d(x):
 
 def pycoupling_symmetric(coordinates, coupling_idx, nuclear_charges, elements,
         rbasis2, eta2, rcut2, rbasis3, abasis, eta3, zeta, rcut3,
-        rbasis2_12, rbasis2_13, rbasis2_14, rbasis2_23, eta2_12, eta2_13, eta2_14, eta2_23,
+        rbasis2_12, rbasis2_13, eta2_12, eta2_13,
         abasis_123, abasis_124, zeta_3):
 
     distances = np.sqrt(np.sum((coordinates[:,None] - coordinates[None,:])**2, axis = 2))
@@ -452,8 +444,8 @@ def pycoupling_symmetric(coordinates, coupling_idx, nuclear_charges, elements,
 
         this_representation.append(
                 two_body_coupling_symmetric(
-                    distances, idx, rbasis2_12, rbasis2_13, rbasis2_14, 
-                    rbasis2_23, eta2_12, eta2_13, eta2_14, eta2_23))
+                    distances, idx, rbasis2_12, rbasis2_13, 
+                    eta2_12, eta2_13))
 
         this_representation.append(
                 two_body_other_symmetric(
@@ -476,6 +468,11 @@ def pycoupling_symmetric(coordinates, coupling_idx, nuclear_charges, elements,
         this_representation.append(
                 four_body(coordinates, idx))
 
+        all_representations.append(nd_to_1d(this_representation))
+
+    all_representations = np.asarray(all_representations)
+
+    return all_representations
 
 
 
@@ -491,7 +488,7 @@ def test_jcoupling():
              "qm7/0109.xyz",
              "qm7/0110.xyz"]
 
-    files = glob.glob("qm7/*.xyz")
+    #files = glob.glob("qm7/*.xyz")
 
     # Joint asymmetric and symmetric
     rcut2 = 5
@@ -505,12 +502,8 @@ def test_jcoupling():
     # Only symmetric
     rbasis2_12 = np.linspace(0.5, 2.0, 3)
     rbasis2_13 = np.linspace(1.5, 3.0, 3)
-    rbasis2_14 = np.linspace(1.5, 5.0, 3)
-    rbasis2_23 = np.linspace(1.0, 1.8, 3)
     eta2_12 = 1.2
     eta2_13 = 1.15
-    eta2_14 = 1.05
-    eta2_23 = 0.95
     abasis_123 = np.linspace(np.pi/2, np.pi, 3)
     abasis_124 = np.linspace(0, np.pi, 3)
     zeta_3 = 0.85
@@ -530,24 +523,115 @@ def test_jcoupling():
 
 
     for i, mol in enumerate(mols):
-        fort_rep = generate_jcoupling(mol.nuclear_charges, mol.coordinates, [[5,0,1,2],[6,2,1,0]],
-                elements, 3, 3, 3, 1.1, 0.9, 0.8, 5, 5)
-        py_rep = pycoupling(mol.coordinates, [[5,0,1,2],[6,2,1,0]], mol.nuclear_charges,
-                    elements, rbasis2, eta2, rcut2, rbasis3, abasis, eta3, zeta, rcut3)
-        start_idx = 7
-        end_idx = 66
-        print(flush = True)
-        print(fort_rep[:,start_idx:end_idx][0])
-        print(py_rep[:,start_idx:end_idx][0])
-        print((fort_rep[:,start_idx:end_idx] - py_rep[:,start_idx:end_idx])[0])
-        print(i, files[i], elements)
-        assert(np.allclose(fort_rep[:,:end_idx], py_rep[:,:end_idx]))
+        #fort_rep = generate_jcoupling(mol.nuclear_charges, mol.coordinates, [[5,0,1,2],[6,2,1,0]],
+        #        elements, 3, 3, 3, 1.1, 0.9, 0.8, 5, 5)
+        #fort_rep = generate_jcoupling(mol.nuclear_charges, mol.coordinates, [[5,0,1,2],[6,2,1,0]],
+        #        elements, 3, 2, 5)
+        #py_rep = pycoupling(mol.coordinates, [[5,0,1,2],[6,2,1,0]], mol.nuclear_charges,
+        #            elements, rbasis2, eta2, rcut2, rbasis3, abasis, eta3, zeta, rcut3)
         py_rep_sym = pycoupling_symmetric(mol.coordinates, [[5,0,1,2],[6,2,1,0]], mol.nuclear_charges,
                         elements, rbasis2, eta2, rcut2, rbasis3, abasis, eta3, zeta, rcut3,
-                        rbasis2_12, rbasis2_13, rbasis2_14, rbasis2_23, eta2_12, eta2_13, eta2_14, eta2_23,
+                        rbasis2_12, rbasis2_13, eta2_12, eta2_13,
                         abasis_123, abasis_124, zeta_3)
+        print(py_rep_sym.shape)
+        #fort_rep_sym = generate_jcoupling_symmetric(mol.nuclear_charges, mol.coordinates, [[5,0,1,2],[6,2,1,0]],
+        #        elements, 3, 3, 3, 1.1, 0.9, 0.8, 5, 5)
+
+def get_parameters():
+    files = glob.glob('qm7/*.dat')
+
+    all_coordinate_pairs = []
+
+    for dat_file in files:
+        mol = qml.data.Compound(xyz=dat_file.replace(".dat", ".xyz"))
+        with open(dat_file) as f:
+            lines = f.readlines()
+
+            dihedral_pairs = []
+            for i, line0 in enumerate(lines):
+                if "TORSION ANGLES" in line0:
+                    for line1 in lines[i+1:]:
+                        tokens = line1.split()
+                        if len(tokens) == 0:
+                            break
+                        a0 = int(tokens[0]) - 1
+                        a1 = int(tokens[1]) - 1
+                        a2 = int(tokens[2]) - 1
+                        a3 = int(tokens[3]) - 1
+                        if a0 == a3:
+                            continue
+                        if mol.nuclear_charges[a0] not in [1,6]:
+                            continue
+                        if mol.nuclear_charges[a1] not in [1,6,7]:
+                            continue
+                        if mol.nuclear_charges[a2] not in [1,6,7]:
+                            continue
+                        if mol.nuclear_charges[a3] not in [1,6]:
+                            continue
+                        dihedral_pairs.append([a0, a1, a2, a3])
+            if len(dihedral_pairs) == 0:
+                continue
+            dihedral_pairs = np.asarray(dihedral_pairs, dtype = int)
+
+        all_coordinate_pairs.append(mol.coordinates[dihedral_pairs])
+
+    all_coordinate_pairs = np.concatenate(all_coordinate_pairs)
+    # distances between atom 0 and 1
+    d = np.sqrt(np.sum((all_coordinate_pairs[:,0,:] - all_coordinate_pairs[:,1,:])**2, axis=1))
+    print("12", d.min(), d.max())
+    # distances between atom 0 and 2
+    d = np.sqrt(np.sum((all_coordinate_pairs[:,0,:] - all_coordinate_pairs[:,2,:])**2, axis=1))
+    print("13", d.min(), d.max())
+    # distances between atom 0 and 3
+    d = np.sqrt(np.sum((all_coordinate_pairs[:,0,:] - all_coordinate_pairs[:,3,:])**2, axis=1))
+    print("14", d.min(), d.max())
+    # distances between atom 1 and 2
+    d = np.sqrt(np.sum((all_coordinate_pairs[:,1,:] - all_coordinate_pairs[:,2,:])**2, axis=1))
+    print("23", d.min(), d.max())
+    # distances between atom 1 and 3
+    d = np.sqrt(np.sum((all_coordinate_pairs[:,1,:] - all_coordinate_pairs[:,3,:])**2, axis=1))
+    print("24", d.min(), d.max())
+    # distances between atom 2 and 3
+    d = np.sqrt(np.sum((all_coordinate_pairs[:,2,:] - all_coordinate_pairs[:,3,:])**2, axis=1))
+    print("34", d.min(), d.max())
+    # angle between atom 0 1 2
+    angles = []
+    for pair in all_coordinate_pairs:
+        a = calc_angle(pair[0,:], pair[1,:], pair[2,:])
+        angles.append(a)
+    angles = np.asarray(angles)
+    print("123", angles.min(), angles.max())
+    # angle between atom 0 1 3
+    angles = []
+    for pair in all_coordinate_pairs:
+        a = calc_angle(pair[0,:], pair[1,:], pair[3,:])
+        angles.append(a)
+    angles = np.asarray(angles)
+    print("124", angles.min(), angles.max())
+    # angle between atom 0 2 3
+    angles = []
+    for pair in all_coordinate_pairs:
+        a = calc_angle(pair[0,:], pair[2,:], pair[3,:])
+        angles.append(a)
+    angles = np.asarray(angles)
+    print("134", angles.min(), angles.max())
+    # angle between atom 1 2 3
+    angles = []
+    for pair in all_coordinate_pairs:
+        a = calc_angle(pair[1,:], pair[2,:], pair[3,:])
+        angles.append(a)
+    angles = np.asarray(angles)
+    print("234", angles.min(), angles.max())
+    quit()
+
+
+
 
 
 if __name__ == "__main__":
     test_jcoupling()
+    #get_parameters()
+
+
+
 

@@ -39,7 +39,7 @@ from .slatm import get_sbop
 from .slatm import get_sbot
 
 from .facsf import fgenerate_acsf, fgenerate_acsf_and_gradients
-from .fjcoupling import fgenerate_jcoupling
+from .fjcoupling import fgenerate_jcoupling, fgenerate_jcoupling_symmetric
 
 def vector_to_matrix(v):
     """ Converts a representation from 1D vector to 2D square matrix.
@@ -598,43 +598,82 @@ def generate_acsf(nuclear_charges, coordinates, elements = [1,6,7,8,16], nRs2 = 
         return fgenerate_acsf(coordinates, nuclear_charges, elements, Rs2, Rs3, 
                 Ts, eta2, eta3, zeta, rcut, acut, natoms, rep_size)
 
-def generate_jcoupling(nuclear_charges, coordinates, index_pairs, elements = [1,6,7,8,16], nRs2 = 3, nRs3 = 3, nTs = 3, eta2 = 1, 
-        eta3 = 1, zeta = 1, rcut = 5, acut = 5):
+
+
+#def generate_jcoupling(nuclear_charges, coordinates, index_pairs, elements = [1,6,7,8,16], nRs2 = 3,
+#        nRs3 = 3, nTs = 3, eta2 = 1, eta3 = 1, zeta = 1, rcut = 5, acut = 5):
+def generate_jcoupling(nuclear_charges, coordinates, index_pairs, elements = [1,6,7,8,16], nbasis = 3,
+        precision = 2, cutoff = 5):
     """
-    Generate a representation for jcouplings
+    Generate a representation for jcouplings, e.g. HC
 
     :param nuclear_charges: List of nuclear charges.
     :type nuclear_charges: numpy array
     :param coordinates: Input coordinates
     :type coordinates: numpy array
+    :param index_pairs: 4-atom pairs that define the coupling atoms
+    :type index_pairs: numpy integer array of size (n_pairs, 4)
     :param elements: list of unique nuclear charges (atom types)
     :type elements: numpy array
-    :param nRs2: Number of gaussian basis functions in the two-body terms
-    :type nRs2: integer
-    :param nRs3: Number of gaussian basis functions in the three-body radial part
-    :type nRs3: integer
-    :param nTs: Number of basis functions in the three-body angular part
-    :type nTs: integer
-    :param eta2: Precision in the gaussian basis functions in the two-body terms
-    :type eta2: float
-    :param eta3: Precision in the gaussian basis functions in the three-body radial part
-    :type eta3: float
-    :param zeta: Precision parameter of basis functions in the three-body angular part
-    :type zeta: float
-    :param rcut: Cut-off radius of the two-body terms
-    :type rcut: float
-    :param acut: Cut-off radius of the three-body terms
-    :type acut: float
+    :param nbasis: Number of basis functions used in all terms
+    :type nbasis: integer
+    :param precision: Precision in the basis functions. A value of 2 corresponds to the \
+                    basis functions intersecting at half maximum. Higher values makes \
+                    the basis functions narrower.
+    :type precision: float
+    :param cutoff: Cut-off radius
+    :type cutoff: float
     :return: jcoupling representation
     :rtype: numpy array
     """
+    #"""
+    #Generate a representation for jcouplings, e.g. HC
 
-    Rs2 = np.linspace(0, rcut, nRs2)
-    Rs3 = np.linspace(0, acut, nRs3)
-    Ts = np.linspace(0, np.pi, nTs)
+    #:param nuclear_charges: List of nuclear charges.
+    #:type nuclear_charges: numpy array
+    #:param coordinates: Input coordinates
+    #:type coordinates: numpy array
+    #:param elements: list of unique nuclear charges (atom types)
+    #:type elements: numpy array
+    #:param nRs2: Number of gaussian basis functions in the two-body terms
+    #:type nRs2: integer
+    #:param nRs3: Number of gaussian basis functions in the three-body radial part
+    #:type nRs3: integer
+    #:param nTs: Number of basis functions in the three-body angular part
+    #:type nTs: integer
+    #:param eta2: Precision in the gaussian basis functions in the two-body terms
+    #:type eta2: float
+    #:param eta3: Precision in the gaussian basis functions in the three-body radial part
+    #:type eta3: float
+    #:param zeta: Precision parameter of basis functions in the three-body angular part
+    #:type zeta: float
+    #:param rcut: Cut-off radius of the two-body terms
+    #:type rcut: float
+    #:param acut: Cut-off radius of the three-body terms
+    #:type acut: float
+    #:return: jcoupling representation
+    #:rtype: numpy array
+    #"""
+
+    #Rs2 = np.linspace(0, rcut, nRs2)
+    Rs2 = np.linspace(0.9, cutoff, nbasis)
+    #Rs3 = np.linspace(0, acut, nRs3)
+    #Ts = np.linspace(0, np.pi, nTs)
+    Ts = np.linspace(0, np.pi, nbasis)
     n_elements = len(elements)
     natoms = len(coordinates)
     n_index_pairs = len(index_pairs)
+
+
+    nRs2 = nbasis
+    nRs3 = nbasis
+    nTs = nbasis
+    rcut = cutoff
+    acut = cutoff
+    Rs3 = Rs2
+    eta2 = precision**2 * np.log(2) / ((cutoff - 0.9) / (nbasis - 1))**2
+    eta3 = eta2
+    zeta = np.log(2)/(np.log(2) - np.log(1 + np.cos((np.pi / (nbasis - 1))/precision)))
 
     rep_size = 11 + 4 * n_elements * nRs2 + 6 * n_elements * nRs3 * nTs + \
         4 * (n_elements * (n_elements + 1))//2 * nRs3 * nTs
@@ -643,3 +682,97 @@ def generate_jcoupling(nuclear_charges, coordinates, index_pairs, elements = [1,
 
     return fgenerate_jcoupling(coordinates, nuclear_charges, elements, index_pairs,
             Rs2, Rs3, Ts, eta2, eta3, zeta, rcut, acut, n_index_pairs, rep_size)
+
+#def generate_jcoupling_symmetric(nuclear_charges, coordinates, index_pairs, elements = [1,6,7,8,16], nRs2 = 3, 
+
+def generate_jcoupling(nuclear_charges, coordinates, index_pairs, elements = [1,6,7,8,16], nbasis = 3,
+        precision = 2, cutoff = 5):
+    """
+    Generate a representation for jcouplings, e.g. HC
+
+    :param nuclear_charges: List of nuclear charges.
+    :type nuclear_charges: numpy array
+    :param coordinates: Input coordinates
+    :type coordinates: numpy array
+    :param index_pairs: 4-atom pairs that define the coupling atoms
+    :type index_pairs: numpy integer array of size (n_pairs, 4)
+    :param elements: list of unique nuclear charges (atom types)
+    :type elements: numpy array
+    :param nbasis: Number of basis functions used in all terms
+    :type nbasis: integer
+    :param precision: Precision in the basis functions. A value of 2 corresponds to the \
+                    basis functions intersecting at half maximum. Higher values makes \
+                    the basis functions narrower.
+    :type precision: float
+    :param cutoff: Cut-off radius
+    :type cutoff: float
+    :return: jcoupling representation
+    :rtype: numpy array
+    """
+    #"""
+    #Generate a representation for jcouplings, e.g. HC
+
+    #:param nuclear_charges: List of nuclear charges.
+    #:type nuclear_charges: numpy array
+    #:param coordinates: Input coordinates
+    #:type coordinates: numpy array
+    #:param elements: list of unique nuclear charges (atom types)
+    #:type elements: numpy array
+    #:param nRs2: Number of gaussian basis functions in the two-body terms
+    #:type nRs2: integer
+    #:param nRs3: Number of gaussian basis functions in the three-body radial part
+    #:type nRs3: integer
+    #:param nTs: Number of basis functions in the three-body angular part
+    #:type nTs: integer
+    #:param eta2: Precision in the gaussian basis functions in the two-body terms
+    #:type eta2: float
+    #:param eta3: Precision in the gaussian basis functions in the three-body radial part
+    #:type eta3: float
+    #:param zeta: Precision parameter of basis functions in the three-body angular part
+    #:type zeta: float
+    #:param rcut: Cut-off radius of the two-body terms
+    #:type rcut: float
+    #:param acut: Cut-off radius of the three-body terms
+    #:type acut: float
+    #:return: jcoupling representation
+    #:rtype: numpy array
+    #"""
+
+#        abasis_123, abasis_124, zeta_3):
+
+    Rs2 = np.linspace(0.9, cutoff, nbasis)
+    Rs3 = Rs2
+    Ts = np.linspace(0, np.pi, nbasis)
+    n_elements = len(elements)
+    natoms = len(coordinates)
+    n_index_pairs = len(index_pairs)
+    nRs2 = nbasis
+    nRs3 = nbasis
+    nTs = nbasis
+    rcut = cutoff
+    acut = cutoff
+    Rs3 = Rs2
+    eta2 = precision**2 * np.log(2) / ((cutoff - 0.9) / (nbasis - 1))**2
+    eta3 = eta2
+    zeta = np.log(2)/(np.log(2) - np.log(1 + np.cos((np.pi / (nbasis - 1))/precision)))
+
+    Rs2_12 = np.linspace(0.95, 1.6, nbasis)
+    Rs2_13 = np.linspace(1.4,  3.0, nbasis)
+    nRs2_12 = nbasis
+    nRs2_13 = nbasis
+    eta2_12 = precision**2 * np.log(2) / ((1.6 - 0.95) / (nbasis - 1))**2
+    eta2_13 = precision**2 * np.log(2) / ((3.0 - 1.4) / (nbasis - 1))**2
+    abasis_123 = np.linspace(0.9, np.pi, nbasis)
+    abasis_124 = np.linspace(0.65, np.pi, nbasis)
+    zeta_123 = np.log(2)/(np.log(2) - np.log(1 + np.cos(((np.pi - 0.9) / (nbasis - 1))/precision)))
+    zeta_124 = np.log(2)/(np.log(2) - np.log(1 + np.cos(((np.pi - 0.65) / (nbasis - 1))/precision)))
+
+    rep_size = 3 + nRs2_12 + nRs2_13 + 2 * n_elements * nRs2 + nRs2_12 * (nTs_123 + nTs_124) + \
+            4 * n_elements * nRs3 * nTs + (n_elements * (n_elements + 1)) * nRs3 * nTs
+
+    # Convert to fortran array
+    index_pairs = np.asarray(index_pairs) + 1
+
+    return fgenerate_jcoupling(coordinates, nuclear_charges, elements, index_pairs,
+            Rs2, Rs3, Ts, eta2, eta3, zeta, rcut, acut, n_index_pairs, rep_size,
+            Rs2_12, Rs2_13, eta2_12, eta2_13, abasis_123, abasis_124, zeta_123, zeta_124)
