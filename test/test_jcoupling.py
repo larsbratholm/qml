@@ -26,7 +26,7 @@ import numpy as np
 import glob
 
 import qml
-from qml.ml.representations import generate_jcoupling
+from qml.ml.representations import generate_jcoupling, generate_jcoupling_symmetric
 import os
 
 def calc_angle(a,b,c):
@@ -143,7 +143,7 @@ def two_body_other_symmetric(distances, idx, z, ele, basis, eta, rcut):
             if d > rcut:
                 continue
             ele_idx = np.where(z[idx1] == ele)[0][0]
-            arep[ele_idx] += two_body_basis(d, basis, eta, rcut)
+            arep[ele_idx] += two_body_basis(d, basis, rcut, eta)
         return arep
 
     nbasis = len(basis)
@@ -173,26 +173,26 @@ def three_body_coupling_coupling(coordinates, idx):
 
     return rep
 
-def three_body_coupling_coupling_symmetric(coordinates, distances, idx, rbasis, abasis1, abasis2, eta, zeta):
+def three_body_coupling_coupling_symmetric(coordinates, distances, idx, rbasis, abasis1, abasis2, eta, zeta1, zeta2):
 
     rep = []
 
     # atom 0, 1, 2 plus atom 1, 2, 3
     d = distances[idx[0], idx[1]]
     angle = calc_angle(coordinates[idx[0]], coordinates[idx[1]], coordinates[idx[2]])
-    pair_rep = three_body_basis(d, angle, rbasis, abasis1, eta, zeta)
+    pair_rep = three_body_basis(d, angle, rbasis, abasis1, eta, zeta1)
     d = distances[idx[2], idx[3]]
     angle = calc_angle(coordinates[idx[1]], coordinates[idx[2]], coordinates[idx[3]])
-    pair_rep += three_body_basis(d, angle, rbasis, abasis1, eta, zeta)
+    pair_rep += three_body_basis(d, angle, rbasis, abasis1, eta, zeta1)
     rep.append(pair_rep)
 
     # atom 0, 1, 3 plus atom 0, 2, 3
     d = distances[idx[0], idx[1]]
     angle = calc_angle(coordinates[idx[0]], coordinates[idx[1]], coordinates[idx[3]])
-    pair_rep = three_body_basis(d, angle, rbasis, abasis2, eta, zeta)
+    pair_rep = three_body_basis(d, angle, rbasis, abasis2, eta, zeta2)
     d = distances[idx[2], idx[3]]
     angle = calc_angle(coordinates[idx[0]], coordinates[idx[2]], coordinates[idx[3]])
-    pair_rep += three_body_basis(d, angle, rbasis, abasis2, eta, zeta)
+    pair_rep += three_body_basis(d, angle, rbasis, abasis2, eta, zeta2)
     rep.append(pair_rep)
 
     return rep
@@ -424,9 +424,28 @@ def nd_to_1d(x):
     return np.asarray(rep)
 
 def pycoupling_symmetric(coordinates, coupling_idx, nuclear_charges, elements,
-        rbasis2, eta2, rcut2, rbasis3, abasis, eta3, zeta, rcut3,
-        rbasis2_12, rbasis2_13, eta2_12, eta2_13,
-        abasis_123, abasis_124, zeta_3):
+        nbasis, precision, cutoff):
+
+    rbasis2 = np.linspace(0.9, cutoff, nbasis)
+    rbasis3 = rbasis2
+    abasis = np.linspace(0, np.pi, nbasis)
+    n_elements = len(elements)
+    natoms = len(coordinates)
+    nTs = nbasis
+    rcut2 = cutoff
+    acut = cutoff
+    eta2 = precision**2 * np.log(2) / ((cutoff - 0.9) / (nbasis - 1))**2
+    eta3 = eta2
+    zeta = np.log(2)/(np.log(2) - np.log(1 + np.cos((np.pi / (nbasis - 1))/precision)))
+
+    rbasis2_12 = np.linspace(0.95, 2.0, nbasis)
+    rbasis2_13 = np.linspace(1.2,  3.4, nbasis)
+    eta2_12 = precision**2 * np.log(2) / ((2.0 - 0.95) / (nbasis - 1))**2
+    eta2_13 = precision**2 * np.log(2) / ((3.4 - 1.2) / (nbasis - 1))**2
+    abasis_123 = np.linspace(0.75, np.pi, nbasis)
+    abasis_124 = np.linspace(0.65, np.pi, nbasis)
+    zeta_123 = np.log(2)/(np.log(2) - np.log(1 + np.cos(((np.pi - 0.75) / (nbasis - 1))/precision)))
+    zeta_124 = np.log(2)/(np.log(2) - np.log(1 + np.cos(((np.pi - 0.65) / (nbasis - 1))/precision)))
 
     distances = np.sqrt(np.sum((coordinates[:,None] - coordinates[None,:])**2, axis = 2))
 
@@ -442,38 +461,44 @@ def pycoupling_symmetric(coordinates, coupling_idx, nuclear_charges, elements,
     for idx in coupling_idx:
         this_representation = []
 
+        print(nd_to_1d(this_representation).size)
         this_representation.append(
                 two_body_coupling_symmetric(
                     distances, idx, rbasis2_12, rbasis2_13, 
                     eta2_12, eta2_13))
+        print(nd_to_1d(this_representation).size)
 
         this_representation.append(
                 two_body_other_symmetric(
                     distances, idx, nuclear_charges, elements, rbasis2, eta2, rcut2))
 
+        print(nd_to_1d(this_representation).size)
         this_representation.append(
                 three_body_coupling_coupling_symmetric(
-                    coordinates, distances, idx, rbasis2_12, abasis_123, abasis_124, eta2_12, zeta_3))
+                    coordinates, distances, idx, rbasis2_12, abasis_123, abasis_124, eta2_12, zeta_123, zeta_124))
 
+        print(nd_to_1d(this_representation).size)
         this_representation.append(
                 three_body_coupling_other_symmetric(
                     coordinates, distances, idx, nuclear_charges, elements,
-                    rbasis3, abasis, eta3, zeta, rcut3))
+                    rbasis3, abasis, eta3, zeta, acut))
 
+        print(nd_to_1d(this_representation).size)
         this_representation.append(
                 three_body_other_other_symmetric(
                     coordinates, distances, idx, nuclear_charges, pairs,
-                    rbasis3, abasis, eta3, zeta, rcut3))
+                    rbasis3, abasis, eta3, zeta, acut))
+        print(nd_to_1d(this_representation).size)
 
         this_representation.append(
                 four_body(coordinates, idx))
+        print(nd_to_1d(this_representation).size)
 
         all_representations.append(nd_to_1d(this_representation))
 
     all_representations = np.asarray(all_representations)
 
     return all_representations
-
 
 
 def test_jcoupling():
@@ -530,15 +555,18 @@ def test_jcoupling():
         #py_rep = pycoupling(mol.coordinates, [[5,0,1,2],[6,2,1,0]], mol.nuclear_charges,
         #            elements, rbasis2, eta2, rcut2, rbasis3, abasis, eta3, zeta, rcut3)
         py_rep_sym = pycoupling_symmetric(mol.coordinates, [[5,0,1,2],[6,2,1,0]], mol.nuclear_charges,
-                        elements, rbasis2, eta2, rcut2, rbasis3, abasis, eta3, zeta, rcut3,
-                        rbasis2_12, rbasis2_13, eta2_12, eta2_13,
-                        abasis_123, abasis_124, zeta_3)
-        print(py_rep_sym.shape)
-        #fort_rep_sym = generate_jcoupling_symmetric(mol.nuclear_charges, mol.coordinates, [[5,0,1,2],[6,2,1,0]],
-        #        elements, 3, 3, 3, 1.1, 0.9, 0.8, 5, 5)
+                        elements, 3, 2, 5)
+        fort_rep_sym = generate_jcoupling_symmetric(mol.nuclear_charges, mol.coordinates, [[5,0,1,2],[6,2,1,0]],
+                elements, 3, 2, 5)
+        start = 26
+        end = 27
+        print(py_rep_sym[0,start:end])
+        print(fort_rep_sym[0,start:end])
+        assert(np.allclose(py_rep_sym[:,:end], fort_rep_sym[:,:end]))
 
 def get_parameters():
     files = glob.glob('qm7/*.dat')
+    files.extend(glob.glob('/home/lb17101/dev/ML_for_NMR/xyz/*.dat'))
 
     all_coordinate_pairs = []
 
@@ -623,9 +651,6 @@ def get_parameters():
     angles = np.asarray(angles)
     print("234", angles.min(), angles.max())
     quit()
-
-
-
 
 
 if __name__ == "__main__":

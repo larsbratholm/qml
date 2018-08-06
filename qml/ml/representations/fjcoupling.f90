@@ -448,7 +448,7 @@ subroutine four_body(coordinates, index_pairs, rep)
 end subroutine four_body
 
 subroutine two_body_coupling_sym(distance_matrix, index_pairs, Rs2_12, Rs2_13, &
-        & eta2_12, eta2_13, rep):
+        & eta2_12, eta2_13, rep)
 
     implicit none
 
@@ -460,10 +460,11 @@ subroutine two_body_coupling_sym(distance_matrix, index_pairs, Rs2_12, Rs2_13, &
     double precision, intent(in) :: eta2_13
     double precision, intent(inout), dimension(:, :) :: rep
 
-    integer :: n_index_pairs, idx0, idx1, idx2, idx3
+    integer :: i, n_index_pairs, idx0, idx1, idx2, idx3, nRs2_12, nRs2_13
 
     n_index_pairs = size(index_pairs, dim=1)
-    nRs2_12 = size(nRs2_12, dim=1)
+    nRs2_12 = size(Rs2_12, dim=1)
+    nRs2_13 = size(Rs2_13, dim=1)
 
     !$OMP PARALLEL DO PRIVATE(idx0, idx1, idx2, idx3)
     do i = 1, n_index_pairs
@@ -484,6 +485,61 @@ subroutine two_body_coupling_sym(distance_matrix, index_pairs, Rs2_12, Rs2_13, &
     !$OMP END PARALLEL DO
 
 end subroutine two_body_coupling_sym
+
+subroutine two_body_other_sym(distance_matrix, index_pairs, element_types, rdecay, &
+        & Rs, eta, rcut, nelements, rep)
+
+    implicit none
+
+    double precision, intent(in), dimension(:, :) :: distance_matrix
+    integer, intent(in), dimension(:, :) :: index_pairs
+    integer, intent(in), dimension(:) :: element_types
+    double precision, intent(in), dimension(:, :) :: rdecay
+    double precision, intent(in), dimension(:) :: Rs
+    double precision, intent(in) :: eta, rcut
+    integer, intent(in) :: nelements
+    double precision, intent(inout), dimension(:, :) :: rep
+
+    integer :: n_index_pairs, i, j, idx0, k, natoms, n, nRs, idx1
+    double precision :: r
+
+    n_index_pairs = size(index_pairs, dim=1)
+    natoms = size(distance_matrix, dim=1)
+    nRs = size(Rs, dim=1)
+
+    rep = 0.0d0
+
+    ! Having j before k makes it possible to collapse the loop
+    ! and avoid reduction of rep
+    !$OMP PARALLEL DO PRIVATE(idx0, idx1, n, r) COLLAPSE(2) SCHEDULE(dynamic)
+    do i = 1, n_index_pairs
+        do j = 1, 2
+            idx0 = index_pairs(i, j)
+            idx1 = index_pairs(i, 5-j)
+            do k = 1, natoms
+                if (ANY(index_pairs(i, :) == k)) cycle
+
+                n = (element_types(k) - 1) * nRs + (j-1) * nelements * nRs + 1
+
+                r = distance_matrix(idx0, k)
+
+                if (r <= rcut) then
+                    rep(i, n: n + nRs - 1) = rep(i, n: n + nRs - 1) + &
+                        & exp(-eta * (r - Rs)**2) * rdecay(k, idx0)
+                endif
+
+                r = distance_matrix(idx1, k)
+
+                if (r <= rcut) then
+                    rep(i, n: n + nRs - 1) = rep(i, n: n + nRs - 1) + &
+                        & exp(-eta * (r - Rs)**2) * rdecay(k, idx1)
+                endif
+            enddo
+        enddo
+    enddo
+    !$OMP END PARALLEL DO
+
+end subroutine two_body_other_sym
 
 end module jcoupling_utils
 
@@ -585,7 +641,7 @@ subroutine fgenerate_jcoupling_symmetric(coordinates, nuclear_charges, elements,
                           & zeta_123, zeta_124, rep)
 
     use jcoupling_utils, only: decay, get_distance_matrix, two_body_coupling_sym, &
-        get_element_types, two_body_other, three_body_coupling_coupling, &
+        get_element_types, two_body_other_sym, three_body_coupling_coupling, &
         three_body_coupling_other, three_body_other_other, four_body
 
     implicit none
@@ -650,34 +706,35 @@ subroutine fgenerate_jcoupling_symmetric(coordinates, nuclear_charges, elements,
 
     ! Calculate two body terms between a coupling atom and
     ! other atoms
-    m = 6 + 4 * nelements * nRs2
-    call two_body_other(distance_matrix, index_pairs, element_types, rdecay, Rs2, &
-        & eta2, rcut, nelements, rep(:, 7:m))
+    n = m
+    m = n + 2 * nelements * nRs2
+    call two_body_other_sym(distance_matrix, index_pairs, element_types, rdecay, Rs2, &
+        & eta2, rcut, nelements, rep(:, n+1:m))
 
-    ! Get three body decay
-    rdecay = decay(distance_matrix, acut)
+    !! Get three body decay
+    !rdecay = decay(distance_matrix, acut)
 
-    ! Calculate three body terms between three coupling atoms
-    n = m + 1
-    m = n + 3
-    call three_body_coupling_coupling(coordinates, index_pairs, rep(:, n:m))
+    !! Calculate three body terms between three coupling atoms
+    !n = m + 1
+    !m = n + 3
+    !call three_body_coupling_coupling(coordinates, index_pairs, rep(:, n:m))
 
-    ! Calculate three body terms between two coupling atoms and
-    ! other atoms
-    n = m + 1
-    m = n + 6 * nelements * nRs3 * nTs - 1
-    call three_body_coupling_other(distance_matrix, coordinates, index_pairs, &
-        & element_types, Rs3, Ts, eta3, zeta, acut, nelements, rep(:, n:m))
+    !! Calculate three body terms between two coupling atoms and
+    !! other atoms
+    !n = m + 1
+    !m = n + 6 * nelements * nRs3 * nTs - 1
+    !call three_body_coupling_other(distance_matrix, coordinates, index_pairs, &
+    !    & element_types, Rs3, Ts, eta3, zeta, acut, nelements, rep(:, n:m))
 
-    ! Calculate three body terms between a coupling atom and two
-    ! other atoms
-    n = m + 1
-    m = n + 2 * nelements * (nelements + 1) * nRs3 * nTs - 1
-    call three_body_other_other(distance_matrix, coordinates, index_pairs, &
-        & element_types, rdecay, Rs3, Ts, eta3, zeta, acut, nelements, rep(:, n:m))
+    !! Calculate three body terms between a coupling atom and two
+    !! other atoms
+    !n = m + 1
+    !m = n + 2 * nelements * (nelements + 1) * nRs3 * nTs - 1
+    !call three_body_other_other(distance_matrix, coordinates, index_pairs, &
+    !    & element_types, rdecay, Rs3, Ts, eta3, zeta, acut, nelements, rep(:, n:m))
 
-    ! Calculate the four body term between coupling atoms
-    call four_body(coordinates, index_pairs, rep(:,m+1))
+    !! Calculate the four body term between coupling atoms
+    !call four_body(coordinates, index_pairs, rep(:,m+1))
 
     deallocate(element_types)
     deallocate(distance_matrix)

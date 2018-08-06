@@ -683,9 +683,7 @@ def generate_jcoupling(nuclear_charges, coordinates, index_pairs, elements = [1,
     return fgenerate_jcoupling(coordinates, nuclear_charges, elements, index_pairs,
             Rs2, Rs3, Ts, eta2, eta3, zeta, rcut, acut, n_index_pairs, rep_size)
 
-#def generate_jcoupling_symmetric(nuclear_charges, coordinates, index_pairs, elements = [1,6,7,8,16], nRs2 = 3, 
-
-def generate_jcoupling(nuclear_charges, coordinates, index_pairs, elements = [1,6,7,8,16], nbasis = 3,
+def generate_jcoupling_symmetric(nuclear_charges, coordinates, index_pairs, elements = [1,6,7,8,16], nbasis = 3,
         precision = 2, cutoff = 5):
     """
     Generate a representation for jcouplings, e.g. HC
@@ -751,20 +749,21 @@ def generate_jcoupling(nuclear_charges, coordinates, index_pairs, elements = [1,
     nTs = nbasis
     rcut = cutoff
     acut = cutoff
-    Rs3 = Rs2
     eta2 = precision**2 * np.log(2) / ((cutoff - 0.9) / (nbasis - 1))**2
     eta3 = eta2
     zeta = np.log(2)/(np.log(2) - np.log(1 + np.cos((np.pi / (nbasis - 1))/precision)))
 
-    Rs2_12 = np.linspace(0.95, 1.6, nbasis)
-    Rs2_13 = np.linspace(1.4,  3.0, nbasis)
+    Rs2_12 = np.linspace(0.95, 2.0, nbasis)
+    Rs2_13 = np.linspace(1.2,  3.4, nbasis)
     nRs2_12 = nbasis
     nRs2_13 = nbasis
-    eta2_12 = precision**2 * np.log(2) / ((1.6 - 0.95) / (nbasis - 1))**2
-    eta2_13 = precision**2 * np.log(2) / ((3.0 - 1.4) / (nbasis - 1))**2
-    abasis_123 = np.linspace(0.9, np.pi, nbasis)
+    eta2_12 = precision**2 * np.log(2) / ((2.0 - 0.95) / (nbasis - 1))**2
+    eta2_13 = precision**2 * np.log(2) / ((3.4 - 1.2) / (nbasis - 1))**2
+    abasis_123 = np.linspace(0.75, np.pi, nbasis)
     abasis_124 = np.linspace(0.65, np.pi, nbasis)
-    zeta_123 = np.log(2)/(np.log(2) - np.log(1 + np.cos(((np.pi - 0.9) / (nbasis - 1))/precision)))
+    nTs_123 = nbasis
+    nTs_124 = nbasis
+    zeta_123 = np.log(2)/(np.log(2) - np.log(1 + np.cos(((np.pi - 0.75) / (nbasis - 1))/precision)))
     zeta_124 = np.log(2)/(np.log(2) - np.log(1 + np.cos(((np.pi - 0.65) / (nbasis - 1))/precision)))
 
     rep_size = 3 + nRs2_12 + nRs2_13 + 2 * n_elements * nRs2 + nRs2_12 * (nTs_123 + nTs_124) + \
@@ -773,6 +772,6 @@ def generate_jcoupling(nuclear_charges, coordinates, index_pairs, elements = [1,
     # Convert to fortran array
     index_pairs = np.asarray(index_pairs) + 1
 
-    return fgenerate_jcoupling(coordinates, nuclear_charges, elements, index_pairs,
+    return fgenerate_jcoupling_symmetric(coordinates, nuclear_charges, elements, index_pairs,
             Rs2, Rs3, Ts, eta2, eta3, zeta, rcut, acut, n_index_pairs, rep_size,
             Rs2_12, Rs2_13, eta2_12, eta2_13, abasis_123, abasis_124, zeta_123, zeta_124)
