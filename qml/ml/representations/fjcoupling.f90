@@ -114,7 +114,11 @@ function calc_cos_dihedral(a, b, c, d) result(cos_dihedral)
 
     y = dot_product(cross, w)
 
-    cos_dihedral = x / sqrt(x**2 + y**2)
+    if ((x == 0.0d0) .and. (y == 0.0d0)) then
+        cos_dihedral = 1.0d0
+    else
+        cos_dihedral = x / sqrt(x**2 + y**2)
+    endif
 
 end function calc_cos_dihedral
 

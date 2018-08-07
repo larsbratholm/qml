@@ -61,6 +61,10 @@ def calc_cosdihedral(p):
     x = np.dot(v, w)
     y = np.dot(np.cross(b1, v), w)
 
+    # For linear molecules
+    if x == 0 or y == 0:
+        return 1.0
+
     # cos(arctan2(y,x)) == x / sqrt(x**2 + y**2)
     cos_dihedral = x / np.sqrt(x**2 + y**2)
 
@@ -359,7 +363,7 @@ def four_body(coordinates, idx):
 
 
 def pycoupling(coordinates, coupling_idx, nuclear_charges, elements,
-        rbasis2, eta2, rcut2, rbasis3, abasis, eta3, zeta, rcut3):
+        nbasis, precision, cutoff):
 
     distances = np.sqrt(np.sum((coordinates[:,None] - coordinates[None,:])**2, axis = 2))
 
@@ -369,6 +373,25 @@ def pycoupling(coordinates, coupling_idx, nuclear_charges, elements,
             pairs.append([el1,el2])
 
     pairs = np.asarray(pairs, dtype = int)
+
+    rbasis2 = np.linspace(0.9, cutoff, nbasis)
+    abasis = np.linspace(0, np.pi, nbasis)
+    n_elements = len(elements)
+    natoms = len(coordinates)
+    n_index_pairs = len(coupling_idx)
+
+
+    nRs2 = nbasis
+    nRs3 = nbasis
+    nTs = nbasis
+    rcut = cutoff
+    acut = cutoff
+    rcut2 = rcut
+    rcut3 = acut
+    rbasis3 = rbasis2
+    eta2 = precision**2 * np.log(2) / ((cutoff - 0.9) / (nbasis - 1))**2
+    eta3 = eta2
+    zeta = np.log(2)/(np.log(2) - np.log(1 + np.cos((np.pi / (nbasis - 1))/precision)))
 
     all_representations = []
 
@@ -461,38 +484,31 @@ def pycoupling_symmetric(coordinates, coupling_idx, nuclear_charges, elements,
     for idx in coupling_idx:
         this_representation = []
 
-        print(nd_to_1d(this_representation).size)
         this_representation.append(
                 two_body_coupling_symmetric(
                     distances, idx, rbasis2_12, rbasis2_13, 
                     eta2_12, eta2_13))
-        print(nd_to_1d(this_representation).size)
 
         this_representation.append(
                 two_body_other_symmetric(
                     distances, idx, nuclear_charges, elements, rbasis2, eta2, rcut2))
 
-        print(nd_to_1d(this_representation).size)
         this_representation.append(
                 three_body_coupling_coupling_symmetric(
                     coordinates, distances, idx, rbasis2_12, abasis_123, abasis_124, eta2_12, zeta_123, zeta_124))
 
-        print(nd_to_1d(this_representation).size)
         this_representation.append(
                 three_body_coupling_other_symmetric(
                     coordinates, distances, idx, nuclear_charges, elements,
                     rbasis3, abasis, eta3, zeta, acut))
 
-        print(nd_to_1d(this_representation).size)
         this_representation.append(
                 three_body_other_other_symmetric(
                     coordinates, distances, idx, nuclear_charges, pairs,
                     rbasis3, abasis, eta3, zeta, acut))
-        print(nd_to_1d(this_representation).size)
 
         this_representation.append(
                 four_body(coordinates, idx))
-        print(nd_to_1d(this_representation).size)
 
         all_representations.append(nd_to_1d(this_representation))
 
@@ -514,31 +530,16 @@ def test_jcoupling():
              "qm7/0110.xyz"]
 
     #files = glob.glob("qm7/*.xyz")
-
-    # Joint asymmetric and symmetric
-    rcut2 = 5
-    rbasis2 = np.linspace(0, rcut2, 3)
-    eta2 = 1.1
-    rcut3 = 5
-    rbasis3 = np.linspace(0, rcut3, 3)
-    abasis = np.linspace(0, np.pi, 3)
-    eta3 = 0.9
-    zeta = 0.8
-    # Only symmetric
-    rbasis2_12 = np.linspace(0.5, 2.0, 3)
-    rbasis2_13 = np.linspace(1.5, 3.0, 3)
-    eta2_12 = 1.2
-    eta2_13 = 1.15
-    abasis_123 = np.linspace(np.pi/2, np.pi, 3)
-    abasis_124 = np.linspace(0, np.pi, 3)
-    zeta_3 = 0.85
+    filenames = []
 
     path = test_dir = os.path.dirname(os.path.realpath(__file__))
 
     mols = []
     for xyz_file in files:
         mol = qml.data.Compound(xyz=path + "/" + xyz_file)
-        mols.append(mol)
+        if mol.natoms > 7:
+            mols.append(mol)
+            filenames.append(xyz_file)
 
     elements = set()
     for mol in mols:
@@ -551,16 +552,16 @@ def test_jcoupling():
         fort_rep = generate_jcoupling(mol.nuclear_charges, mol.coordinates, [[5,0,1,2],[6,2,1,0]],
                 elements, 3, 2, 5)
         py_rep = pycoupling(mol.coordinates, [[5,0,1,2],[6,2,1,0]], mol.nuclear_charges,
-                    elements, rbasis2, eta2, rcut2, rbasis3, abasis, eta3, zeta, rcut3)
+                    elements, 3, 2, 5)
         py_rep_sym = pycoupling_symmetric(mol.coordinates, [[5,0,1,2],[6,2,1,0]], mol.nuclear_charges,
                         elements, 3, 2, 5)
         fort_rep_sym = generate_jcoupling_symmetric(mol.nuclear_charges, mol.coordinates, [[5,0,1,2],[6,2,1,0]],
                 elements, 3, 2, 5)
-        start = 152
-        end = 999999999
-        #print(py_rep_sym[0,start:end])
-        #print(fort_rep_sym[0,start:end])
-        assert(np.allclose(py_rep_sym[:,:end], fort_rep_sym[:,:end]))
+        try:
+            assert(np.allclose(py_rep_sym, fort_rep_sym))
+            assert(np.allclose(py_rep, fort_rep))
+        except AssertionError:
+            print(filenames[i])
 
 def get_parameters():
     files = glob.glob('qm7/*.dat')
