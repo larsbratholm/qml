@@ -316,7 +316,7 @@ def three_body_other_other_symmetric(coordinates, distances, idx, z, pairs, rbas
             d1 = distances[idx0, idx1]
             if d1 > rcut:
                 continue
-            for idx2 in range(natoms):
+            for idx2 in range(idx1+1, natoms):
                 if idx2 in idx:
                     continue
                 d2 = distances[idx0, idx2]
@@ -548,20 +548,18 @@ def test_jcoupling():
 
 
     for i, mol in enumerate(mols):
-        #fort_rep = generate_jcoupling(mol.nuclear_charges, mol.coordinates, [[5,0,1,2],[6,2,1,0]],
-        #        elements, 3, 3, 3, 1.1, 0.9, 0.8, 5, 5)
-        #fort_rep = generate_jcoupling(mol.nuclear_charges, mol.coordinates, [[5,0,1,2],[6,2,1,0]],
-        #        elements, 3, 2, 5)
-        #py_rep = pycoupling(mol.coordinates, [[5,0,1,2],[6,2,1,0]], mol.nuclear_charges,
-        #            elements, rbasis2, eta2, rcut2, rbasis3, abasis, eta3, zeta, rcut3)
+        fort_rep = generate_jcoupling(mol.nuclear_charges, mol.coordinates, [[5,0,1,2],[6,2,1,0]],
+                elements, 3, 2, 5)
+        py_rep = pycoupling(mol.coordinates, [[5,0,1,2],[6,2,1,0]], mol.nuclear_charges,
+                    elements, rbasis2, eta2, rcut2, rbasis3, abasis, eta3, zeta, rcut3)
         py_rep_sym = pycoupling_symmetric(mol.coordinates, [[5,0,1,2],[6,2,1,0]], mol.nuclear_charges,
                         elements, 3, 2, 5)
         fort_rep_sym = generate_jcoupling_symmetric(mol.nuclear_charges, mol.coordinates, [[5,0,1,2],[6,2,1,0]],
                 elements, 3, 2, 5)
-        start = 26
-        end = 27
-        print(py_rep_sym[0,start:end])
-        print(fort_rep_sym[0,start:end])
+        start = 152
+        end = 999999999
+        #print(py_rep_sym[0,start:end])
+        #print(fort_rep_sym[0,start:end])
         assert(np.allclose(py_rep_sym[:,:end], fort_rep_sym[:,:end]))
 
 def get_parameters():
