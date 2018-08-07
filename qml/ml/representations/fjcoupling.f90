@@ -541,6 +541,70 @@ subroutine two_body_other_sym(distance_matrix, index_pairs, element_types, rdeca
 
 end subroutine two_body_other_sym
 
+subroutine three_body_coupling_coupling_sym(distance_matrix, coordinates, index_pairs, &
+        & Rs, Ts1, Ts2, eta, zeta, rep)
+
+    implicit none
+
+    double precision, intent(in), dimension(:, :) :: distance_matrix
+    double precision, intent(in), dimension(:, :) :: coordinates
+    integer, intent(in), dimension(:, :) :: index_pairs
+    double precision, intent(in), dimension(:) :: Rs
+    double precision, intent(in), dimension(:) :: Ts1
+    double precision, intent(in), dimension(:) :: Ts2
+    double precision, intent(in) :: eta
+    double precision, intent(in) :: zeta
+    double precision, intent(inout), dimension(:, :) :: rep
+
+    integer :: n_index_pairs, i, j, k, l, idx0, idx1, idx2, n
+    double precision :: angle
+
+    n_index_pairs = size(index_pairs, dim=1)
+    nRs = size(Rs, dim = 1)
+    nTs1 = size(Ts1, dim = 1)
+    nTs2 = size(Ts2, dim = 1)
+
+    rep = 0.0d0
+
+    !$OMP PARALLEL DO PRIVATE(idx0, idx1, idx2, idx3, angle, radial, angular) SCHEDULE(dynamic)
+    do i = 1, n_index_pairs
+        idx0 = index_pairs(i, 1)
+        idx1 = index_pairs(i, 2)
+        idx2 = index_pairs(i, 3)
+        idx3 = index_pairs(i, 4)
+
+        r = distance_matrix(idx0, idx1)
+        angle = calc_angle(coordinates(idx0, :), coordinates(idx1, :), coordinates(idx2, :))
+        radial = exp(-eta * (r - Rs)**2)
+        angular = 2.0d0 * ((1.0d0 + cos(angle - Ts)) * 0.5d0)**zeta
+
+        do p = 1, nTs
+            m = 1 + (p-1) * nRs
+            rep(i, m: m + nRs - 1) = rep(i, m: m + nRs - 1) + &
+                & radial * angular(p)
+        enddo
+
+
+        enddo
+    enddo
+    !$OMP END PARALLEL DO
+    pair_rep = three_body_basis(d, angle, rbasis, abasis1, eta, zeta1)
+    d = distances[idx[2], idx[3]]
+    angle = calc_angle(coordinates[idx[1]], coordinates[idx[2]], coordinates[idx[3]])
+    pair_rep += three_body_basis(d, angle, rbasis, abasis1, eta, zeta1)
+    rep.append(pair_rep)
+
+    # atom 0, 1, 3 plus atom 0, 2, 3
+    d = distances[idx[0], idx[1]]
+    angle = calc_angle(coordinates[idx[0]], coordinates[idx[1]], coordinates[idx[3]])
+    pair_rep = three_body_basis(d, angle, rbasis, abasis2, eta, zeta2)
+    d = distances[idx[2], idx[3]]
+    angle = calc_angle(coordinates[idx[0]], coordinates[idx[2]], coordinates[idx[3]])
+    pair_rep += three_body_basis(d, angle, rbasis, abasis2, eta, zeta2)
+    rep.append(pair_rep)
+
+end subroutine three_body_coupling_coupling_sym
+
 end module jcoupling_utils
 
 subroutine fgenerate_jcoupling(coordinates, nuclear_charges, elements, index_pairs, &
