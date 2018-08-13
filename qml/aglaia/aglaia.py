@@ -3156,6 +3156,7 @@ class ARMP_G(ARMP, _NN):
             true_forces = tf.placeholder(shape=[None, max_n_atoms, 3], dtype=tf.float32, name="Forces")
 
             dataset = tf.data.Dataset.from_tensor_slices((g_tf, dg_dr_tf, true_ene, true_forces, zs_tf))
+            dataset = dataset.shuffle(buffer_size=self.n_samples)
             dataset = dataset.batch(batch_size)
             iterator = tf.data.Iterator.from_structure(dataset.output_types, dataset.output_shapes)
             batch_g, batch_dg_dr, batch_y, batch_dy, batch_zs = iterator.get_next()
@@ -3203,9 +3204,11 @@ class ARMP_G(ARMP, _NN):
 
             # This seems to run the iterator.get_next() op, which gives problems with end of sequence
             # Hence why I re-initialise the iterator
-            self.session.run(iterator_init, feed_dict={g_tf: g_approved, dg_dr_tf: dg_dr_approved, zs_tf: classes_approved, true_ene: y_approved, true_forces: dy_approved})
             if self.tensorboard:
                 if i % self.tensorboard_logger_training.store_frequency == 0:
+                    self.session.run(iterator_init,
+                                     feed_dict={g_tf: g_approved, dg_dr_tf: dg_dr_approved, zs_tf: classes_approved,
+                                                true_ene: y_approved, true_forces: dy_approved})
                     self.tensorboard_logger_training.write_summary(self.session, i)
 
         # This is called so that predictions can be made from xyz as well as from the representation
