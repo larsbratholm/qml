@@ -429,6 +429,9 @@ class _NN(BaseEstimator):
 
         if not is_string(tensorboard_subdir):
             raise InputError('Expected string value for variable tensorboard_subdir. Got %s' % str(tensorboard_subdir))
+        
+        # This line is needed for when the estimator is cloned
+        self.tensorboard_subdir = tensorboard_subdir
 
         # TensorBoardLogger will handle all tensorboard related things
         self.tensorboard_logger_training = TensorBoardLogger(tensorboard_subdir + '/training')
