@@ -106,11 +106,12 @@ def fort_acsf(mols, path, elements):
 def tf_acsf(mols, path, elements):
     radial_cutoff = 5
     angular_cutoff = 5
-    radial_rs = np.linspace(0, radial_cutoff, 3)
-    angular_rs = np.linspace(0, angular_cutoff, 3)
-    theta_s = np.linspace(0, np.pi, 3)
+    radial_rs = 3
+    angular_rs = 3
+    theta_s = 3
     zeta = 1.0
-    eta = 1.0
+    eta2 = 1.0
+    eta3 = 1.0
 
     element_pairs = []
     for i, ei in enumerate(elements):
@@ -128,7 +129,7 @@ def tf_acsf(mols, path, elements):
         zs_tf = tf.placeholder(shape=[n_samples, max_n_atoms], dtype=tf.int32, name="zs")
         xyz_tf = tf.placeholder(shape=[n_samples, max_n_atoms, 3], dtype=tf.float32, name="xyz")
 
-    acsf_tf_t = symm_funct.generate_parkhill_acsf(xyz_tf, zs_tf, elements, element_pairs, radial_cutoff, angular_cutoff, radial_rs, angular_rs, theta_s, zeta, eta)
+    acsf_tf_t = symm_funct.generate_parkhill_acsf(xyz_tf, zs_tf, elements, element_pairs, radial_cutoff, angular_cutoff, radial_rs, angular_rs, theta_s, zeta, eta2, eta3)
 
     sess = tf.Session()
     sess.run(tf.global_variables_initializer())

@@ -94,11 +94,11 @@ def test_set_descriptor():
 
     estimator = ARMP()
 
-    assert estimator.representation == None
+    assert estimator.g == None
 
     estimator.set_representations(representations=descriptor_correct)
 
-    assert np.all(estimator.representation == descriptor_correct)
+    assert np.all(estimator.g == descriptor_correct)
 
     # Pass a descriptor with the wrong shape
     try:

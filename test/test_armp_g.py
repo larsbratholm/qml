@@ -53,8 +53,8 @@ def test_set_representation():
     except InputError:
         pass
 
-    parameters = {'radial_cutoff': 8.0, 'angular_cutoff': 8.0, 'radial_rs': [0.0, 0.4, 0.2],
-                                'angular_rs': [0.0, 0.1, 0.3], 'theta_s': [3.0, 1.0], 'zeta': 4.0, 'eta': 5.0}
+    parameters = {'rcut': 10.0, 'acut': 10.0, 'nRs2': 3, 'nRs3': 3, 'nTs': 2,
+                                      'zeta': 3.0, 'eta2': 2.0, 'eta3': 3.0}
 
     estimator = ARMP_G(representation='acsf', representation_params=parameters)
 
@@ -102,11 +102,11 @@ def test_set_representation_and_dgdr():
 
     estimator = ARMP_G()
 
-    assert estimator.representation == None
+    assert estimator.g == None
 
-    estimator._set_representation(representation=representation_correct)
+    estimator._set_representation(g=representation_correct)
 
-    assert np.all(estimator.representation == representation_correct)
+    assert np.all(estimator.g == representation_correct)
 
     assert estimator.dg_dr == None
 
@@ -116,7 +116,7 @@ def test_set_representation_and_dgdr():
 
     # Pass a representation with the wrong shape
     try:
-        estimator._set_representation(representation=representation_incorrect)
+        estimator._set_representation(g=representation_incorrect)
         raise Exception
     except InputError:
         pass
@@ -166,7 +166,7 @@ def test_fit_2():
     classes = data["arr_4"]
 
     estimator = ARMP_G()
-    estimator._set_representation(representation=representation)
+    estimator._set_representation(g=representation)
     estimator.set_dgdr(dg_dr)
     estimator.set_classes(classes=classes)
     estimator.set_properties(energies)

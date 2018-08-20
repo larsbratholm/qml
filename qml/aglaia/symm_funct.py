@@ -348,8 +348,8 @@ def sum_ang(pre_sumterm, Zs, element_pairs_list, angular_rs, theta_s):
 
     return clean_final_term
 
-def generate_parkhill_acsf(xyzs, Zs, elements, element_pairs, radial_cutoff, angular_cutoff,
-                           radial_rs, angular_rs, theta_s, zeta, eta):
+def generate_parkhill_acsf(xyzs, Zs, elements, element_pairs, rcut, acut,
+                           nRs2, nRs3, nTs, zeta, eta2, eta3):
     """
     This function generates the atom centred symmetry function as used in the Tensormol paper. Currently only tested for
     single systems with many conformations. It requires the coordinates of all the atoms in each data sample, the atomic
@@ -360,29 +360,35 @@ def generate_parkhill_acsf(xyzs, Zs, elements, element_pairs, radial_cutoff, ang
     :param Zs: tensor of shape (n_samples, n_atoms)
     :param elements: np.array of shape (n_elements,)
     :param element_pairs: np.array of shape (n_elementpairs, 2)
-    :param radial_cutoff: scalar float
-    :param angular_cutoff: scalar float
-    :param radial_rs: np.array of shape (n_rad_rs,)
-    :param angular_rs: np.array of shape (n_ang_rs,)
-    :param theta_s: np.array of shape (n_thetas,)
+    :param rcut: scalar float
+    :param acut: scalar float
+    :param nRs2: positive integer
+    :param nRs3: positive integer
+    :param nTs: positive integer
     :param zeta: scalar float
-    :param eta: scalar float
-    :return: a tf tensor of shape (n_samples, n_atoms, n_rad_rs * n_elements + n_ang_rs * n_thetas * n_elementpairs)
+    :param eta2: scalar float
+
+    :return: a tf tensor of shape (n_samples, n_atoms, nRs2 * n_elements + nRs3 * nTs * n_elementpairs)
     """
 
+    radial_rs = np.linspace(0, rcut, nRs2)
+    angular_rs = np.linspace(0, acut, nRs3)
+    theta_s = np.linspace(0, np.pi, nTs)
+
     with tf.name_scope("acsf_params"):
-        rad_cutoff = tf.constant(radial_cutoff, dtype=tf.float32)
-        ang_cutoff = tf.constant(angular_cutoff, dtype=tf.float32)
+        rad_cutoff = tf.constant(rcut, dtype=tf.float32)
+        ang_cutoff = tf.constant(acut, dtype=tf.float32)
         rad_rs = tf.constant(radial_rs, dtype=tf.float32)
         ang_rs = tf.constant(angular_rs, dtype=tf.float32)
         theta_s = tf.constant(theta_s, dtype=tf.float32)
         zeta_tf = tf.constant(zeta, dtype=tf.float32)
-        eta_tf = tf.constant(eta, dtype=tf.float32)
+        eta2_tf = tf.constant(eta2, dtype=tf.float32)
+        eta3_tf = tf.constant(eta3, dtype=tf.float32)
 
     ##  Calculating the radial part of the symmetry function
     # First obtaining all the terms in the sum
     with tf.name_scope("Radial_part"):
-        pre_sum_rad = acsf_rad(xyzs, Zs, rad_cutoff, rad_rs, eta_tf)  # (n_samples, n_atoms, n_atoms, n_rad_rs)
+        pre_sum_rad = acsf_rad(xyzs, Zs, rad_cutoff, rad_rs, eta2_tf)  # (n_samples, n_atoms, n_atoms, n_rad_rs)
     with tf.name_scope("Sum_rad"):
         # Then summing based on the identity of the atoms interacting
         rad_term = sum_rad(pre_sum_rad, Zs, elements, rad_rs) # (n_samples, n_atoms, n_rad_rs*n_elements)
@@ -390,7 +396,7 @@ def generate_parkhill_acsf(xyzs, Zs, elements, element_pairs, radial_cutoff, ang
     ## Calculating the angular part of the symmetry function
     # First obtaining all the terms in the sum
     with tf.name_scope("Angular_part"):
-        pre_sum_ang = acsf_ang(xyzs, Zs, ang_cutoff, ang_rs, theta_s, zeta_tf, eta_tf) # (n_samples, n_atoms, n_atoms, n_atoms, n_thetas * n_ang_rs)
+        pre_sum_ang = acsf_ang(xyzs, Zs, ang_cutoff, ang_rs, theta_s, zeta_tf, eta3_tf) # (n_samples, n_atoms, n_atoms, n_atoms, n_thetas * n_ang_rs)
     with tf.name_scope("Sum_ang"):
         # Then doing the sum based on the neighbrouing pair identity
         ang_term = sum_ang(pre_sum_ang, Zs, element_pairs, ang_rs, theta_s) # (n_samples, n_atoms, n_thetas * n_ang_rs*n_elementpairs)
@@ -715,7 +721,8 @@ def sum_ang_1(pre_sumterm, Zs, element_pairs_list, angular_rs, theta_s):
 
     return clean_final_term
 
-def generate_parkhill_acsf_single(xyzs, Zs, elements, element_pairs, radial_cutoff, angular_cutoff, radial_rs, angular_rs, theta_s, zeta, eta):
+def generate_parkhill_acsf_single(xyzs, Zs, elements, element_pairs, rcut, acut,
+                           nRs2, nRs3, nTs, zeta, eta2, eta3):
     """
     This function generates the atom centred symmetry function as used in the Tensormol paper. Currently only tested for
     single systems with many conformations. It requires the coordinates of all the atoms in a data sample, the atomic
@@ -726,29 +733,35 @@ def generate_parkhill_acsf_single(xyzs, Zs, elements, element_pairs, radial_cuto
     :param Zs: tensor of shape (n_atoms,)
     :param elements: np.array of shape (n_elements,)
     :param element_pairs: np.array of shape (n_elementpairs, 2)
-    :param radial_cutoff: scalar float
-    :param angular_cutoff: scalar float
-    :param radial_rs: np.array of shape (n_rad_rs,)
-    :param angular_rs: np.array of shape (n_ang_rs,)
-    :param theta_s: np.array of shape (n_thetas,)
+    :param rcut: scalar float
+    :param acut: scalar float
+    :param nRs2: positive integer
+    :param nRs3: positive integer
+    :param nTs: positive integer
     :param zeta: scalar float
-    :param eta: scalar float
-    :return: a tf tensor of shape (n_atoms, n_rad_rs * n_elements + n_ang_rs * n_thetas * n_elementpairs)
+    :param eta2: scalar float
+
+    :return: a tf tensor of shape (n_atoms, nRs2 * n_elements + nRs3 * nTs * n_elementpairs)
     """
 
+    radial_rs = np.linspace(0, rcut, nRs2)
+    angular_rs = np.linspace(0, acut, nRs3)
+    theta_s = np.linspace(0, np.pi, nTs)
+
     with tf.name_scope("acsf_params"):
-        rad_cutoff = tf.constant(radial_cutoff, dtype=tf.float32)
-        ang_cutoff = tf.constant(angular_cutoff, dtype=tf.float32)
+        rad_cutoff = tf.constant(rcut, dtype=tf.float32)
+        ang_cutoff = tf.constant(acut, dtype=tf.float32)
         rad_rs = tf.constant(radial_rs, dtype=tf.float32)
         ang_rs = tf.constant(angular_rs, dtype=tf.float32)
         theta_s = tf.constant(theta_s, dtype=tf.float32)
         zeta_tf = tf.constant(zeta, dtype=tf.float32)
-        eta_tf = tf.constant(eta, dtype=tf.float32)
+        eta2_tf = tf.constant(eta2, dtype=tf.float32)
+        eta3_tf = tf.constant(eta3, dtype=tf.float32)
 
     ##  Calculating the radial part of the symmetry function
     # First obtaining all the terms in the sum
     with tf.name_scope("Radial_part"):
-        pre_sum_rad = acsf_rad_1(xyzs, Zs, rad_cutoff, rad_rs, eta_tf)  # (n_atoms, n_atoms, n_rad_rs)
+        pre_sum_rad = acsf_rad_1(xyzs, Zs, rad_cutoff, rad_rs, eta2_tf)  # (n_atoms, n_atoms, n_rad_rs)
     with tf.name_scope("Sum_rad"):
         # Then summing based on the identity of the atoms interacting
         rad_term = sum_rad_1(pre_sum_rad, Zs, elements, rad_rs) # (n_atoms, n_rad_rs*n_elements)
@@ -756,7 +769,7 @@ def generate_parkhill_acsf_single(xyzs, Zs, elements, element_pairs, radial_cuto
     ## Calculating the angular part of the symmetry function
     # First obtaining all the terms in the sum
     with tf.name_scope("Angular_part"):
-        pre_sum_ang = acsf_ang_1(xyzs, Zs, ang_cutoff, ang_rs, theta_s, zeta_tf, eta_tf) # (n_atoms, n_atoms, n_atoms, n_thetas * n_ang_rs)
+        pre_sum_ang = acsf_ang_1(xyzs, Zs, ang_cutoff, ang_rs, theta_s, zeta_tf, eta3_tf) # (n_atoms, n_atoms, n_atoms, n_thetas * n_ang_rs)
     with tf.name_scope("Sum_ang"):
         # Then doing the sum based on the neighbrouing pair identity
         ang_term = sum_ang_1(pre_sum_ang, Zs, element_pairs, ang_rs, theta_s) # (n_atoms, n_thetas * n_ang_rs*n_elementpairs)

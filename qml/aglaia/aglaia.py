@@ -606,17 +606,13 @@ class _NN(BaseEstimator):
         :return: None
         """
 
-        self.representation_params = {'radial_cutoff': 10.0, 'angular_cutoff': 10.0, 'radial_rs': np.asarray([0.0, 0.1, 0.2]),
-                                'angular_rs': np.asarray([0.0, 0.1, 0.2]), 'theta_s': np.asarray([3.0, 2.0]),
-                                'zeta': 3.0, 'eta': 2.0}
+        self.representation_params = {'rcut': 10.0, 'acut': 10.0, 'nRs2': 3, 'nRs3': 3, 'nTs': 2,
+                                      'zeta': 3.0, 'eta2': 2.0, 'eta3': 3.0}
 
         if not is_none(params):
             for key, value in params.items():
                 if key in self.representation_params:
-                    if is_numeric_array(value):
-                        self.representation_params[key] = np.asarray(value)
-                    else:
-                        self.representation_params[key] = value
+                    self.representation_params[key] = value
 
             self._check_acsf_values()
 
@@ -875,29 +871,23 @@ class _NN(BaseEstimator):
         :return: None
         """
 
-        if not is_positive(self.representation_params['radial_cutoff']):
-            raise InputError("Expected positive float for variable 'radial_cutoff'. Got %s." % str(self.representation_params['radial_cutoff']))
+        if not is_positive(self.representation_params['rcut']):
+            raise InputError("Expected positive float for variable 'rcut'. Got %s." % str(self.representation_params['rcut']))
 
-        if not is_positive(self.representation_params['angular_cutoff']):
-            raise InputError("Expected positive float for variable 'angular_cutoff'. Got %s." % str(self.representation_params['angular_cutoff']))
+        if not is_positive(self.representation_params['acut']):
+            raise InputError("Expected positive float for variable 'acut'. Got %s." % str(self.representation_params['acut']))
 
-        if not is_numeric_array(self.representation_params['radial_rs']):
-            raise InputError("Expecting an array like radial_rs. Got %s." % (self.representation_params['radial_rs']))
-        if not len(self.representation_params['radial_rs'])>0:
-            raise InputError("No radial_rs values were given." )
+        if not is_positive_integer(self.representation_params['nRs2']):
+            raise InputError("Expected positinve integer for 'nRs2. Got %s." % (self.representation_params['nRs2']))
 
-        if not is_numeric_array(self.representation_params['angular_rs']):
-            raise InputError("Expecting an array like angular_rs. Got %s." % (self.representation_params['angular_rs']))
-        if not len(self.representation_params['angular_rs'])>0:
-            raise InputError("No angular_rs values were given." )
+        if not is_positive_integer(self.representation_params['nRs3']):
+            raise InputError("Expected positinve integer for 'nRs3. Got %s." % (self.representation_params['nRs3']))
 
-        if not is_numeric_array(self.representation_params['theta_s']):
-            raise InputError("Expecting an array like theta_s. Got %s." % (self.representation_params['theta_s']))
-        if not len(self.representation_params['theta_s'])>0:
-            raise InputError("No theta_s values were given. " )
+        if not is_positive_integer(self.representation_params['nTs']):
+            raise InputError("Expected positinve integer for 'nTs. Got %s." % (self.representation_params['nTs']))
 
-        if is_numeric_array(self.representation_params['eta']):
-            raise InputError("Expecting a scalar value for eta. Got %s." % (self.representation_params['eta']))
+        if is_numeric_array(self.representation_params['eta2'])  or is_numeric_array(self.representation_params['eta2']):
+            raise InputError("Expecting a scalar value for eta parameters." )
 
         if is_numeric_array(self.representation_params['zeta']):
             raise InputError("Expecting a scalar value for zeta. Got %s." % (self.representation_params['zeta']))
@@ -1678,13 +1668,13 @@ class ARMP(_NN):
             if not is_none(parameters):
                 raise InputError("The representation %s does not take any additional parameters." % (self.representation))
 
-    def _set_representation(self, representation):
+    def _set_representation(self, g):
 
-        if len(representation.shape) != 3:
+        if len(g.shape) != 3:
             raise InputError(
-                "The representation should have a shape (n_samples, n_atoms, n_features). Got %s" % (str(representation.shape)))
+                "The representation should have a shape (n_samples, n_atoms, n_features). Got %s" % (str(g.shape)))
 
-        self.representation = representation
+        self.g = g
 
     def _generate_representations_from_data(self, xyz, classes):
         """
@@ -1895,11 +1885,13 @@ class ARMP(_NN):
             batch_xyz, batch_zs = iterator.get_next()
 
         representations = generate_parkhill_acsf(xyzs=batch_xyz, Zs=batch_zs, elements=elements, element_pairs=element_pairs,
-                                                 radial_cutoff=self.representation_params['radial_cutoff'],
-                                                 angular_cutoff=self.representation_params['angular_cutoff'],
-                                                 radial_rs=self.representation_params['radial_rs'],
-                                                 angular_rs=self.representation_params['angular_rs'],
-                                                 theta_s=self.representation_params['theta_s'], eta=self.representation_params['eta'],
+                                                 rcut=self.representation_params['rcut'],
+                                                 acut=self.representation_params['acut'],
+                                                 nRs2=self.representation_params['nRs2'],
+                                                 nRs3=self.representation_params['nRs3'],
+                                                 nTs=self.representation_params['nTs'],
+                                                 eta2=self.representation_params['eta2'],
+                                                 eta3=self.representation_params['eta3'],
                                                  zeta=self.representation_params['zeta'])
 
         sess = tf.Session()
@@ -2216,8 +2208,8 @@ class ARMP(_NN):
 
         elif self.representation == "acsf":
 
-            acsf_parameters = {'radial_cutoff': 10.0, 'angular_cutoff': 10.0, 'radial_rs': (0.0, 0.1, 0.2),
-                                    'angular_rs': (0.0, 0.1, 0.2), 'theta_s': (3.0, 2.0), 'zeta': 3.0, 'eta': 2.0}
+            acsf_parameters = {'rcut': 10.0, 'acut': 10.0, 'nRs2': 3, 'nRs3': 3, 'nTs': 2,
+                                      'zeta': 3.0, 'eta2': 2.0, 'eta3': 3.0}
 
             for key, value in parameters.items():
                 try:
@@ -2899,9 +2891,9 @@ class ARMP_G(ARMP, _NN):
         """
         if is_none(self.element_pairs) and is_none(self.elements):
             self.elements, self.element_pairs = self._get_elements_and_pairs(self.classes)
-            self.n_features = self.elements.shape[0] * self.representation_params['radial_rs'].shape[0] + \
-                              self.element_pairs.shape[0] * self.representation_params['angular_rs'].shape[0] * \
-                              self.representation_params['theta_s'].shape[0]
+            self.n_features = self.elements.shape[0] * self.representation_params['nRs2'] + \
+                              self.element_pairs.shape[0] * self.representation_params['nRs3'] * \
+                              self.representation_params['nTs']
 
         n_samples = xyz.shape[0]
         n_atoms = xyz.shape[1]
@@ -2925,12 +2917,13 @@ class ARMP_G(ARMP, _NN):
 
             representation = generate_parkhill_acsf_single(xyzs=batch_xyz, Zs=batch_zs, elements=self.elements,
                                                            element_pairs=self.element_pairs,
-                                                           radial_cutoff=self.representation_params['radial_cutoff'],
-                                                           angular_cutoff=self.representation_params['angular_cutoff'],
-                                                           radial_rs=self.representation_params['radial_rs'],
-                                                           angular_rs=self.representation_params['angular_rs'],
-                                                           theta_s=self.representation_params['theta_s'],
-                                                           eta=self.representation_params['eta'],
+                                                           rcut=self.representation_params['rcut'],
+                                                           acut=self.representation_params['acut'],
+                                                           nRs2=self.representation_params['nRs2'],
+                                                           nRs3=self.representation_params['nRs3'],
+                                                           nTs=self.representation_params['nTs'],
+                                                           eta2=self.representation_params['eta2'],
+                                                           eta3=self.representation_params['eta3'],
                                                            zeta=self.representation_params['zeta'])
 
             jacobian = partial_derivatives(representation, batch_xyz)
@@ -2990,13 +2983,13 @@ class ARMP_G(ARMP, _NN):
 
         for i in range(xyz.shape[0]):
             g, dg = generate_acsf(coordinates=xyz[i], elements=elements, gradients=True, nuclear_charges=classes[i],
-                                  rcut=self.representation_params['radial_cutoff'],
-                                  acut=self.representation_params['angular_cutoff'],
-                                  nRs2=len(self.representation_params['radial_rs']),
-                                  nRs3=len(self.representation_params['angular_rs']),
-                                  nTs=len(self.representation_params['theta_s']),
-                                  eta2=self.representation_params['eta'],
-                                  eta3=self.representation_params['eta'],
+                                  rcut=self.representation_params['rcut'],
+                                  acut=self.representation_params['acut'],
+                                  nRs2=self.representation_params['nRs2'],
+                                  nRs3=self.representation_params['nRs3'],
+                                  nTs=self.representation_params['nTs'],
+                                  eta2=self.representation_params['eta2'],
+                                  eta3=self.representation_params['eta3'],
                                   zeta=self.representation_params['zeta'])
             representation.append(g)
             dgdr.append(dg)
@@ -3138,9 +3131,9 @@ class ARMP_G(ARMP, _NN):
 
         if is_none(self.element_pairs) and is_none(self.elements):
             self.elements, self.element_pairs = self._get_elements_and_pairs(classes_approved)
-            self.n_features = self.elements.shape[0] * self.representation_params['radial_rs'].shape[0] + \
-                              self.element_pairs.shape[0] * self.representation_params['angular_rs'].shape[0] * \
-                              self.representation_params['theta_s'].shape[0]
+            self.n_features = self.elements.shape[0] * self.representation_params['nRs2'] + \
+                              self.element_pairs.shape[0] * self.representation_params['nRs3'] * \
+                              self.representation_params['nTs']
 
         self.n_samples = g_approved.shape[0]
         max_n_atoms = g_approved.shape[1]
@@ -3354,12 +3347,13 @@ class ARMP_G(ARMP, _NN):
 
             batch_representation = generate_parkhill_acsf(xyzs=batch_xyz, Zs=batch_zs, elements=self.elements,
                                                           element_pairs=self.element_pairs,
-                                                          radial_cutoff=self.representation_params['radial_cutoff'],
-                                                          angular_cutoff=self.representation_params['angular_cutoff'],
-                                                          radial_rs=self.representation_params['radial_rs'],
-                                                          angular_rs=self.representation_params['angular_rs'],
-                                                          theta_s=self.representation_params['theta_s'],
-                                                          eta=self.representation_params['eta'],
+                                                          rcut=self.representation_params['rcut'],
+                                                          acut=self.representation_params['acut'],
+                                                          nRs2=self.representation_params['nRs2'],
+                                                          nRs3=self.representation_params['nRs3'],
+                                                          nTs=self.representation_params['nTs'],
+                                                          eta2=self.representation_params['eta2'],
+                                                          eta3=self.representation_params['eta3'],
                                                           zeta=self.representation_params['zeta'])
 
         with tf.name_scope("Model_pred"):
