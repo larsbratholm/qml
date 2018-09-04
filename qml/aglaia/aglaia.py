@@ -34,10 +34,11 @@ from qml.aglaia.symm_funct import generate_parkhill_acsf, generate_parkhill_acsf
 from qml.aglaia.utils import InputError, ceil, is_positive_or_zero, is_positive_integer, is_positive, \
         is_bool, is_positive_integer_or_zero, is_string, is_positive_integer_array, is_array_like, is_none, \
         check_global_representation, check_y, check_sizes, check_dy, check_classes, is_numeric_array, is_non_zero_integer, \
-    is_positive_integer_or_zero_array, check_local_representation, check_dgdr
+    is_positive_integer_or_zero_array, check_local_representation, check_dgdr, check_xyz
 
 from qml.aglaia.tf_utils import TensorBoardLogger, partial_derivatives
 from qml.representations import generate_acsf
+from qml.aglaia.symm_funct import generate_parkhill_acsf
 
 try:
     from qml.data import Compound
@@ -2558,23 +2559,17 @@ class ARMP_G(ARMP, _NN):
         # Check if x is made up of indices or data
         if is_positive_integer_or_zero_array(x):
 
-            if is_none(self.g):
-
-                if is_none(self.xyz) or is_none(self.classes):
-                    if not is_none(self.compounds):
-                        idx_tot = len(self.compounds)
-                        self.xyz = self._get_xyz_from_compounds(idx_tot)
-                        self.classes = self._get_classes_from_compounds(idx_tot)
-                        approved_g, approved_dgdr = self._generate_rep_and_dgdr_tf(self.xyz[x], self.classes[x])
-                        approved_classes = self.classes[x]
-                    else:
-                        raise InputError("The xyz coordinates and the classes need to have been set in advance.")
-                else:
-                    approved_g, approved_dgdr = self._generate_rep_and_dgdr_tf(self.xyz[x], self.classes[x])
+            if is_none(self.xyz) or is_none(self.classes):
+                if not is_none(self.compounds):
+                    idx_tot = len(self.compounds)
+                    self.xyz = self._get_xyz_from_compounds(idx_tot)
+                    self.classes = self._get_classes_from_compounds(idx_tot)
+                    approved_xyz = self.xyz[x]
                     approved_classes = self.classes[x]
+                else:
+                    raise InputError("The xyz coordinates and the classes need to have been set in advance.")
             else:
-                approved_g = self.g[x]
-                approved_dgdr = self.dg_dr[x]
+                approved_xyz = self.xyz[x]
                 approved_classes = self.classes[x]
 
             if is_none(self.properties):
@@ -2594,18 +2589,15 @@ class ARMP_G(ARMP, _NN):
                 raise InputError("ARMP_G estimator requires gradients.")
             if is_none(classes):
                 raise InputError("ARMP_G estimator needs the classes to do atomic decomposition.")
-            if is_none(dgdr):
-                raise InputError("ARM_G class needs the gradients of the representation wrt to xyz.")
 
-            approved_g = check_local_representation(x)
+            approved_xyz = check_xyz(x)
             approved_y = check_y(y)
             approved_dy = check_dy(dy)
             approved_classes = check_classes(classes)
-            approved_dgdr = check_dgdr(dgdr)
 
-        check_sizes(approved_g, approved_y, approved_dy, approved_classes)
+        check_sizes(approved_xyz, approved_y, approved_dy, approved_classes)
 
-        return approved_g, approved_y, approved_classes, approved_dy, approved_dgdr
+        return approved_xyz, approved_y, approved_classes, approved_dy
 
     def _check_predict_input(self, x, classes, dgdr):
         """
@@ -2628,41 +2620,31 @@ class ARMP_G(ARMP, _NN):
         # Check if x is made up of indices or data
         if is_positive_integer_or_zero_array(x):
 
-            if is_none(self.g):
-
-                if is_none(self.xyz) or is_none(self.classes):
-                    if not is_none(self.compounds):
-                        idx_tot = len(self.compounds)
-                        self.xyz = self._get_xyz_from_compounds(idx_tot)
-                        self.classes = self._get_classes_from_compounds(idx_tot)
-                        approved_g, approved_dgdr = self._generate_rep_and_dgdr_tf(self.xyz[x], self.classes[x])
-                        approved_classes = self.classes[x]
-                    else:
-                        raise InputError("The xyz coordinates and the classes need to have been set in advance.")
-                else:
-                    approved_g,approved_dgdr = self._generate_rep_and_dgdr_tf(self.xyz[x], self.classes[x])
+            if is_none(self.xyz) or is_none(self.classes):
+                if not is_none(self.compounds):
+                    idx_tot = len(self.compounds)
+                    self.xyz = self._get_xyz_from_compounds(idx_tot)
+                    self.classes = self._get_classes_from_compounds(idx_tot)
+                    approved_xyz = self.xyz[x]
                     approved_classes = self.classes[x]
-                check_sizes(x=approved_g, classes=approved_classes)
-
+                else:
+                    raise InputError("The xyz coordinates and the classes need to have been set in advance.")
             else:
-                approved_g = self.g[x]
-                approved_dgdr = self.dg_dr[x]
+                approved_xyz = self.xyz[x]
                 approved_classes = self.classes[x]
+            check_sizes(x=approved_xyz, classes=approved_classes)
 
         else:
 
             if is_none(classes):
                 raise InputError("ARMP_G needs the classes to do atomic decomposition for predictions.")
-            if is_none(dgdr):
-                raise InputError("ARMP_G needs the representation gradients for predictions.")
 
-            approved_g = check_local_representation(x)
+            approved_xyz = check_xyz(x)
             approved_classes = check_classes(classes)
-            approved_dgdr = check_dgdr(dgdr)
 
-            check_sizes(x=approved_g, classes=approved_classes)
+            check_sizes(x=approved_xyz, classes=approved_classes)
 
-        return approved_g, approved_classes, approved_dgdr
+        return approved_xyz, approved_classes
 
     def _check_score_input(self, x, y, dy):
         """
@@ -2795,230 +2777,6 @@ class ARMP_G(ARMP, _NN):
 
         return cost_function
 
-    def generate_representation(self, xyz=None, classes=None, method='fortran'):
-        """
-        This function takes the coordinates and the classes and makes the representation and its derivative with
-        respect to the cartesian coordinates.
-
-        The parameters here are present just so that the function matches the signature of the parent class.
-        """
-
-        if method not in ['fortran', 'tf']:
-            raise InputError("The method to generate the acsf can only be 'fortran' or 'tf'. Got %s." % (method))
-
-        if is_none(self.xyz) and is_none(self.classes):
-            if is_none(self.compounds):
-                raise InputError("Cartesian coordinates need to be passed in or set in advance in order to generate the "
-                                 "representation and its gradients.")
-            else:
-                idx_tot = range(len(self.compounds))
-                self.xyz = self._get_xyz_from_compounds(idx_tot)
-                self.classes = self._get_classes_from_compounds(idx_tot)
-
-        if not is_none(self.g):
-            raise InputError("The representations have already been set!")
-
-        if method == 'tf':
-            self.g, self.dg_dr = self._generate_rep_and_dgdr_tf(self.xyz, self.classes)
-        else:
-            self.g, self.dg_dr = self._generate_rep_and_dgdr_fortran(self.xyz, self.classes)
-
-    def save_representations_and_dgdr(self, filename="rep_and_grad.hdf5"):
-        """
-        This function stores the representations and their gradients wrt the cartesian coordinates that have been generated
-        for later re-use.
-
-        :return: None
-        """
-
-        if is_none(self.g) or is_none(self.dg_dr):
-            raise InputError("The representations and their gradients wrt to the Cartesian coordinates have not been calculated yet.")
-
-        try:
-            import h5py
-        except ModuleNotFoundError:
-            raise ModuleNotFoundError("h5py is needed for saving large data sets.")
-
-        f = h5py.File(filename, "w")
-
-        f.create_dataset("representation", self.g.shape, data=self.g)
-        f.create_dataset("dg_dr", self.dg_dr.shape, data=self.dg_dr)
-
-        f.close()
-
-    def load_representations_and_dgdr(self, filename="rep_and_grad.hdf5"):
-
-        try:
-            import h5py
-        except ModuleNotFoundError:
-            raise ModuleNotFoundError("h5py is needed for saving large data sets.")
-
-        f = h5py.File(filename, "r")
-
-        self.g = f["representation"][:]
-        self.dg_dr = f["dg_dr"][:]
-
-        f.close()
-
-    def set_dgdr(self, dgdr):
-        """
-        This function sets the gradients of the representation with respect to the cartesian coordinates.
-
-        :param dgdr: Derivative of the representation with respect to the cartesian coordinates
-        :type dgdr: numpy array of shape (n_samples, n_atoms, n_features, n_atoms, 3)
-        :return: None
-        """
-
-        if not is_none(self.dg_dr):
-            raise InputError("The gradients of the representations wrt to xyz have already been set!")
-
-        if is_none(dgdr):
-            raise InputError("The gradients of the representations wrt to xyz cannot be set to none.")
-        else:
-            self.dg_dr = check_dgdr(dgdr)
-
-    def _generate_rep_and_dgdr_tf(self, xyz, classes):
-        """
-        This function takes in the coordinates and the classes and returns the representation and its derivative with
-        respect to the cartesian coordinates.
-
-        :param xyz: cartesian coordinates
-        :type xyz: numpy array of shape (n_samples, n_atoms, 3)
-        :param classes: the atom types
-        :type classes: numpy array of shape (n_samples, n_atoms)
-        :return: representations and their derivatives wrt to xyz
-        :rtype: numpy array of shape (n_samples, n_atoms, n_features) and (n_samples, n_atoms, n_features, n_atoms, 3)
-        """
-        if is_none(self.element_pairs) and is_none(self.elements):
-            self.elements, self.element_pairs = self._get_elements_and_pairs(self.classes)
-            self.n_features = self.elements.shape[0] * self.representation_params['nRs2'] + \
-                              self.element_pairs.shape[0] * self.representation_params['nRs3'] * \
-                              self.representation_params['nTs']
-
-        n_samples = xyz.shape[0]
-        n_atoms = xyz.shape[1]
-
-        # NOTE: Resets graph, so make sure model is created afterwards
-        # tf.reset_default_graph()
-
-        if self.tensorboard:
-            self.tensorboard_logger_representation.initialise()
-
-        # since it has to be 1
-        with tf.name_scope("Inputs_G"):
-            zs_tf = tf.placeholder(shape=[n_samples, n_atoms], dtype=tf.int32, name="zs")
-            xyz_tf = tf.placeholder(shape=[n_samples, n_atoms, 3], dtype=tf.float32, name="xyz")
-
-            dataset = tf.data.Dataset.from_tensor_slices((xyz_tf, zs_tf))
-            iterator = tf.data.Iterator.from_structure(dataset.output_types, dataset.output_shapes)
-            batch_xyz, batch_zs = iterator.get_next()
-
-        with tf.name_scope("Descriptor"):
-
-            representation = generate_parkhill_acsf_single(xyzs=batch_xyz, Zs=batch_zs, elements=self.elements,
-                                                           element_pairs=self.element_pairs,
-                                                           rcut=self.representation_params['rcut'],
-                                                           acut=self.representation_params['acut'],
-                                                           nRs2=self.representation_params['nRs2'],
-                                                           nRs3=self.representation_params['nRs3'],
-                                                           nTs=self.representation_params['nTs'],
-                                                           eta2=self.representation_params['eta2'],
-                                                           eta3=self.representation_params['eta3'],
-                                                           zeta=self.representation_params['zeta'])
-
-            jacobian = partial_derivatives(representation, batch_xyz)
-
-        sess = tf.Session()
-        sess.run(tf.global_variables_initializer())
-        sess.run(iterator.make_initializer(dataset), feed_dict={xyz_tf: xyz, zs_tf: classes})
-
-        # Do representations and gradients one by one
-        gradients_slices = []
-        representation_slices = []
-
-        if self.tensorboard:
-            self.tensorboard_logger_representation.set_summary_writer(sess)
-            counter = 0
-            while True:
-                try:
-                    representation_np, gradient_np = sess.run([representation, jacobian],
-                                                              options=self.tensorboard_logger_representation.options,
-                                                              run_metadata=self.tensorboard_logger_representation.run_metadata)
-                    self.tensorboard_logger_representation.write_metadata(counter)
-                    representation_slices.append(representation_np)
-                    gradients_slices.append(gradient_np)
-                    counter += 1
-                except tf.errors.OutOfRangeError:
-                    break
-        else:
-            while True:
-                try:
-                    representation_np, gradient_np = sess.run([representation, jacobian])
-                    representation_slices.append(representation_np)
-                    gradients_slices.append(gradient_np)
-                except tf.errors.OutOfRangeError:
-                    break
-
-        sess.close()
-
-        return np.asarray(representation_slices), np.asarray(gradients_slices)
-
-    def _generate_rep_and_dgdr_fortran(self, xyz, classes):
-        """
-        This function uses fortran to generate the representation and the derivative of the representation with respect
-        to the cartesian coordinates.
-
-        :param xyz: cartesian coordinates
-        :type xyz: numpy array of shape (n_samples, n_atoms, 3)
-        :param classes: the atom types
-        :type classes: numpy array of shape (n_samples, n_atoms)
-        :return: representations and their derivatives wrt to xyz
-        :rtype: numpy array of shape (n_samples, n_atoms, n_features) and (n_samples, n_atoms, n_features, n_atoms, 3)
-        """
-
-        elements, element_paris = self._get_elements_and_pairs(classes)
-
-        representation = []
-        dgdr = []
-
-        for i in range(xyz.shape[0]):
-            g, dg = generate_acsf(coordinates=xyz[i], elements=elements, gradients=True, nuclear_charges=classes[i],
-                                  rcut=self.representation_params['rcut'],
-                                  acut=self.representation_params['acut'],
-                                  nRs2=self.representation_params['nRs2'],
-                                  nRs3=self.representation_params['nRs3'],
-                                  nTs=self.representation_params['nTs'],
-                                  eta2=self.representation_params['eta2'],
-                                  eta3=self.representation_params['eta3'],
-                                  zeta=self.representation_params['zeta'])
-            representation.append(g)
-            dgdr.append(dg)
-
-        return np.asarray(representation), np.asarray(dgdr)
-
-    def _get_nn_forces(self, nn_ene, g, dg_dr):
-        """
-        This function calculates the derivative of the neural network with respect to the cartesian coordinates by doing
-        the chain rule.
-
-        :param nn_ene: the output from the neural network (energy)
-        :type nn_ene: tf tensor of shape (n_samples, 1)
-        :param g: representation
-        :type g: tf tensor of shape (n_samples, n_atoms, n_features)
-        :param dg_dr: derivative of the representation with respect to the cartesian coordinates
-        :type dg_dr: tf tensor of shape (n_samples, n_atoms, n_features, atoms, 3)
-        :return: forces
-        :rtype: tf tensor of shape (n_samples, n_atoms, 3)
-        """
-
-        # Derivative of the total energy with respect to the representation. Shape (n_samples, n_atoms, n_features)
-        dene_dg = tf.gradients(nn_ene, g, name='dEne_dG')[0]
-
-        forces = - tf.einsum('abcij,abc->aij', dg_dr, dene_dg)
-        forces = tf.identity(forces, name="output_grad")
-
-        return forces
-
     def _fit(self, x, y, classes, dy, dgdr):
         """
         This fit function checks whether there is a model that has already been loaded. If yes, it calls the fit function
@@ -3037,25 +2795,24 @@ class ARMP_G(ARMP, _NN):
         :return: None
         """
         if not self.loaded_model:
-            self._fit_from_scratch(x, y, classes, dy, dgdr)
+            self._fit_from_scratch(x, y, classes, dy)
         else:
-            self._fit_from_loaded(x, y, classes, dy, dgdr)
+            self._fit_from_loaded(x, y, classes, dy)
 
-    def _fit_from_loaded(self, x, y, classes, dy, dgdr):
+    def _fit_from_loaded(self, x, y, classes, dy):
 
         if self.session == None:
             raise InputError("The Tensorflow session appears to not exisit.")
 
-        g_approved, y_approved, classes_approved, dy_approved, dg_dr_approved = self._check_inputs(x, y, classes, dy,
-                                                                                                   dgdr)
+        xyz_approved, y_approved, classes_approved, dy_approved = self._check_inputs(x, y, classes, dy, None)
         if is_none(self.element_pairs) and is_none(self.elements):
             self.elements, self.element_pairs = self._get_elements_and_pairs(classes_approved)
-            self.n_features = self.elements.shape[0] * self.representation_params['radial_rs'].shape[0] + \
-                              self.element_pairs.shape[0] * self.representation_params['angular_rs'].shape[0] * \
-                              self.representation_params['theta_s'].shape[0]
+            self.n_features = self.elements.shape[0] * self.representation_params['nRs2'] + \
+                              self.element_pairs.shape[0] * self.representation_params['nRs3'] * \
+                              self.representation_params['nTs']
 
-        self.n_samples = g_approved.shape[0]
-        max_n_atoms = g_approved.shape[1]
+        self.n_samples = xyz_approved.shape[0]
+        max_n_atoms = xyz_approved.shape[1]
 
         batch_size = self._get_batch_size()
         n_batches = ceil(self.n_samples, batch_size)
@@ -3068,9 +2825,8 @@ class ARMP_G(ARMP, _NN):
 
         with graph.as_default():
             # Reloading all the needed operations and tensors
-            g_tf = graph.get_tensor_by_name("Data/Descriptors:0")
+            xyz_tf = graph.get_tensor_by_name("Data/xyz:0")
             zs_tf = graph.get_tensor_by_name("Data/Classes:0")
-            dg_dr_tf = graph.get_tensor_by_name("Data/dG_dr:0")
             true_ene = graph.get_tensor_by_name("Data/Properties:0")
             true_forces = graph.get_tensor_by_name("Data/Forces:0")
 
@@ -3079,22 +2835,19 @@ class ARMP_G(ARMP, _NN):
             optimisation_op = graph.get_operation_by_name("optimisation_op")
             dataset_init_op = graph.get_operation_by_name("dataset_init")
 
-            output_grad = graph.get_tensor_by_name("Model/output_grad:0")
+            output_grad = graph.get_tensor_by_name("Model/Neg:0")
 
             # Recording cost to tensorboard
             if self.tensorboard:
                 cost_summary = self.tensorboard_logger_training.write_cost_summary(cost)
 
             # Running the operations needed
-            self.session.run(dataset_init_op,
-                             feed_dict={g_tf: g_approved, dg_dr_tf: dg_dr_approved, zs_tf: classes_approved,
-                                        true_ene: y_approved, true_forces: dy_approved})
 
             for i in range(self.iterations):
 
                 self.session.run(dataset_init_op,
-                                 feed_dict={g_tf: g_approved, dg_dr_tf: dg_dr_approved, zs_tf: classes_approved,
-                                            true_ene: y_approved, true_forces: dy_approved})
+                                 feed_dict={xyz_tf: xyz_approved, zs_tf: classes_approved, true_ene: y_approved,
+                                            true_forces: dy_approved})
 
                 for j in range(n_batches):
                     if self.tensorboard:
@@ -3103,14 +2856,14 @@ class ARMP_G(ARMP, _NN):
                     else:
                         self.session.run(optimisation_op)
 
-                self.session.run(dataset_init_op,
-                                 feed_dict={g_tf: g_approved, dg_dr_tf: dg_dr_approved, zs_tf: classes_approved,
-                                            true_ene: y_approved, true_forces: dy_approved})
                 if self.tensorboard:
                     if i % self.tensorboard_logger_training.store_frequency == 0:
+                        self.session.run(dataset_init_op,
+                                         feed_dict={xyz_tf: xyz_approved, zs_tf: classes_approved, true_ene: y_approved,
+                                                    true_forces: dy_approved})
                         self.tensorboard_logger_training.write_summary(self.session, i)
 
-    def _fit_from_scratch(self, x, y, classes, dy, dgdr):
+    def _fit_from_scratch(self, x, y, classes, dy):
         """
         This function fits the weights of the neural networks to the properties and their gradient from scratch.
 
@@ -3127,7 +2880,7 @@ class ARMP_G(ARMP, _NN):
         :return: None
         """
 
-        g_approved, y_approved, classes_approved, dy_approved, dg_dr_approved = self._check_inputs(x, y, classes, dy, dgdr)
+        xyz_approved, y_approved, classes_approved, dy_approved = self._check_inputs(x, y, classes, dy, None)
 
         if is_none(self.element_pairs) and is_none(self.elements):
             self.elements, self.element_pairs = self._get_elements_and_pairs(classes_approved)
@@ -3135,8 +2888,8 @@ class ARMP_G(ARMP, _NN):
                               self.element_pairs.shape[0] * self.representation_params['nRs3'] * \
                               self.representation_params['nTs']
 
-        self.n_samples = g_approved.shape[0]
-        max_n_atoms = g_approved.shape[1]
+        self.n_samples = xyz_approved.shape[0]
+        max_n_atoms = xyz_approved.shape[1]
 
         batch_size = self._get_batch_size()
         n_batches = ceil(self.n_samples, batch_size)
@@ -3144,30 +2897,40 @@ class ARMP_G(ARMP, _NN):
         if self.tensorboard:
             self.tensorboard_logger_training.initialise()
 
+        element_weights, element_biases = self._make_weights_biases(self.elements)
+
         # Turning the quantities into tensors
         with tf.name_scope("Data"):
             zs_tf = tf.placeholder(shape=[None, max_n_atoms], dtype=tf.int32, name="Classes")
-            g_tf = tf.placeholder(shape=[None, max_n_atoms, self.n_features], dtype=tf.float32, name="Descriptors")
-            dg_dr_tf = tf.placeholder(shape=[None, max_n_atoms, self.n_features, max_n_atoms, 3], dtype=tf.float32, name="dG_dr")
+            xyz_tf = tf.placeholder(shape=[None, max_n_atoms, 3], dtype=tf.float32, name="xyz")
             true_ene = tf.placeholder(shape=[None, 1], dtype=tf.float32, name="Properties")
             true_forces = tf.placeholder(shape=[None, max_n_atoms, 3], dtype=tf.float32, name="Forces")
 
-            dataset = tf.data.Dataset.from_tensor_slices((g_tf, dg_dr_tf, true_ene, true_forces, zs_tf))
+            dataset = tf.data.Dataset.from_tensor_slices((xyz_tf, zs_tf, true_ene, true_forces))
             dataset = dataset.shuffle(buffer_size=self.n_samples)
             dataset = dataset.batch(batch_size)
             iterator = tf.data.Iterator.from_structure(dataset.output_types, dataset.output_shapes)
-            batch_g, batch_dg_dr, batch_y, batch_dy, batch_zs = iterator.get_next()
+            batch_xyz, batch_zs, batch_y, batch_dy = iterator.get_next()
 
-        element_weights, element_biases = self._make_weights_biases(self.elements)
+        with tf.name_scope("Descriptor"):
+            batch_g = generate_parkhill_acsf(batch_xyz, batch_zs, self.elements, self.element_pairs,
+                                               rcut=self.representation_params['rcut'],
+                                               acut=self.representation_params['acut'],
+                                               nRs2=self.representation_params['nRs2'],
+                                               nRs3=self.representation_params['nRs3'],
+                                               nTs=self.representation_params['nTs'],
+                                               eta2=self.representation_params['eta2'],
+                                               eta3=self.representation_params['eta3'],
+                                               zeta=self.representation_params['zeta'])
 
         # Creating the model
         with tf.name_scope("Model"):
-            energies = self._model(batch_g, batch_zs, element_weights, element_biases)
-            forces = self._get_nn_forces(energies, batch_g, batch_dg_dr)
+            energies_nn = self._model(batch_g, batch_zs, element_weights, element_biases)
+            forces_nn = - tf.gradients(energies_nn, batch_xyz)[0]
 
         # Calculating the cost
         with tf.name_scope("Cost"):
-            cost = self._cost_G(batch_y, energies, batch_dy, forces, element_weights)
+            cost = self._cost_G(batch_y, energies_nn, batch_dy, forces_nn, element_weights)
 
         if self.tensorboard:
             cost_summary = self.tensorboard_logger_training.write_cost_summary(cost)
@@ -3186,11 +2949,12 @@ class ARMP_G(ARMP, _NN):
             self.tensorboard_logger_training.set_summary_writer(self.session)
 
         self.session.run(init)
-        self.session.run(iterator_init, feed_dict={g_tf: g_approved, dg_dr_tf: dg_dr_approved, zs_tf: classes_approved, true_ene: y_approved, true_forces: dy_approved})
 
         for i in range(self.iterations):
 
-            self.session.run(iterator_init, feed_dict={g_tf: g_approved, dg_dr_tf: dg_dr_approved, zs_tf: classes_approved, true_ene: y_approved, true_forces: dy_approved})
+            self.session.run(iterator_init,
+                             feed_dict={xyz_tf: xyz_approved, zs_tf: classes_approved, true_ene: y_approved,
+                                        true_forces: dy_approved})
 
             for j in range(n_batches):
                 if self.tensorboard:
@@ -3204,14 +2968,9 @@ class ARMP_G(ARMP, _NN):
             if self.tensorboard:
                 if i % self.tensorboard_logger_training.store_frequency == 0:
                     self.session.run(iterator_init,
-                                     feed_dict={g_tf: g_approved, dg_dr_tf: dg_dr_approved, zs_tf: classes_approved,
-                                                true_ene: y_approved, true_forces: dy_approved})
+                                     feed_dict={xyz_tf: xyz_approved, zs_tf: classes_approved, true_ene: y_approved,
+                                                true_forces: dy_approved})
                     self.tensorboard_logger_training.write_summary(self.session, i)
-
-        # This is called so that predictions can be made from xyz as well as from the representation
-        self._build_model_from_xyz(max_n_atoms, element_weights, element_biases)
-
-        self.loaded_model = True
 
     def predict(self, x, classes=None, dgdr=None):
         """
@@ -3251,11 +3010,11 @@ class ARMP_G(ARMP, _NN):
         :rtype: numpy arrays of shape (n_samples,) and (n_samples, n_atoms, 3)
         """
 
-        g_approved, classes_approved, dg_dr_approved = self._check_predict_input(x, classes, dgdr)
+        xyz_approved, classes_approved = self._check_predict_input(x, classes, None)
 
-        # TODO find a cleaner way of doing this
-        empty_ene = np.empty((g_approved.shape[0], 1))
-        empty_forces = np.empty((g_approved.shape[0], g_approved.shape[1], 3))
+        # TODO find a cleaner way of doing this (surgery?)
+        empty_ene = np.empty((xyz_approved.shape[0], 1))
+        empty_forces = np.empty((xyz_approved.shape[0], xyz_approved.shape[1], 3))
 
         if self.session == None:
             raise InputError("Model needs to be fit before predictions can be made.")
@@ -3263,17 +3022,16 @@ class ARMP_G(ARMP, _NN):
         graph = tf.get_default_graph()
 
         with graph.as_default():
-            g_tf = graph.get_tensor_by_name("Data/Descriptors:0")
+            xyz_tf = graph.get_tensor_by_name("Data/xyz:0")
             zs_tf = graph.get_tensor_by_name("Data/Classes:0")
-            dg_dr_tf = graph.get_tensor_by_name("Data/dG_dr:0")
             model = graph.get_tensor_by_name("Model/output:0")
-            output_grad = graph.get_tensor_by_name("Model/output_grad:0")
+            output_grad = graph.get_tensor_by_name("Model/Neg:0")
             true_ene = graph.get_tensor_by_name("Data/Properties:0")
             true_forces = graph.get_tensor_by_name("Data/Forces:0")
 
             dataset_init_op = graph.get_operation_by_name("dataset_init")
 
-            self.session.run(dataset_init_op, feed_dict={g_tf: g_approved, zs_tf:classes_approved, dg_dr_tf: dg_dr_approved,
+            self.session.run(dataset_init_op, feed_dict={xyz_tf: xyz_approved, zs_tf:classes_approved,
                                                          true_ene: empty_ene, true_forces: empty_forces})
 
             tot_y_pred = []
@@ -3281,85 +3039,13 @@ class ARMP_G(ARMP, _NN):
 
             while True:
                 try:
-                    y_pred, dy_pred = self.session.run([model, output_grad],
-                                                       feed_dict={g_tf: g_approved, zs_tf: classes_approved,
-                                                                  dg_dr_tf: dg_dr_approved,
-                                                                  true_ene: empty_ene, true_forces: empty_forces})
+                    y_pred, dy_pred = self.session.run([model, output_grad])
                     tot_y_pred.append(y_pred)
                     tot_dy_pred.append(dy_pred)
                 except tf.errors.OutOfRangeError:
                     break
 
         return np.concatenate(tot_y_pred, axis=0), np.concatenate(tot_dy_pred, axis=0)
-
-    def predict_from_xyz(self, xyz, classes):
-        """
-        This function takes in the cartesian coordinates and the atom types and returns energies and forces.
-        :param xyz: cartesian coordinates
-        :type xyz: numpy array of shape (n_samples, n_atoms, 3)
-        :param classes: atom types
-        :type classes: numpy array of shape (n_samples, n_atoms)
-        :return: energies and forces
-        :rtype: numpy array of shape  (n_samples,) and (n_samples, n_atoms, 3)
-        """
-
-        if self.session == None:
-            raise InputError("Model needs to be fit before predictions can be made.")
-
-        graph = tf.get_default_graph()
-
-        with graph.as_default():
-            xyz_tf = graph.get_tensor_by_name("Inputs_pred/xyz:0")
-            classes_tf = graph.get_tensor_by_name("Inputs_pred/Classes:0")
-            ene_nn = graph.get_tensor_by_name("Model_pred/output:0")
-            forces_nn = graph.get_tensor_by_name("Model_pred/Forces_nn:0")
-            y_pred, dy_pred = self.session.run([ene_nn, forces_nn], feed_dict={xyz_tf: xyz, classes_tf: classes})
-
-        return y_pred, dy_pred
-
-    def _build_model_from_xyz(self, n_atoms, element_weights, element_biases):
-        """
-        This function can be used to predict energies and forces straight from xyz data.
-        :param xyz: Cartesian coordinates
-        :type xyz: numpy array of shape (n_samples, n_atoms, 3)
-        :param classes: atom types
-        :type classes: numpy array of shape (n_samples, n_atoms)
-
-        :return: predicted properties and their gradients
-        :rtype: numpy arrays of shape (n_samples,) and (n_samples, n_atoms, 3)
-        """
-
-        # element_weights, element_biases = self._load_weights()
-
-        with tf.name_scope("Inputs_pred"):
-            zs_tf = tf.placeholder(shape=[None, n_atoms], dtype=tf.int32, name="Classes")
-            xyz_tf = tf.placeholder(shape=[None, n_atoms, 3], dtype=tf.float32, name="xyz")
-
-            dataset = tf.data.Dataset.from_tensor_slices((xyz_tf, zs_tf))
-            dataset = dataset.batch(2)
-            iterator = tf.data.Iterator.from_structure(dataset.output_types, dataset.output_shapes)
-            batch_xyz, batch_zs = iterator.get_next()
-
-            # batch_xyz = tf.identity(batch_xyz, name="xyz")
-            # batch_zs = tf.identity(batch_zs, name="Classes")
-
-        with tf.name_scope("Descriptor_pred"):
-
-            batch_representation = generate_parkhill_acsf(xyzs=batch_xyz, Zs=batch_zs, elements=self.elements,
-                                                          element_pairs=self.element_pairs,
-                                                          rcut=self.representation_params['rcut'],
-                                                          acut=self.representation_params['acut'],
-                                                          nRs2=self.representation_params['nRs2'],
-                                                          nRs3=self.representation_params['nRs3'],
-                                                          nTs=self.representation_params['nTs'],
-                                                          eta2=self.representation_params['eta2'],
-                                                          eta3=self.representation_params['eta3'],
-                                                          zeta=self.representation_params['zeta'])
-
-        with tf.name_scope("Model_pred"):
-            batch_energies_nn = self._model(batch_representation, batch_zs, element_weights, element_biases)
-            batch_forces_nn = - tf.gradients(batch_energies_nn, batch_xyz)[0]
-            batch_forces_nn = tf.identity(batch_forces_nn, name="Forces_nn")
 
     def _score_r2(self, x, y=None, classes=None, dy=None, dgdr=None):
         """
@@ -3383,7 +3069,7 @@ class ARMP_G(ARMP, _NN):
 
         y_approved, dy_approved = self._check_score_input(x, y, dy)
 
-        y_pred, dy_pred = self.predict(x, classes, dgdr)
+        y_pred, dy_pred = self.predict(x, classes)
 
         y_r2 = r2_score(y_approved, y_pred, sample_weight = None)
         dy_approved = np.reshape(dy_approved, (dy_approved.shape[0], dy_approved.shape[1]*dy_approved.shape[2]))
@@ -3417,7 +3103,7 @@ class ARMP_G(ARMP, _NN):
 
         y_approved, dy_approved = self._check_score_input(x, y, dy)
 
-        y_pred, dy_pred = self.predict(x, classes, dgdr)
+        y_pred, dy_pred = self.predict(x, classes)
 
         dy_approved = np.reshape(dy_approved, (dy_approved.shape[0], dy_approved.shape[1] * dy_approved.shape[2]))
         dy_pred = np.reshape(dy_pred, (dy_pred.shape[0], dy_pred.shape[1] * dy_pred.shape[2]))
@@ -3449,7 +3135,7 @@ class ARMP_G(ARMP, _NN):
 
         y_approved, dy_approved = self._check_score_input(x, y, dy)
 
-        y_pred, dy_pred = self.predict(x, classes, dgdr)
+        y_pred, dy_pred = self.predict(x, classes)
         dy_approved = np.reshape(dy_approved, (dy_approved.shape[0], dy_approved.shape[1] * dy_approved.shape[2]))
         dy_pred = np.reshape(dy_pred, (dy_pred.shape[0], dy_pred.shape[1] * dy_pred.shape[2]))
         y_rmse = np.sqrt(mean_squared_error(y_approved, y_pred, sample_weight = None))
@@ -3472,24 +3158,17 @@ class ARMP_G(ARMP, _NN):
         graph = tf.get_default_graph()
 
         with graph.as_default():
-            g = graph.get_tensor_by_name("Data/Descriptors:0")
-            dg_dr = graph.get_tensor_by_name("Data/dG_dr:0")
+            xyz = graph.get_tensor_by_name("Data/xyz:0")
             zs = graph.get_tensor_by_name("Data/Classes:0")
             true_ene = graph.get_tensor_by_name("Data/Properties:0")
             true_forces = graph.get_tensor_by_name("Data/Forces:0")
             model = graph.get_tensor_by_name("Model/output:0")
-
-            xyz = graph.get_tensor_by_name("Inputs_pred/xyz:0")
-            classes = graph.get_tensor_by_name("Inputs_pred/Classes:0")
-            ene_nn = graph.get_tensor_by_name("Model_pred/output:0")
-            forces_nn = graph.get_tensor_by_name("Model_pred/Forces_nn:0")
+            model_grad = graph.get_tensor_by_name("Model/Neg:0")
 
         tf.saved_model.simple_save(self.session, export_dir=save_dir,
-                                   inputs={"Data/Descriptors:0": g, "Data/dG_dr:0": dg_dr, "Data/Classes:0":zs,
-                                           "Inputs_pred/xyz:0": xyz, "Inputs_pred/Classes:0": classes,
-                                           "Data/Properties:0": true_ene, "Data/Forces:0": true_forces},
-                                   outputs={"Model/output:0": model, "Model_pred/output:0": ene_nn,
-                                            "Model_pred/Forces_nn:0":forces_nn})
+                                   inputs={"Data/xyz:0": xyz, "Data/Classes:0":zs, "Data/Properties:0":true_ene,
+                                           "Data/Forces:0":true_forces},
+                                   outputs={"Model/output:0": model, "Model/Neg:0":model_grad})
 
     def load_nn(self, save_dir="saved_model"):
         """
