@@ -198,15 +198,17 @@ def acsf_ang(xyzs, Zs, angular_cutoff, angular_rs, theta_s, zeta, eta):
         cos_theta_term = tf.cos(
             tf.subtract(expanded_theta, expanded_theta_s))  # (n_samples,  n_atoms, n_atoms, n_atoms, n_theta_s)
         # Make the whole cos term  of the sum
-        cos_term = tf.pow(tf.add(tf.ones(tf.shape(cos_theta_term), dtype=tf.float32), cos_theta_term),
-                          zeta)  # (n_samples,  n_atoms, n_atoms, n_atoms, n_theta_s)
+        # cos_term = tf.pow(tf.add(tf.ones(tf.shape(cos_theta_term), dtype=tf.float32), cos_theta_term),
+        #                   zeta)  # (n_samples,  n_atoms, n_atoms, n_atoms, n_theta_s)
+        cos_term = tf.pow(tf.divide(tf.add(tf.ones(tf.shape(cos_theta_term), dtype=tf.float32), cos_theta_term),
+                                    tf.constant(2, dtype=tf.float32)), zeta)
 
     # Final product of terms inside the sum time by 2^(1-zeta)
     expanded_fc = tf.expand_dims(tf.expand_dims(cleaner_fc_term, axis=-1), axis=-1, name="Expanded_fc")
     expanded_cos = tf.expand_dims(cos_term, axis=-2, name="Expanded_cos")
     expanded_exp = tf.expand_dims(exp_term, axis=-1, name="Expanded_exp")
 
-    const = tf.pow(tf.constant(2.0, dtype=tf.float32), (1.0 - zeta))
+    const = tf.constant(2.0, dtype=tf.float32)
 
     with tf.name_scope("Ang_term"):
         prod_of_terms = const * tf.multiply(tf.multiply(expanded_cos, expanded_exp),
