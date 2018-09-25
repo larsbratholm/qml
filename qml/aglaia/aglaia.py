@@ -31,14 +31,14 @@ import tensorflow as tf
 from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
 from sklearn.base import BaseEstimator
 from qml.aglaia.symm_funct import generate_parkhill_acsf, generate_parkhill_acsf_single
-from qml.aglaia.utils import InputError, ceil, is_positive_or_zero, is_positive_integer, is_positive, \
+from qml.utils.utils import InputError, ceil, is_positive_or_zero, is_positive_integer, is_positive, \
         is_bool, is_positive_integer_or_zero, is_string, is_positive_integer_array, is_array_like, is_none, \
         check_global_representation, check_y, check_sizes, check_dy, check_classes, is_numeric_array, is_non_zero_integer, \
     is_positive_integer_or_zero_array, check_local_representation, check_dgdr, check_xyz
-
 from qml.aglaia.tf_utils import TensorBoardLogger, partial_derivatives
 from qml.representations import generate_acsf
 from qml.aglaia.symm_funct import generate_parkhill_acsf
+from qml.aglaia.graceful_killer import GracefulKiller
 
 try:
     from qml.data import Compound
@@ -146,6 +146,9 @@ class _NN(BaseEstimator):
         self.dg_dr = None
         self.elements = None
         self.element_pairs = None
+
+        # To enable restart model
+        self.loaded_model = False
 
         # To enable restart model
         self.loaded_model = False
@@ -593,7 +596,7 @@ class _NN(BaseEstimator):
         self.representation_params = {'slatm_sigma1': 0.05, 'slatm_sigma2': 0.05, 'slatm_dgrid1': 0.03, 'slatm_dgrid2': 0.03,
                                  'slatm_rcut': 4.8, 'slatm_rpower': 6, 'slatm_alchemy': False}
 
-        if not is_none(params):
+        if params is not None:
             for key, value in params.items():
                 if key in self.representation_params:
                     self.representation_params[key] = value
@@ -607,10 +610,10 @@ class _NN(BaseEstimator):
         :return: None
         """
 
-        self.representation_params = {'rcut': 10.0, 'acut': 10.0, 'nRs2': 3, 'nRs3': 3, 'nTs': 2,
-                                      'zeta': 3.0, 'eta2': 2.0, 'eta3': 3.0}
+        self.acsf_parameters = {'rcut': 5.0, 'acut': 5.0, 'nRs2': 5, 'nRs3': 5, 'nTs': 5,
+                                      'zeta': 220.127, 'eta': 30.8065}
 
-        if not is_none(params):
+        if params is not None:
             for key, value in params.items():
                 if key in self.representation_params:
                     self.representation_params[key] = value
@@ -675,7 +678,7 @@ class _NN(BaseEstimator):
         """
 
         # Check that the number of properties match the number of compounds if the properties have already been set
-        if is_none(self.properties):
+        if self.properties is None:
             pass
         else:
             if self.properties.size == len(filenames):
@@ -728,7 +731,7 @@ class _NN(BaseEstimator):
         if not is_none(self.g):
             raise InputError("The representations have already been set!")
 
-        if is_none(self.compounds):
+        if self.compounds is None:
 
             self.g, self.classes = self._generate_representations_from_data(xyz, classes)
 
@@ -746,7 +749,7 @@ class _NN(BaseEstimator):
         :param y: array of properties of size (nsamples,)
         :type y: array
         """
-        if is_none(properties):
+        if properties is None:
             raise InputError("Properties cannot be set to none.")
         else:
             if is_numeric_array(properties) and np.asarray(properties).ndim == 1:
@@ -794,7 +797,7 @@ class _NN(BaseEstimator):
         :return: None
         """
 
-        if is_none(gradients):
+        if gradients is None:
             raise InputError("Gradients cannot be set to none.")
         else:
             if is_numeric_array(gradients):
@@ -812,7 +815,7 @@ class _NN(BaseEstimator):
         :type classes: numpy array of shape (n_samples, n_atoms) of ints
         :return: None
         """
-        if is_none(classes):
+        if classes is None:
             raise InputError("Classes cannot be set to none.")
         else:
             if is_positive_integer_or_zero_array(classes):
@@ -872,26 +875,28 @@ class _NN(BaseEstimator):
         :return: None
         """
 
-        if not is_positive(self.representation_params['rcut']):
-            raise InputError("Expected positive float for variable 'rcut'. Got %s." % str(self.representation_params['rcut']))
+        if not is_positive(self.acsf_parameters['rcut']):
+            raise InputError(
+                "Expected positive float for variable 'rcut'. Got %s." % str(self.acsf_parameters['rcut']))
 
-        if not is_positive(self.representation_params['acut']):
-            raise InputError("Expected positive float for variable 'acut'. Got %s." % str(self.representation_params['acut']))
+        if not is_positive(self.acsf_parameters['acut']):
+            raise InputError(
+                "Expected positive float for variable 'acut'. Got %s." % str(self.acsf_parameters['acut']))
 
-        if not is_positive_integer(self.representation_params['nRs2']):
-            raise InputError("Expected positinve integer for 'nRs2. Got %s." % (self.representation_params['nRs2']))
+        if not is_positive_integer(self.acsf_parameters['nRs2']):
+            raise InputError("Expected positinve integer for 'nRs2. Got %s." % (self.acsf_parameters['nRs2']))
 
-        if not is_positive_integer(self.representation_params['nRs3']):
-            raise InputError("Expected positinve integer for 'nRs3. Got %s." % (self.representation_params['nRs3']))
+        if not is_positive_integer(self.acsf_parameters['nRs3']):
+            raise InputError("Expected positinve integer for 'nRs3. Got %s." % (self.acsf_parameters['nRs3']))
 
-        if not is_positive_integer(self.representation_params['nTs']):
-            raise InputError("Expected positinve integer for 'nTs. Got %s." % (self.representation_params['nTs']))
+        if not is_positive_integer(self.acsf_parameters['nTs']):
+            raise InputError("Expected positinve integer for 'nTs. Got %s." % (self.acsf_parameters['nTs']))
 
-        if is_numeric_array(self.representation_params['eta2'])  or is_numeric_array(self.representation_params['eta2']):
-            raise InputError("Expecting a scalar value for eta parameters." )
+        if is_numeric_array(self.acsf_parameters['eta']) or is_numeric_array(self.acsf_parameters['eta']):
+            raise InputError("Expecting a scalar value for eta parameters.")
 
-        if is_numeric_array(self.representation_params['zeta']):
-            raise InputError("Expecting a scalar value for zeta. Got %s." % (self.representation_params['zeta']))
+        if is_numeric_array(self.acsf_parameters['zeta']):
+            raise InputError("Expecting a scalar value for zeta. Got %s." % (self.acsf_parameters['zeta']))
 
     def _get_msize(self, pad = 0):
         """
@@ -1065,7 +1070,7 @@ class MRMP(_NN):
                  activation_function = tf.sigmoid, optimiser = tf.train.AdamOptimizer, beta1 = 0.9, beta2 = 0.999, epsilon = 1e-08,
                  rho = 0.95, initial_accumulator_value = 0.1, initial_gradient_squared_accumulator_value = 0.1,
                  l1_regularization_strength = 0.0, l2_regularization_strength = 0.0,
-                 tensorboard_subdir = os.getcwd() + '/tensorboard', representation='unsorted_coulomb_matrix', representation_params=None):
+                 tensorboard_subdir = os.getcwd() + '/tensorboard', representation_name='unsorted_coulomb_matrix', representation_params=None):
         """
         Descriptors is used as input to a single or multi layered feed-forward neural network with a single output.
         This class inherits from the _NN class and all inputs not unique to the NN class is passed to the _NN
@@ -1079,7 +1084,7 @@ class MRMP(_NN):
                  rho, initial_accumulator_value, initial_gradient_squared_accumulator_value,
                  l1_regularization_strength,l2_regularization_strength, tensorboard_subdir)
 
-        self._initialise_representation(representation, representation_params)
+        self._initialise_representation(representation_name, representation_params)
 
     def _initialise_representation(self, representation, parameters):
         """
@@ -1098,7 +1103,7 @@ class MRMP(_NN):
             raise InputError("Unknown representation %s" % representation)
         self.representation = representation.lower()
 
-        if not is_none(parameters):
+        if parameters is not None:
             if not type(parameters) is dict:
                 raise InputError("The representation parameters passed should be either None or a dictionary.")
 
@@ -1125,7 +1130,7 @@ class MRMP(_NN):
 
         self.g = representation
 
-    def _generate_representations_from_data(self, xyz, classes):
+    def _generate_representations_from_data(self, xyz, classes, method):
         """
         This function makes the representation from xyz data and nuclear charges.
 
@@ -1133,6 +1138,8 @@ class MRMP(_NN):
         :type xyz: numpy array of shape (n_samples, n_atoms, 3)
         :param classes: classes for atomic decomposition
         :type classes: None
+        :param method: What method to use
+        :type method: string
         :return: numpy array of shape (n_samples, n_features) and None
         """
         # TODO implement
@@ -1146,7 +1153,7 @@ class MRMP(_NN):
         :rtype: numpy array of shape (n_samples, n_features) and None
         """
 
-        if is_none(self.compounds):
+        if self.compounds is None:
             raise InputError("This should never happen.")
 
         n_samples = len(self.compounds)
@@ -1426,7 +1433,8 @@ class MRMP(_NN):
         if not is_array_like(x):
             raise InputError("x should be an array either containing indices or data.")
 
-        if not is_none(dy) and not is_none(classes) and not is_none(dgdr):
+        if not is_none(dy) and not is_none(classes):
+
             raise InputError("MRMP estimator cannot predict gradients and do atomic decomposition.")
 
         # Check if x is made up of indices or data
@@ -1438,6 +1446,7 @@ class MRMP(_NN):
                 else:
                     self.g, _ = self._generate_representations_from_compounds()
             if is_none(self.properties):
+
                 raise InputError("The properties need to be set in advance.")
 
             approved_x = self.g[x]
@@ -1480,7 +1489,7 @@ class MRMP(_NN):
         if not is_array_like(x):
             raise InputError("x should be an array either containing indices or data.")
 
-        if not is_none(classes):
+        if classes is not None:
             raise InputError("MRMP estimator cannot do atomic decomposition.")
 
         if not is_none(dgdr):
@@ -1619,7 +1628,7 @@ class ARMP(_NN):
                  activation_function = tf.sigmoid, optimiser = tf.train.AdamOptimizer, beta1 = 0.9, beta2 = 0.999, epsilon = 1e-08,
                  rho = 0.95, initial_accumulator_value = 0.1, initial_gradient_squared_accumulator_value = 0.1,
                  l1_regularization_strength = 0.0, l2_regularization_strength = 0.0,
-                 tensorboard_subdir = os.getcwd() + '/tensorboard', representation='acsf', representation_params=None):
+                 tensorboard_subdir = os.getcwd() + '/tensorboard', representation_name='acsf', representation_params=None):
         """
         To see what parameters are required, look at the description of the _NN class init.
         This class inherits from the _NN class and all inputs not unique to the ARMP class are passed to the _NN
@@ -1632,7 +1641,7 @@ class ARMP(_NN):
                  rho, initial_accumulator_value, initial_gradient_squared_accumulator_value,
                  l1_regularization_strength,l2_regularization_strength, tensorboard_subdir)
 
-        self._initialise_representation(representation, representation_params)
+        self._initialise_representation(representation_name, representation_params)
 
     def _initialise_representation(self, representation, parameters):
         """
@@ -1649,9 +1658,9 @@ class ARMP(_NN):
             raise InputError("Expected string for variable 'representation'. Got %s" % str(representation))
         if representation.lower() not in ['slatm', 'acsf']:
             raise InputError("Unknown representation %s" % representation)
-        self.representation = representation.lower()
+        self.representation_name = representation.lower()
 
-        if not is_none(parameters):
+        if parameters is not None:
             if not type(parameters) is dict:
                 raise InputError("The representation parameters passed should be either None or a dictionary.")
             self._check_representation_parameters(parameters)
@@ -1667,7 +1676,7 @@ class ARMP(_NN):
         else:
 
             if not is_none(parameters):
-                raise InputError("The representation %s does not take any additional parameters." % (self.representation))
+                raise InputError("The representation %s does not take any additional parameters." % (self.representation_name))
 
     def _set_representation(self, g):
 
@@ -1677,7 +1686,7 @@ class ARMP(_NN):
 
         self.g = g
 
-    def _generate_representations_from_data(self, xyz, classes):
+    def _generate_representations_from_data(self, xyz, classes, method):
         """
         This function generates the representations from xyz data
 
@@ -1685,11 +1694,16 @@ class ARMP(_NN):
         :type xyz: numpy array of shape (n_samples, n_atoms, 3)
         :param classes: classes to use for atomic decomposition
         :type classes: numpy array of shape (n_samples, n_atoms)
+        :param method: What method to use
+        :type method: string
         :return: representations and classes
         :rtype: numpy arrays of shape (n_samples, n_atoms, n_features) and (n_samples, n_atoms)
         """
 
-        if is_none(classes):
+        if method not in ['fortran', 'tf']:
+            raise InputError("The method to generate the acsf can only be 'fortran' or 'tf'. Got %s." % (method))
+
+        if isinstance(classes, type(None)):
             raise InputError("The classes need to be provided for the ARMP estimator.")
         else:
             if len(classes.shape) > 2 or np.all(xyz.shape[:2] != classes.shape):
@@ -1702,13 +1716,15 @@ class ARMP(_NN):
             # TODO implement
             raise InputError("Slatm from data has not been implemented yet. Use Compounds.")
 
-        elif self.representation == 'acsf':
-
-            representation = self._generate_acsf_from_data(xyz, classes)
+        elif self.representation_name == 'acsf':
+            if method == 'tf':
+                representation = self._generate_acsf_from_data_tf(xyz, classes)
+            else:
+                representation = self._generate_acsf_from_data_fortran(xyz, classes)
 
         return representation, classes
 
-    def _generate_acsf_from_data(self, xyz, classes):
+    def _generate_acsf_from_data_tf(self, xyz, classes):
         """
         This function generates the acsf from the cartesian coordinates and the classes.
 
@@ -1719,23 +1735,14 @@ class ARMP(_NN):
         :return: representation acsf
         :rtype: numpy array of shape (n_samples, n_atoms, n_features)
         """
-        mbtypes = qml_rep.get_slatm_mbtypes([classes[i] for i in range(classes.shape[0])])
 
-        elements = []
-        element_pairs = []
+        if 0 in classes:
+            idx_zeros = np.where(classes == 0)[1]
+            classes_for_elements = classes[:, :idx_zeros[0]]
+        else:
+            classes_for_elements = classes
 
-        # Splitting the one and two body interactions in mbtypes
-        for item in mbtypes:
-            if len(item) == 1:
-                elements.append(item[0])
-            if len(item) == 2:
-                element_pairs.append(list(item))
-            if len(item) == 3:
-                break
-
-        # Need the element pairs in descending order for TF
-        for item in element_pairs:
-            item.reverse()
+        elements, element_pairs = self._get_elements_and_pairs(classes_for_elements)
 
         if self.tensorboard:
             self.tensorboard_logger_representation.initialise()
@@ -1754,12 +1761,13 @@ class ARMP(_NN):
             batch_xyz, batch_zs = iterator.get_next()
 
         representation = generate_parkhill_acsf(xyzs=batch_xyz, Zs=batch_zs, elements=elements, element_pairs=element_pairs,
-                                                radial_cutoff=self.representation_params['radial_cutoff'],
-                                                angular_cutoff=self.representation_params['angular_cutoff'],
-                                                radial_rs=self.representation_params['radial_rs'],
-                                                angular_rs=self.representation_params['angular_rs'],
-                                                theta_s=self.representation_params['theta_s'], eta=self.representation_params['eta'],
-                                                zeta=self.representation_params['zeta'])
+                                            rcut=self.acsf_parameters['rcut'],
+                                            acut=self.acsf_parameters['acut'],
+                                            nRs2=self.acsf_parameters['nRs2'],
+                                            nRs3=self.acsf_parameters['nRs3'],
+                                            nTs=self.acsf_parameters['nTs'],
+                                            eta=self.acsf_parameters['eta'],
+                                            zeta=self.acsf_parameters['zeta'])
 
         sess = tf.Session()
         sess.run(tf.global_variables_initializer())
@@ -1769,6 +1777,7 @@ class ARMP(_NN):
 
         if self.tensorboard:
             self.tensorboard_logger_representation.set_summary_writer(sess)
+
             batch_counter = 0
             while True:
                 try:
@@ -1786,15 +1795,68 @@ class ARMP(_NN):
                     representation_np = sess.run(representation)
                     representation_slices.append(representation_np)
                 except tf.errors.OutOfRangeError:
-                    print("Generated all the representations.")
                     break
 
         representation_conc = np.concatenate(representation_slices, axis=0)
-        print("The representation has shape %s." % (str(representation_conc.shape)))
 
         sess.close()
 
         return representation_conc
+
+    def _generate_acsf_from_data_fortran(self, xyz, classes):
+        """
+        This function uses fortran to generate the representation and the derivative of the representation with respect
+        to the cartesian coordinates.
+        :param xyz: cartesian coordinates
+        :type xyz: numpy array of shape (n_samples, n_atoms, 3)
+        :param classes: the atom types
+        :type classes: numpy array of shape (n_samples, n_atoms)
+        :return: representations and their derivatives wrt to xyz
+        :rtype: numpy array of shape (n_samples, n_atoms, n_features) and (n_samples, n_atoms, n_features, n_atoms, 3)
+        """
+
+        initial_natoms = xyz.shape[1]
+
+        elements, _ = self._get_elements_and_pairs(classes)
+
+        representation = []
+
+        for i in range(xyz.shape[0]):
+            if 0 in classes[i]:
+                idx_zeros = np.where(classes == 0)[1]
+                mol_xyz = xyz[i, :idx_zeros[0], :]
+                mol_classes = classes[i, :idx_zeros[0]]
+
+                g = generate_acsf(coordinates=mol_xyz, elements=elements, gradients=False, nuclear_charges=mol_classes,
+                                  rcut=self.acsf_parameters['rcut'],
+                                  acut=self.acsf_parameters['acut'],
+                                  nRs2=self.acsf_parameters['nRs2'],
+                                  nRs3=self.acsf_parameters['nRs3'],
+                                  nTs=self.acsf_parameters['nTs'],
+                                  eta2=self.acsf_parameters['eta'],
+                                  eta3=self.acsf_parameters['eta'],
+                                  zeta=self.acsf_parameters['zeta'])
+
+                padded_g = np.zeros((initial_natoms, g.shape[-1]))
+                padded_g[:g.shape[0], :] = g
+
+                representation.append(padded_g)
+
+            else:
+
+                g = generate_acsf(coordinates=xyz[i], elements=elements, gradients=False, nuclear_charges=classes[i],
+                                  rcut=self.acsf_parameters['rcut'],
+                                  acut=self.acsf_parameters['acut'],
+                                  nRs2=self.acsf_parameters['nRs2'],
+                                  nRs3=self.acsf_parameters['nRs3'],
+                                  nTs=self.acsf_parameters['nTs'],
+                                  eta2=self.acsf_parameters['eta'],
+                                  eta3=self.acsf_parameters['eta'],
+                                  zeta=self.acsf_parameters['zeta'])
+
+                representation.append(g)
+
+        return np.asarray(representation)
 
     def _generate_representations_from_compounds(self):
         """
@@ -1803,7 +1865,7 @@ class ARMP(_NN):
         :rtype: numpy array of shape (n_samples, n_atoms, n_features) and (n_samples, n_atoms)
         """
 
-        if is_none(self.compounds):
+        if self.compounds is None:
             raise InputError("QML compounds needs to be created in advance")
 
         if self.representation == 'slatm':
@@ -1827,25 +1889,6 @@ class ARMP(_NN):
         :rtype: numpy array of shape (n_samples, n_atoms, n_features) and (n_samples, n_atoms)
         """
 
-        # Obtaining the total elements and the element pairs
-        mbtypes = qml_rep.get_slatm_mbtypes([mol.nuclear_charges for mol in self.compounds])
-
-        elements = []
-        element_pairs = []
-
-        # Splitting the one and two body interactions in mbtypes
-        for item in mbtypes:
-            if len(item) == 1:
-                elements.append(item[0])
-            if len(item) == 2:
-                element_pairs.append(list(item))
-            if len(item) == 3:
-                break
-
-        # Need the element pairs in descending order for TF
-        for item in element_pairs:
-            item.reverse()
-
         # Obtaining the xyz and the nuclear charges
         xyzs = []
         zs = []
@@ -1856,6 +1899,8 @@ class ARMP(_NN):
             zs.append(compound.nuclear_charges)
             if len(compound.nuclear_charges) > max_n_atoms:
                 max_n_atoms = len(compound.nuclear_charges)
+
+        elements, element_pairs = self._get_elements_and_pairs(zs)
 
         # Padding so that all the samples have the same shape
         n_samples = len(zs)
@@ -1886,14 +1931,13 @@ class ARMP(_NN):
             batch_xyz, batch_zs = iterator.get_next()
 
         representations = generate_parkhill_acsf(xyzs=batch_xyz, Zs=batch_zs, elements=elements, element_pairs=element_pairs,
-                                                 rcut=self.representation_params['rcut'],
-                                                 acut=self.representation_params['acut'],
-                                                 nRs2=self.representation_params['nRs2'],
-                                                 nRs3=self.representation_params['nRs3'],
-                                                 nTs=self.representation_params['nTs'],
-                                                 eta2=self.representation_params['eta2'],
-                                                 eta3=self.representation_params['eta3'],
-                                                 zeta=self.representation_params['zeta'])
+                                                 rcut=self.acsf_parameters['rcut'],
+                                                 acut=self.acsf_parameters['acut'],
+                                                 nRs2=self.acsf_parameters['nRs2'],
+                                                 nRs3=self.acsf_parameters['nRs3'],
+                                                 nTs=self.acsf_parameters['nTs'],
+                                                 eta=self.acsf_parameters['eta'],
+                                                 zeta=self.acsf_parameters['zeta'])
 
         sess = tf.Session()
         sess.run(tf.global_variables_initializer())
@@ -2017,26 +2061,27 @@ class ARMP(_NN):
         :rtype: tf tensor of shape (n_samples, 1)
         """
 
-        atomic_energies = tf.zeros_like(zs, dtype=self.tf_dtype)
 
-        for i in range(self.elements.shape[0]):
+        all_atomic_energies = tf.zeros_like(zs, dtype=tf.float32)
 
-            # Calculating the output for every atom in all data as if they were all of the same element
-            atomic_energies_all = self._atomic_model(x, self.hidden_layer_sizes, element_weights[self.elements[i]],
-                                                 element_biases[self.elements[i]])  # (n_samples, n_atoms)
+        for el in self.elements:
+            # Obtaining the indices of where in Zs there is the current element
+            current_element = tf.expand_dims(tf.constant(el, dtype=tf.int32), axis=0)
+            where_element = tf.cast(tf.where(tf.equal(zs, current_element)), dtype=tf.int32)
 
-            # Figuring out which atomic energies correspond to the current element.
-            current_element = tf.expand_dims(tf.constant(self.elements[i], dtype=tf.int32), axis=0)
-            where_element = tf.equal(tf.cast(zs, dtype=tf.int32), current_element)  # (n_samples, n_atoms)
+            # Extract the descriptor corresponding to the right element
+            current_element_in_x = tf.gather_nd(x, where_element)
 
-            # Extracting the energies corresponding to the right element
-            element_energies = tf.where(where_element, atomic_energies_all, tf.zeros_like(zs, dtype=self.tf_dtype))
+            # Calculate the atomic energy of all the atoms of type equal to the current element
+            atomic_ene = self._atomic_model(current_element_in_x, self.hidden_layer_sizes, element_weights[el],
+                                                 element_biases[el])
 
-            # Adding the energies of the current element to the final atomic energies tensor
-            atomic_energies = tf.add(atomic_energies, element_energies)
+            # Put the atomic energies in a zero array with shape equal to zs and then add it to all the atomic energies
+            updates = tf.scatter_nd(where_element, atomic_ene, tf.shape(zs))
+            all_atomic_energies = tf.add(all_atomic_energies, updates)
 
         # Summing the energies of all the atoms
-        total_energies = tf.reduce_sum(atomic_energies, axis=-1, name="output", keepdims=True)
+        total_energies = tf.reduce_sum(all_atomic_energies, axis=-1, name="output", keepdims=True)
 
         return total_energies
 
@@ -2092,7 +2137,7 @@ class ARMP(_NN):
         if not is_array_like(x):
             raise InputError("x should be an array either containing indices or data.")
 
-        if not is_none(dy):
+        if dy is not None:
             raise InputError("ARMP estimator cannot be used to predict gradients. Use ARMP_G estimator.")
 
         if not is_none(dgdr):
@@ -2103,14 +2148,14 @@ class ARMP(_NN):
 
             if is_none(self.g):
 
-                if is_none(self.compounds):
+                if self.compounds is None:
                     raise InputError("No representations or QML compounds have been set yet.")
                 else:
                     self.g, self.classes = self._generate_representations_from_compounds()
 
-            if is_none(self.properties):
+            if self.properties is None:
                 raise InputError("The properties need to be set in advance.")
-            if is_none(self.classes):
+            if self.classes is None:
                 raise InputError("The classes need to be set in advance.")
 
             approved_x = self.g[x]
@@ -2122,9 +2167,9 @@ class ARMP(_NN):
 
         else:
 
-            if is_none(y):
+            if y is None:
                 raise InputError("y cannot be of None type.")
-            if is_none(classes):
+            if classes is None:
                 raise InputError("ARMP estimator needs the classes to do atomic decomposition.")
 
             approved_x = check_local_representation(x)
@@ -2176,7 +2221,7 @@ class ARMP(_NN):
 
         else:
 
-            if is_none(classes):
+            if isinstance(classes, type(None)):
                 raise InputError("ARMP estimator needs the classes to do atomic decomposition.")
 
             approved_x = check_local_representation(x)
@@ -2196,7 +2241,7 @@ class ARMP(_NN):
         :return: None
         """
 
-        if self.representation == "slatm":
+        if self.representation_name == "slatm":
 
             slatm_parameters = {'slatm_sigma1': 0.05, 'slatm_sigma2': 0.05, 'slatm_dgrid1': 0.03, 'slatm_dgrid2': 0.03,
                                 'slatm_rcut': 4.8, 'slatm_rpower': 6, 'slatm_alchemy': False}
@@ -2207,16 +2252,35 @@ class ARMP(_NN):
                 except Exception:
                     raise InputError("Unrecognised parameter for slatm representation: %s" % (key))
 
-        elif self.representation == "acsf":
+        elif self.representation_name == "acsf":
 
-            acsf_parameters = {'rcut': 10.0, 'acut': 10.0, 'nRs2': 3, 'nRs3': 3, 'nTs': 2,
-                                      'zeta': 3.0, 'eta2': 2.0, 'eta3': 3.0}
+            acsf_parameters =  {'rcut': 5.0, 'acut': 5.0, 'nRs2': 5, 'nRs3': 5, 'nTs': 5,
+                                      'zeta': 220.127, 'eta': 30.8065}
 
             for key, value in parameters.items():
                 try:
                     acsf_parameters[key]
                 except Exception:
                     raise InputError("Unrecognised parameter for acsf representation: %s" % (key))
+
+    def _get_elements_and_pairs(self, classes):
+        """
+        This function generates the atom centred symmetry functions.
+        :param classes: The different types of atoms present in the system
+        :type classes: numpy array of shape (n_samples, n_atoms)
+        :return: elements and element pairs in the system
+        :rtype: numpy array of shape (n_elements,) and (n_element_pairs)
+        """
+
+        elements = np.unique(classes)
+        elements_no_zero = np.ma.masked_equal(elements,0).compressed()
+
+        element_pairs = []
+        for i, ei in enumerate(elements_no_zero):
+            for ej in elements_no_zero[i:]:
+                element_pairs.append([ej, ei])
+
+        return np.asarray(elements_no_zero), np.asarray(element_pairs)
 
     def _find_elements(self, zs):
         """
@@ -2236,6 +2300,27 @@ class ARMP(_NN):
 
     def _fit(self, x, y, classes, dy, dgdr):
         """
+        This function calls either fit_from_scratch or fit_from_loaded depending on if a model has been loaded or not.
+
+        :param x: either the representations or the indices to the data points to use
+        :type x: either a numpy array of shape (n_samples, n_atoms, n_features) or a numpy array of ints
+        :param y: either the properties or None
+        :type y: either a numpy array of shape (n_samples,) or None
+        :param dy: None
+        :type dy: None
+        :param classes: classes to use for the atomic decomposition or None
+        :type classes: either a numpy array of shape (n_samples, n_atoms) or None
+
+        :return: None
+        """
+
+        if not self.loaded_model:
+            self._fit_from_scratch(x, y, dy, classes)
+        else:
+            self._fit_from_loaded(x, y, dy, classes)
+
+    def _fit_from_scratch(self, x, y, dy, classes):
+        """
         This function fits an atomic decomposed network to the data.
 
         :param x: either the representations or the indices to the data points to use
@@ -2252,10 +2337,12 @@ class ARMP(_NN):
         :return: None
         """
 
-        x_approved, y_approved, dy_approved, classes_approved = self._check_inputs(x, y, classes, dy, dgdr)
+        x_approved, y_approved, dy_approved, classes_approved = self._check_inputs(x, y, classes, dy, None)
 
-        # Obtaining the array of unique elements in all samples
-        self.elements = self._find_elements(classes_approved)
+        # Putting a mask on all the 0 values
+        classes_for_elements = np.ma.masked_equal(classes_approved, 0).compressed()
+
+        self.elements, self.element_pairs = self._get_elements_and_pairs(classes_for_elements)
 
         if self.tensorboard:
             self.tensorboard_logger_training.initialise()
@@ -2275,20 +2362,18 @@ class ARMP(_NN):
 
         # Initial set up of the NN
         with tf.name_scope("Data"):
-            x_ph = tf.placeholder(dtype=self.tf_dtype, shape=[None, self.n_atoms, self.n_features])
-            zs_ph = tf.placeholder(dtype=self.tf_dtype, shape=[None, self.n_atoms])
-            y_ph = tf.placeholder(dtype=self.tf_dtype, shape=[None, 1])
+            x_ph = tf.placeholder(dtype=self.tf_dtype, shape=[None, self.n_atoms, self.n_features], name="Descriptors")
+            zs_ph = tf.placeholder(dtype=tf.int32, shape=[None, self.n_atoms], name="Atomic-numbers")
+            y_ph = tf.placeholder(dtype=self.tf_dtype, shape=[None, 1], name="Properties")
+            buffer_tf = tf.placeholder(dtype=tf.int64, name="buffer")
 
             dataset = tf.data.Dataset.from_tensor_slices((x_ph, zs_ph, y_ph))
-            dataset = dataset.shuffle(buffer_size=self.n_samples)
+            dataset = dataset.shuffle(buffer_size=buffer_tf)
             dataset = dataset.batch(batch_size)
             # batched_dataset = dataset.prefetch(buffer_size=batch_size)
 
             iterator = tf.data.Iterator.from_structure(dataset.output_types, dataset.output_shapes)
             tf_x, tf_zs, tf_y = iterator.get_next()
-            tf_x = tf.identity(tf_x, name="Descriptors")
-            tf_zs = tf.identity(tf_zs, name="Atomic-numbers")
-            tf_y = tf.identity(tf_y, name="Properties")
 
         # Creating dictionaries of the weights and biases for each element
         element_weights = {}
@@ -2314,11 +2399,13 @@ class ARMP(_NN):
             cost_summary = self.tensorboard_logger_training.write_cost_summary(cost)
 
         optimiser = self._set_optimiser()
-        optimisation_op = optimiser.minimize(cost)
+        optimisation_op = optimiser.minimize(cost, name="optimisation_op")
 
         # Initialisation of the variables
         init = tf.global_variables_initializer()
-        iterator_init = iterator.make_initializer(dataset)
+        iterator_init = iterator.make_initializer(dataset, name="dataset_init")
+
+        self._build_model_from_xyz(self.n_atoms, element_weights, element_biases)
 
         self.session = tf.Session()
 
@@ -2327,11 +2414,18 @@ class ARMP(_NN):
             self.tensorboard_logger_training.set_summary_writer(self.session)
 
         self.session.run(init)
-        self.session.run(iterator_init, feed_dict={x_ph:x_approved, zs_ph:classes_approved, y_ph:y_approved})
+
+        # Initialising the object that enables graceful killing of the training
+        killer = GracefulKiller()
 
         for i in range(self.iterations):
 
-            self.session.run(iterator_init, feed_dict={x_ph: x_approved, zs_ph: classes_approved, y_ph: y_approved})
+            if i % 2 == 0:
+                buff = int(3.5 * batch_size)
+            else:
+                buff = int(4.5 * batch_size)
+
+            self.session.run(iterator_init, feed_dict={x_ph: x_approved, zs_ph: classes_approved, y_ph: y_approved, buffer_tf:buff})
             avg_cost = 0
 
             for j in range(n_batches):
@@ -2343,16 +2437,134 @@ class ARMP(_NN):
 
                 avg_cost += c
 
-            # This seems to run the iterator.get_next() op, which gives problems with end of sequence
-            # Hence why I re-initialise the iterator
-            self.session.run(iterator_init, feed_dict={x_ph: x_approved, zs_ph: classes_approved, y_ph: y_approved})
+                if killer.kill_now:
+                    self.save_nn("emergency_save")
+                    exit()
+
+            # This seems to run the iterator.get_next() op, which gives problems with end of sequence, hence why I re-initialise the iterator
             if self.tensorboard:
                 if i % self.tensorboard_logger_training.store_frequency == 0:
+                    self.session.run(iterator_init,
+                                     feed_dict={x_ph: x_approved, zs_ph: classes_approved, y_ph: y_approved,
+                                                buffer_tf: buff})
                     self.tensorboard_logger_training.write_summary(self.session, i)
 
             self.training_cost.append(avg_cost/n_batches)
 
-    def _predict(self, x, classes, dgdr):
+    def _fit_from_loaded(self, x, y, dy, classes):
+        """
+       This function carries on fitting an atomic decomposed network to the data after it has been loaded.
+
+       :param x: either the representations or the indices to the data points to use
+       :type x: either a numpy array of shape (n_samples, n_atoms, n_features) or a numpy array of ints
+       :param y: either the properties or None
+       :type y: either a numpy array of shape (n_samples,) or None
+       :param dy: None
+       :type dy: None
+       :param classes: classes to use for the atomic decomposition or None
+       :type classes: either a numpy array of shape (n_samples, n_atoms) or None
+
+       :return: None
+       """
+
+        x_approved, y_approved, dy_approved, classes_approved = self._check_inputs(x, y, dy, classes)
+
+
+        if 0 in classes_approved:
+            idx_zeros = np.where(classes_approved == 0)[1]
+            classes_for_elements = classes_approved[:, :idx_zeros[0]]
+        else:
+            classes_for_elements = classes_approved
+        self.elements = self._find_elements(classes_for_elements)
+
+        if self.tensorboard:
+            self.tensorboard_logger_training.initialise()
+            self.tensorboard_logger_training.set_summary_writer(self.session)
+
+        self.n_samples = x_approved.shape[0]
+        self.n_atoms = x_approved.shape[1]
+        self.n_features = x_approved.shape[2]
+
+        batch_size = self._get_batch_size()
+        n_batches = ceil(self.n_samples, batch_size)
+
+        graph = tf.get_default_graph()
+
+        with graph.as_default():
+            # Reloading all the needed operations and tensors
+            tf_x = graph.get_tensor_by_name("Data/Descriptors:0")
+            tf_zs = graph.get_tensor_by_name("Data/Atomic-numbers:0")
+            tf_ene = graph.get_tensor_by_name("Data/Properties:0")
+            tf_buffer = graph.get_tensor_by_name("Data/buffer:0")
+
+            optimisation_op = graph.get_operation_by_name("optimisation_op")
+            dataset_init_op = graph.get_operation_by_name("dataset_init")
+
+        # Initialising the object that enables graceful killing of the training
+        killer = GracefulKiller()
+
+        for i in range(self.iterations):
+
+            if i % 2 == 0:
+                buff = int(3.5 * batch_size)
+            else:
+                buff = int(4.5 * batch_size)
+
+            self.session.run(dataset_init_op, feed_dict={tf_x: x_approved, tf_zs: classes_approved, tf_ene: y_approved, tf_buffer: buff})
+
+            for j in range(n_batches):
+                if self.tensorboard:
+                    self.session.run(optimisation_op, options=self.tensorboard_logger_training.options,
+                                     run_metadata=self.tensorboard_logger_training.run_metadata)
+                else:
+                    self.session.run(optimisation_op)
+
+                if killer.kill_now:
+                    self.save_nn("emergency_save")
+                    exit()
+
+
+            if self.tensorboard:
+                if i % self.tensorboard_logger_training.store_frequency == 0:
+                    self.session.run(dataset_init_op,
+                                     feed_dict={tf_x: x_approved, tf_zs: classes_approved, tf_ene: y_approved, tf_buffer: buff})
+                    self.tensorboard_logger_training.write_summary(self.session, i)
+
+    def _build_model_from_xyz(self, n_atoms, element_weights, element_biases):
+        """
+        This function builds a model that makes it possible to predict energies straight from xyz data. It constructs the
+        graph needed to do this.
+
+        :param n_atoms: number of atoms
+        :param element_weights: the dictionary of the trained weights in the model
+        :param element_biases: the dictionary of trained biases in the model
+        """
+
+        with tf.name_scope("Inputs_pred"):
+            zs_tf = tf.placeholder(shape=[None, n_atoms], dtype=tf.int32, name="Classes")
+            xyz_tf = tf.placeholder(shape=[None, n_atoms, 3], dtype=tf.float32, name="xyz")
+
+            dataset = tf.data.Dataset.from_tensor_slices((xyz_tf, zs_tf))
+            dataset = dataset.batch(2)
+            iterator = tf.data.Iterator.from_structure(dataset.output_types, dataset.output_shapes)
+            batch_xyz, batch_zs = iterator.get_next()
+            iterator_init = iterator.make_initializer(dataset, name="dataset_init_pred")
+
+        with tf.name_scope("Descriptor_pred"):
+            batch_representation = generate_parkhill_acsf(xyzs=batch_xyz, Zs=batch_zs, elements=self.elements,
+                                                          element_pairs=self.element_pairs,
+                                                          rcut=self.acsf_parameters['rcut'],
+                                                          acut=self.acsf_parameters['acut'],
+                                                          nRs2=self.acsf_parameters['nRs2'],
+                                                          nRs3=self.acsf_parameters['nRs3'],
+                                                          nTs=self.acsf_parameters['nTs'],
+                                                          eta=self.acsf_parameters['eta'],
+                                                          zeta=self.acsf_parameters['zeta'])
+
+        with tf.name_scope("Model_pred"):
+            batch_energies_nn = self._model(batch_representation, batch_zs, element_weights, element_biases)
+
+    def _predict(self, x, classes):
         """
         This function checks whether x contains indices or data. If it contains indices, the data is extracted by the
         appropriate compound objects. Otherwise it checks what data is passed through the arguments. Then, the data is
@@ -2369,7 +2581,8 @@ class ARMP(_NN):
         :rtype: numpy array of shape (n_samples,)
         """
 
-        approved_x, approved_classes = self._check_predict_input(x, classes, dgdr)
+        approved_x, approved_classes = self._check_predict_input(x, classes)
+        empty_ene = np.empty((approved_x.shape[0], 1))
 
         if self.session == None:
             raise InputError("Model needs to be fit before predictions can be made.")
@@ -2379,10 +2592,58 @@ class ARMP(_NN):
         with graph.as_default():
             tf_x = graph.get_tensor_by_name("Data/Descriptors:0")
             tf_zs = graph.get_tensor_by_name("Data/Atomic-numbers:0")
+            tf_true_ene = graph.get_tensor_by_name("Data/Properties:0")
+            tf_buffer =  graph.get_tensor_by_name("Data/buffer:0")
             model = graph.get_tensor_by_name("Model/output:0")
-            y_pred = self.session.run(model, feed_dict={tf_x: approved_x, tf_zs:approved_classes})
+            dataset_init_op = graph.get_operation_by_name("dataset_init")
+            self.session.run(dataset_init_op, feed_dict={tf_x: approved_x, tf_zs: approved_classes, tf_true_ene: empty_ene, tf_buffer:1})
 
-        return y_pred
+        tot_y_pred = []
+
+        while True:
+            try:
+                y_pred = self.session.run(model)
+                tot_y_pred.append(y_pred)
+            except tf.errors.OutOfRangeError:
+                break
+
+        return np.concatenate(tot_y_pred, axis=0)
+
+    def predict_from_xyz(self, xyz, classes):
+        """
+        This function takes in the cartesian coordinates and the atom types and returns energies.
+
+        :param xyz: cartesian coordinates
+        :type xyz: numpy array of shape (n_samples, n_atoms, 3)
+        :param classes: atom types
+        :type classes: numpy array of shape (n_samples, n_atoms)
+        :return: energies
+        :rtype: numpy array of shape  (n_samples,)
+        """
+
+        if self.session == None:
+            raise InputError("Model needs to be fit before predictions can be made.")
+
+        graph = tf.get_default_graph()
+
+        with graph.as_default():
+            xyz_tf = graph.get_tensor_by_name("Inputs_pred/xyz:0")
+            classes_tf = graph.get_tensor_by_name("Inputs_pred/Classes:0")
+            ene_nn = graph.get_tensor_by_name("Model_pred/output:0")
+            dataset_init_op = graph.get_operation_by_name("Inputs_pred/dataset_init_pred")
+            self.session.run(dataset_init_op,
+                             feed_dict={xyz_tf: xyz, classes_tf: classes})
+
+        tot_y_pred = []
+
+        while True:
+            try:
+                y_pred = self.session.run(ene_nn)
+                tot_y_pred.append(y_pred)
+            except tf.errors.OutOfRangeError:
+                break
+
+        return np.concatenate(tot_y_pred, axis=0).ravel()
 
     def _score_r2(self, x, y=None, classes=None, dy=None, dgdr=None):
         """
@@ -2477,6 +2738,15 @@ class ARMP(_NN):
         :return: None
         """
 
+        counter = 0
+        dir = save_dir
+        while True:
+            if os.path.isdir(save_dir):
+                counter += 1
+                save_dir = dir + "_" + str(counter)
+            else:
+                break
+
         if self.session == None:
             raise InputError("Model needs to be fit before predictions can be made.")
 
@@ -2485,10 +2755,12 @@ class ARMP(_NN):
         with graph.as_default():
             tf_x = graph.get_tensor_by_name("Data/Descriptors:0")
             tf_zs = graph.get_tensor_by_name("Data/Atomic-numbers:0")
+            true_ene = graph.get_tensor_by_name("Data/Properties:0")
             model = graph.get_tensor_by_name("Model/output:0")
 
         tf.saved_model.simple_save(self.session, export_dir=save_dir,
-                                   inputs={"Data/Descriptors:0": tf_x, "Data/Atomic-numbers:0": tf_zs},
+                                   inputs={"Data/Descriptors:0": tf_x, "Data/Atomic-numbers:0": tf_zs,
+                                           "Data/Properties:0": true_ene},
                                    outputs={"Model/output:0": model})
 
     def load_nn(self, save_dir="saved_model"):
@@ -3183,6 +3455,4 @@ class ARMP_G(ARMP, _NN):
         tf.saved_model.loader.load(self.session, [tf.saved_model.tag_constants.SERVING], save_dir)
 
         self.loaded_model = True
-
-
 
