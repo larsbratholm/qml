@@ -2519,7 +2519,6 @@ class ARMP(_NN):
                     self.save_nn("emergency_save")
                     exit()
 
-
             if self.tensorboard:
                 if i % self.tensorboard_logger_training.store_frequency == 0:
                     self.session.run(dataset_init_op,
@@ -3062,31 +3061,31 @@ class ARMP_G(ARMP, _NN):
 
         graph = tf.get_default_graph()
 
+        # Initialising the object that enables graceful killing of the training
+        killer = GracefulKiller()
+
         with graph.as_default():
             # Reloading all the needed operations and tensors
             xyz_tf = graph.get_tensor_by_name("Data/xyz:0")
             zs_tf = graph.get_tensor_by_name("Data/Classes:0")
             true_ene = graph.get_tensor_by_name("Data/Properties:0")
             true_forces = graph.get_tensor_by_name("Data/Forces:0")
-
-            cost = graph.get_tensor_by_name("Cost/add_6:0")
+            tf_buffer = graph.get_tensor_by_name("Data/buffer:0")
 
             optimisation_op = graph.get_operation_by_name("optimisation_op")
             dataset_init_op = graph.get_operation_by_name("dataset_init")
 
-            output_grad = graph.get_tensor_by_name("Model/Neg:0")
-
-            # Recording cost to tensorboard
-            if self.tensorboard:
-                cost_summary = self.tensorboard_logger_training.write_cost_summary(cost)
-
             # Running the operations needed
-
             for i in range(self.iterations):
+
+                if i % 2 == 0:
+                    buff = int(3.5 * batch_size)
+                else:
+                    buff = int(4.5 * batch_size)
 
                 self.session.run(dataset_init_op,
                                  feed_dict={xyz_tf: xyz_approved, zs_tf: classes_approved, true_ene: y_approved,
-                                            true_forces: dy_approved})
+                                            true_forces: dy_approved, tf_buffer: buff})
 
                 for j in range(n_batches):
                     if self.tensorboard:
@@ -3095,11 +3094,15 @@ class ARMP_G(ARMP, _NN):
                     else:
                         self.session.run(optimisation_op)
 
+                    if killer.kill_now:
+                        self.save_nn("emergency_save")
+                        exit()
+
                 if self.tensorboard:
                     if i % self.tensorboard_logger_training.store_frequency == 0:
                         self.session.run(dataset_init_op,
                                          feed_dict={xyz_tf: xyz_approved, zs_tf: classes_approved, true_ene: y_approved,
-                                                    true_forces: dy_approved})
+                                                    true_forces: dy_approved, tf_buffer: buff})
                         self.tensorboard_logger_training.write_summary(self.session, i)
 
     def _fit_from_scratch(self, x, y, classes, dy):
@@ -3122,7 +3125,9 @@ class ARMP_G(ARMP, _NN):
         xyz_approved, y_approved, classes_approved, dy_approved = self._check_inputs(x, y, classes, dy, None)
 
         if is_none(self.element_pairs) and is_none(self.elements):
-            self.elements, self.element_pairs = self._get_elements_and_pairs(classes_approved)
+            classes_for_elements = np.ma.masked_equal(classes_approved, 0).compressed()
+            self.elements, self.element_pairs = self._get_elements_and_pairs(classes_for_elements)
+
             self.n_features = self.elements.shape[0] * self.acsf_parameters['nRs2'] + \
                               self.element_pairs.shape[0] * self.acsf_parameters['nRs3'] * \
                               self.acsf_parameters['nTs']
@@ -3144,9 +3149,10 @@ class ARMP_G(ARMP, _NN):
             xyz_tf = tf.placeholder(shape=[None, max_n_atoms, 3], dtype=tf.float32, name="xyz")
             true_ene = tf.placeholder(shape=[None, 1], dtype=tf.float32, name="Properties")
             true_forces = tf.placeholder(shape=[None, max_n_atoms, 3], dtype=tf.float32, name="Forces")
+            buffer_tf = tf.placeholder(dtype=tf.int64, name="buffer")
 
             dataset = tf.data.Dataset.from_tensor_slices((xyz_tf, zs_tf, true_ene, true_forces))
-            dataset = dataset.shuffle(buffer_size=self.n_samples)
+            dataset = dataset.shuffle(buffer_size=buffer_tf)
             dataset = dataset.batch(batch_size)
             iterator = tf.data.Iterator.from_structure(dataset.output_types, dataset.output_shapes)
             batch_xyz, batch_zs, batch_y, batch_dy = iterator.get_next()
@@ -3190,9 +3196,14 @@ class ARMP_G(ARMP, _NN):
 
         for i in range(self.iterations):
 
+            if i % 2 == 0:
+                buff = int(3.5 * batch_size)
+            else:
+                buff = int(4.5 * batch_size)
+
             self.session.run(iterator_init,
                              feed_dict={xyz_tf: xyz_approved, zs_tf: classes_approved, true_ene: y_approved,
-                                        true_forces: dy_approved})
+                                        true_forces: dy_approved, buffer_tf:buff})
 
             for j in range(n_batches):
                 if self.tensorboard:
@@ -3207,7 +3218,7 @@ class ARMP_G(ARMP, _NN):
                 if i % self.tensorboard_logger_training.store_frequency == 0:
                     self.session.run(iterator_init,
                                      feed_dict={xyz_tf: xyz_approved, zs_tf: classes_approved, true_ene: y_approved,
-                                                true_forces: dy_approved})
+                                                true_forces: dy_approved, buffer_tf:buff})
                     self.tensorboard_logger_training.write_summary(self.session, i)
 
     def predict(self, x, classes=None, dgdr=None):
@@ -3266,11 +3277,12 @@ class ARMP_G(ARMP, _NN):
             output_grad = graph.get_tensor_by_name("Model/Neg:0")
             true_ene = graph.get_tensor_by_name("Data/Properties:0")
             true_forces = graph.get_tensor_by_name("Data/Forces:0")
+            tf_buffer = graph.get_tensor_by_name("Data/buffer:0")
 
             dataset_init_op = graph.get_operation_by_name("dataset_init")
 
             self.session.run(dataset_init_op, feed_dict={xyz_tf: xyz_approved, zs_tf:classes_approved,
-                                                         true_ene: empty_ene, true_forces: empty_forces})
+                                                         true_ene: empty_ene, true_forces: empty_forces, tf_buffer:1})
 
             tot_y_pred = []
             tot_dy_pred = []
