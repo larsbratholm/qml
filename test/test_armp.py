@@ -59,7 +59,7 @@ def test_set_representation():
 
     estimator = ARMP(representation_name='slatm', representation_params=parameters)
 
-    assert estimator.representation == 'slatm'
+    assert estimator.representation_name == 'slatm'
     assert estimator.representation_params == parameters
 
 def test_set_properties():
@@ -291,10 +291,10 @@ def test_retraining():
 
     pred4 = new_estimator.predict(idx)
 
+    shutil.rmtree("temp")
+
     assert np.all(np.isclose(pred1, pred3, rtol=1.e-6))
     assert np.all(np.isclose(pred2, pred4, rtol=1.e-6))
-
-    shutil.rmtree("temp")
 
 if __name__ == "__main__":
     test_set_representation()

@@ -37,7 +37,6 @@ from qml.utils.utils import InputError, ceil, is_positive_or_zero, is_positive_i
     is_positive_integer_or_zero_array, check_local_representation, check_dgdr, check_xyz
 from qml.aglaia.tf_utils import TensorBoardLogger, partial_derivatives
 from qml.representations import generate_acsf
-from qml.aglaia.symm_funct import generate_parkhill_acsf
 from qml.aglaia.graceful_killer import GracefulKiller
 
 try:
@@ -615,8 +614,8 @@ class _NN(BaseEstimator):
 
         if params is not None:
             for key, value in params.items():
-                if key in self.representation_params:
-                    self.representation_params[key] = value
+                if key in self.acsf_parameters:
+                    self.acsf_parameters[key] = value
 
             self._check_acsf_values()
 
@@ -733,7 +732,7 @@ class _NN(BaseEstimator):
 
         if self.compounds is None:
 
-            self.g, self.classes = self._generate_representations_from_data(xyz, classes)
+            self.g, self.classes = self._generate_representations_from_data(xyz, classes, method)
 
         elif is_none(xyz):
             # Make representations from compounds
@@ -1101,20 +1100,20 @@ class MRMP(_NN):
             raise InputError("Expected string for variable 'representation'. Got %s" % str(representation))
         if representation.lower() not in ['sorted_coulomb_matrix', 'unsorted_coulomb_matrix', 'bag_of_bonds', 'slatm']:
             raise InputError("Unknown representation %s" % representation)
-        self.representation = representation.lower()
+        self.representation_name = representation.lower()
 
         if parameters is not None:
             if not type(parameters) is dict:
                 raise InputError("The representation parameters passed should be either None or a dictionary.")
 
-        if self.representation == 'slatm':
+        if self.representation_name == 'slatm':
 
             self._set_slatm_parameters(parameters)
 
         else:
 
             if not is_none(parameters):
-                raise InputError("The representation %s does not take any additional parameters." % (self.representation))
+                raise InputError("The representation %s does not take any additional parameters." % (self.representation_name))
 
     def _set_representation(self, representation):
         """
@@ -1665,11 +1664,11 @@ class ARMP(_NN):
                 raise InputError("The representation parameters passed should be either None or a dictionary.")
             self._check_representation_parameters(parameters)
 
-        if self.representation == 'slatm':
+        if self.representation_name == 'slatm':
 
             self._set_slatm_parameters(parameters)
 
-        elif self.representation == 'acsf':
+        elif self.representation_name == 'acsf':
 
             self._set_acsf_parameters(parameters)
 
@@ -1712,7 +1711,7 @@ class ARMP(_NN):
 
         representation = None
 
-        if self.representation == 'slatm':
+        if self.representation_name == 'slatm':
             # TODO implement
             raise InputError("Slatm from data has not been implemented yet. Use Compounds.")
 
@@ -1868,16 +1867,16 @@ class ARMP(_NN):
         if self.compounds is None:
             raise InputError("QML compounds needs to be created in advance")
 
-        if self.representation == 'slatm':
+        if self.representation_name == 'slatm':
 
             representations, classes = self._generate_slatm_from_compounds()
 
-        elif self.representation == 'acsf':
+        elif self.representation_name == 'acsf':
 
             representations, classes = self._generate_acsf_from_compounds()
 
         else:
-            raise InputError("This should never happen, unrecognised representation %s." % (self.representation))
+            raise InputError("This should never happen, unrecognised representation %s." % (self.representation_name))
 
         return representations, classes
 
@@ -2467,15 +2466,12 @@ class ARMP(_NN):
        :return: None
        """
 
-        x_approved, y_approved, dy_approved, classes_approved = self._check_inputs(x, y, dy, classes)
+        x_approved, y_approved, dy_approved, classes_approved = self._check_inputs(x, y, dy, classes, dgdr=None)
 
+        # Putting a mask on all the 0 values
+        classes_for_elements = np.ma.masked_equal(classes_approved, 0).compressed()
 
-        if 0 in classes_approved:
-            idx_zeros = np.where(classes_approved == 0)[1]
-            classes_for_elements = classes_approved[:, :idx_zeros[0]]
-        else:
-            classes_for_elements = classes_approved
-        self.elements = self._find_elements(classes_for_elements)
+        self.elements, self.element_pairs = self._get_elements_and_pairs(classes_for_elements)
 
         if self.tensorboard:
             self.tensorboard_logger_training.initialise()
@@ -2564,7 +2560,7 @@ class ARMP(_NN):
         with tf.name_scope("Model_pred"):
             batch_energies_nn = self._model(batch_representation, batch_zs, element_weights, element_biases)
 
-    def _predict(self, x, classes):
+    def _predict(self, x, classes, dgdr):
         """
         This function checks whether x contains indices or data. If it contains indices, the data is extracted by the
         appropriate compound objects. Otherwise it checks what data is passed through the arguments. Then, the data is
@@ -2581,7 +2577,7 @@ class ARMP(_NN):
         :rtype: numpy array of shape (n_samples,)
         """
 
-        approved_x, approved_classes = self._check_predict_input(x, classes)
+        approved_x, approved_classes = self._check_predict_input(x, classes, dgdr)
         empty_ene = np.empty((approved_x.shape[0], 1))
 
         if self.session == None:
@@ -2775,6 +2771,8 @@ class ARMP(_NN):
         self.session = tf.Session(graph=tf.get_default_graph())
         tf.saved_model.loader.load(self.session, [tf.saved_model.tag_constants.SERVING], save_dir)
 
+        self.loaded_model=True
+
 ### --------------------- ** Atomic representation - molecular properties with gradients ** ----------------------------
 
 class ARMP_G(ARMP, _NN):
@@ -2789,7 +2787,7 @@ class ARMP_G(ARMP, _NN):
                  epsilon=1e-08,
                  rho=0.95, initial_accumulator_value=0.1, initial_gradient_squared_accumulator_value=0.1,
                  l1_regularization_strength=0.0, l2_regularization_strength=0.0,
-                 tensorboard_subdir=os.getcwd() + '/tensorboard', representation='acsf', representation_params=None):
+                 tensorboard_subdir=os.getcwd() + '/tensorboard', representation_name='acsf', representation_params=None):
 
         super(ARMP_G, self).__init__(hidden_layer_sizes, l1_reg, l2_reg, batch_size, learning_rate,
                                    iterations, tensorboard, store_frequency, tf_dtype, scoring_function,
@@ -2797,10 +2795,10 @@ class ARMP_G(ARMP, _NN):
                                    rho, initial_accumulator_value, initial_gradient_squared_accumulator_value,
                                    l1_regularization_strength, l2_regularization_strength, tensorboard_subdir)
 
-        if representation != 'acsf':
+        if representation_name != 'acsf':
             raise InputError("Only the acsf representation can currently be used with gradients.")
 
-        self._initialise_representation(representation, representation_params)
+        self._initialise_representation(representation_name, representation_params)
 
     def _check_inputs(self, x, y, classes, dy, dgdr):
         """
@@ -3156,9 +3154,9 @@ class ARMP_G(ARMP, _NN):
 
         if is_none(self.element_pairs) and is_none(self.elements):
             self.elements, self.element_pairs = self._get_elements_and_pairs(classes_approved)
-            self.n_features = self.elements.shape[0] * self.representation_params['nRs2'] + \
-                              self.element_pairs.shape[0] * self.representation_params['nRs3'] * \
-                              self.representation_params['nTs']
+            self.n_features = self.elements.shape[0] * self.acsf_parameters['nRs2'] + \
+                              self.element_pairs.shape[0] * self.acsf_parameters['nRs3'] * \
+                              self.acsf_parameters['nTs']
 
         self.n_samples = xyz_approved.shape[0]
         max_n_atoms = xyz_approved.shape[1]
@@ -3186,14 +3184,13 @@ class ARMP_G(ARMP, _NN):
 
         with tf.name_scope("Descriptor"):
             batch_g = generate_parkhill_acsf(batch_xyz, batch_zs, self.elements, self.element_pairs,
-                                               rcut=self.representation_params['rcut'],
-                                               acut=self.representation_params['acut'],
-                                               nRs2=self.representation_params['nRs2'],
-                                               nRs3=self.representation_params['nRs3'],
-                                               nTs=self.representation_params['nTs'],
-                                               eta2=self.representation_params['eta2'],
-                                               eta3=self.representation_params['eta3'],
-                                               zeta=self.representation_params['zeta'])
+                                               rcut=self.acsf_parameters['rcut'],
+                                               acut=self.acsf_parameters['acut'],
+                                               nRs2=self.acsf_parameters['nRs2'],
+                                               nRs3=self.acsf_parameters['nRs3'],
+                                               nTs=self.acsf_parameters['nTs'],
+                                               eta=self.acsf_parameters['eta'],
+                                               zeta=self.acsf_parameters['zeta'])
 
         # Creating the model
         with tf.name_scope("Model"):
@@ -3282,7 +3279,7 @@ class ARMP_G(ARMP, _NN):
         :rtype: numpy arrays of shape (n_samples,) and (n_samples, n_atoms, 3)
         """
 
-        xyz_approved, classes_approved = self._check_predict_input(x, classes, None)
+        xyz_approved, classes_approved = self._check_predict_input(x, classes, dgdr)
 
         # TODO find a cleaner way of doing this (surgery?)
         empty_ene = np.empty((xyz_approved.shape[0], 1))

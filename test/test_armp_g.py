@@ -26,9 +26,9 @@ This test checks if all the ways of setting up the estimator ARMP work.
 
 import numpy as np
 from qml.aglaia.aglaia import ARMP_G
-from qml.aglaia.utils import InputError
+from qml.utils.utils import InputError
 import glob
-from qml.aglaia.utils import is_array_like
+from qml.utils.utils import is_array_like
 import os
 
 def test_set_representation():
@@ -36,35 +36,35 @@ def test_set_representation():
     This function tests the function _set_representation.
     """
     try:
-        ARMP_G(representation='acsf', representation_params={'slatm_sigma12': 0.05})
+        ARMP_G(representation_name='acsf', representation_params={'slatm_sigma12': 0.05})
         raise Exception
     except InputError:
         pass
 
     try:
-        ARMP_G(representation='coulomb_matrix')
+        ARMP_G(representation_name='coulomb_matrix')
         raise Exception
     except InputError:
         pass
 
     try:
-        ARMP_G(representation='slatm')
+        ARMP_G(representation_name='slatm')
         raise Exception
     except InputError:
         pass
 
     parameters = {'rcut': 10.0, 'acut': 10.0, 'nRs2': 3, 'nRs3': 3, 'nTs': 2,
-                                      'zeta': 3.0, 'eta2': 2.0, 'eta3': 3.0}
+                                      'zeta': 3.0, 'eta': 2.0}
 
-    estimator = ARMP_G(representation='acsf', representation_params=parameters)
+    estimator = ARMP_G(representation_name='acsf', representation_params=parameters)
 
-    assert estimator.representation == 'acsf'
+    assert estimator.representation_name == 'acsf'
 
-    for key, value in estimator.representation_params.items():
+    for key, value in estimator.acsf_parameters.items():
         if is_array_like(value):
-            assert np.all(estimator.representation_params[key] == parameters[key])
+            assert np.all(estimator.acsf_parameters[key] == parameters[key])
         else:
-            assert estimator.representation_params[key] == parameters[key]
+            assert estimator.acsf_parameters[key] == parameters[key]
 
 def test_set_properties():
     """
@@ -84,7 +84,7 @@ def test_set_properties():
 
     assert np.all(estimator.properties == energies)
 
-def test_set_representation_and_dgdr():
+def test_set_representation():
     """
     This test checks that the set_representation function works as expected.
     :return:
@@ -108,22 +108,9 @@ def test_set_representation_and_dgdr():
 
     assert np.all(estimator.g == representation_correct)
 
-    assert estimator.dg_dr == None
-
-    estimator.set_dgdr(dgdr_correct)
-
-    assert np.all(estimator.dg_dr == dgdr_correct)
-
     # Pass a representation with the wrong shape
     try:
         estimator._set_representation(g=representation_incorrect)
-        raise Exception
-    except InputError:
-        pass
-
-    # Pass a dgdr with the wrong shape
-    try:
-        estimator.set_dgdr(dgdr_incorrect)
         raise Exception
     except InputError:
         pass
@@ -142,7 +129,7 @@ def test_fit_1():
     filenames.sort()
     forces =  data["arr_3"][:2]
 
-    estimator = ARMP_G(representation="acsf")
+    estimator = ARMP_G(representation_name="acsf")
     estimator.generate_compounds(filenames[:2])
     estimator.set_properties(energies[:2])
     estimator.set_gradients(forces)
@@ -167,7 +154,6 @@ def test_fit_2():
 
     estimator = ARMP_G()
     estimator._set_representation(g=representation)
-    estimator.set_dgdr(dg_dr)
     estimator.set_classes(classes=classes)
     estimator.set_properties(energies)
     estimator.set_gradients(forces)
@@ -236,7 +222,7 @@ def test_predict_3():
 if __name__ == "__main__":
     test_set_representation()
     test_set_properties()
-    test_set_representation_and_dgdr()
+    test_set_representation()
     test_fit_1()
     test_fit_2()
     test_fit_3()
