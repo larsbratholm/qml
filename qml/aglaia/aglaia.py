@@ -2958,37 +2958,6 @@ class ARMP_G(ARMP, _NN):
 
         return approved_y, approved_dy
 
-    def _get_elements_and_pairs(self, classes):
-        """
-        This function generates the atom centred symmetry functions.
-
-        :param classes: The different types of atoms present in the system
-        :type classes: numpy array of shape (n_samples, n_atoms)
-        :return: elements and element pairs in the system
-        :rtype: numpy array of shape (n_elements,) and (n_element_pairs)
-        """
-
-        # Obtaining the total elements and the element pairs
-        mbtypes = qml_rep.get_slatm_mbtypes(classes)
-
-        elements = []
-        element_pairs = []
-
-        # Splitting the one and two body interactions in mbtypes
-        for item in mbtypes:
-            if len(item) == 1:
-                elements.append(item[0])
-            if len(item) == 2:
-                element_pairs.append(list(item))
-            if len(item) == 3:
-                break
-
-        # Need the element pairs in descending order for TF
-        for item in element_pairs:
-            item.reverse()
-
-        return np.asarray(elements), np.asarray(element_pairs)
-
     def _make_weights_biases(self, train_elements):
         """
         This function uses the self.elements data to initialise tensors of weights and biases for each element present
@@ -3075,11 +3044,11 @@ class ARMP_G(ARMP, _NN):
             raise InputError("The Tensorflow session appears to not exisit.")
 
         xyz_approved, y_approved, classes_approved, dy_approved = self._check_inputs(x, y, classes, dy, None)
+
         if is_none(self.element_pairs) and is_none(self.elements):
-            self.elements, self.element_pairs = self._get_elements_and_pairs(classes_approved)
-            self.n_features = self.elements.shape[0] * self.representation_params['nRs2'] + \
-                              self.element_pairs.shape[0] * self.representation_params['nRs3'] * \
-                              self.representation_params['nTs']
+
+            classes_for_elements = np.ma.masked_equal(classes_approved, 0).compressed()
+            self.elements, self.element_pairs = self._get_elements_and_pairs(classes_for_elements)
 
         self.n_samples = xyz_approved.shape[0]
         max_n_atoms = xyz_approved.shape[1]
@@ -3412,6 +3381,7 @@ class ARMP_G(ARMP, _NN):
         rmse = 0.5*y_rmse + 0.5*dy_rmse
         return rmse
 
+    # TODO modify so that it inherits from ARMP
     def save_nn(self, save_dir="saved_model"):
         """
         This function saves the trained model to be used for later prediction.
@@ -3420,6 +3390,15 @@ class ARMP_G(ARMP, _NN):
         :type save_dir: string
         :return: None
         """
+
+        counter = 0
+        dir = save_dir
+        while True:
+            if os.path.isdir(save_dir):
+                counter += 1
+                save_dir = dir + "_" + str(counter)
+            else:
+                break
 
         if self.session == None:
             raise InputError("Model needs to be fit before predictions can be made.")
