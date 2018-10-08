@@ -3153,7 +3153,7 @@ class ARMP_G(ARMP, _NN):
 
             dataset = tf.data.Dataset.from_tensor_slices((xyz_tf, zs_tf, true_ene, true_forces))
             dataset = dataset.shuffle(buffer_size=buffer_tf)
-            dataset = dataset.batch(batch_size)
+            dataset = dataset.batch(batch_size).prefetch(2)
             iterator = tf.data.Iterator.from_structure(dataset.output_types, dataset.output_shapes)
             batch_xyz, batch_zs, batch_y, batch_dy = iterator.get_next()
 
