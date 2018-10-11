@@ -2786,7 +2786,8 @@ class ARMP_G(ARMP, _NN):
                  epsilon=1e-08,
                  rho=0.95, initial_accumulator_value=0.1, initial_gradient_squared_accumulator_value=0.1,
                  l1_regularization_strength=0.0, l2_regularization_strength=0.0,
-                 tensorboard_subdir=os.getcwd() + '/tensorboard', representation_name='acsf', representation_params=None):
+                 tensorboard_subdir=os.getcwd() + '/tensorboard', representation_name='acsf', representation_params=None,
+                 phi=1.0):
 
         super(ARMP_G, self).__init__(hidden_layer_sizes, l1_reg, l2_reg, batch_size, learning_rate,
                                    iterations, tensorboard, store_frequency, tf_dtype, scoring_function,
@@ -2798,6 +2799,22 @@ class ARMP_G(ARMP, _NN):
             raise InputError("Only the acsf representation can currently be used with gradients.")
 
         self._initialise_representation(representation_name, representation_params)
+        self._set_phi(phi)
+
+    def _set_phi(self, phi):
+        """
+        Sets the parameter that weights the forces term in the cost function. If phi = 0, then it will be equivalent to
+        doing the calculation with ARMP, except much slower since the gradients are still calculated.
+
+        :param phi: parameter that multiplies the forces in the cost function
+        :type phi: positive float
+        :return: None
+        """
+
+        if is_positive_or_zero(phi):
+            self.phi = phi
+        else:
+            raise InputError("Phi should be positive or zero.")
 
     def _check_inputs(self, x, y, classes, dy, dgdr):
         """
@@ -2830,9 +2847,8 @@ class ARMP_G(ARMP, _NN):
 
             if is_none(self.xyz) or is_none(self.classes):
                 if not is_none(self.compounds):
-                    idx_tot = len(self.compounds)
-                    self.xyz = self._get_xyz_from_compounds(idx_tot)
-                    self.classes = self._get_classes_from_compounds(idx_tot)
+                    self.xyz = self._get_xyz_from_compounds(x)
+                    self.classes = self._get_classes_from_compounds(x)
                     approved_xyz = self.xyz[x]
                     approved_classes = self.classes[x]
                 else:
@@ -2980,7 +2996,7 @@ class ARMP_G(ARMP, _NN):
 
         return element_weights, element_biases
 
-    def _cost_G(self, y_true, y_nn, dy_true, dy_nn, weights_dict, phi):
+    def _cost_G(self, y_true, y_nn, dy_true, dy_nn, weights_dict):
         """
         This function calculates the cost for the ARMP_G class. It uses both true energies/forces and the neural network
         predicted energies/forces.
@@ -2994,14 +3010,12 @@ class ARMP_G(ARMP, _NN):
         :param dy_nn: Neural network predicted gradients
         :type dy_nn: tf tensor of shape (n_sample, n_atoms, 3)
         :param weights_dict: dictionary containing the weights for each element specific network.
-        :param phi: parameter to weight the forces in the cost function
-        :type phi: float
         :return: tf.tensor of shape ()
         """
 
         ene_err = tf.square(tf.subtract(y_true, y_nn))
         force_err = tf.square(tf.subtract(dy_true, dy_nn))
-        phi_tf = tf.constant(phi, dtype=tf.float32)
+        phi_tf = tf.constant(self.phi, dtype=tf.float32)
 
         cost_function = tf.add(tf.reduce_mean(ene_err), tf.reduce_mean(force_err)*phi_tf, name="loss")
 
@@ -3177,7 +3191,7 @@ class ARMP_G(ARMP, _NN):
 
         # Calculating the cost
         with tf.name_scope("Cost"):
-            cost = self._cost_G(batch_y, energies_nn, batch_dy, forces_nn, element_weights, phi=2)
+            cost = self._cost_G(batch_y, energies_nn, batch_dy, forces_nn, element_weights)
 
         if self.tensorboard:
             cost_summary = self.tensorboard_logger_training.write_cost_summary(cost)
