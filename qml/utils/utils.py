@@ -60,7 +60,7 @@ def is_numeric_array(x):
     return False
 
 def _is_integer(x):
-    return (_is_numeric(x) and (float(x) == int(x)))
+    return isinstance(x, int)
 
 # will intentionally accept 0, 1 as well
 def is_bool(x):

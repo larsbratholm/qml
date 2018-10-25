@@ -107,7 +107,6 @@ def batch_size(C):
 
     # This should not raise an exception
     C(batch_size = 2)
-    C(batch_size = 2.0)
     C(batch_size = "auto")
 
     # This should be caught
@@ -115,6 +114,7 @@ def batch_size(C):
     catch(-2)
     catch("x")
     catch(4.2)
+    catch(2.0)
     catch(None)
 
 def learning_rate(C):
@@ -146,12 +146,12 @@ def iterations(C):
 
     # This should not raise an exception
     C(iterations = 1)
-    C(iterations = 1.0)
 
     # This should be caught
     catch(-2)
     catch("x")
     catch(4.2)
+    catch(1.0)
     catch(None)
 
 def tf_dtype(C):
@@ -193,12 +193,12 @@ def hl1(C):
 
     # This should not raise an exception
     C(hl1 = 1)
-    C(hl1 = 1.0)
 
     # This should be caught
     catch(0)
     catch("x")
     catch(4.2)
+    catch(1.0)
     catch(None)
     catch(-1)
 
@@ -213,12 +213,12 @@ def hl2(C):
 
     # This should not raise an exception
     C(hl2 = 1)
-    C(hl2 = 1.0)
     C(hl2 = 0)
 
     # This should be caught
     catch("x")
     catch(4.2)
+    catch(1.0)
     catch(None)
     catch(-1)
 
@@ -233,12 +233,12 @@ def hl3(C):
 
     # This should not raise an exception
     C(hl2 = 2, hl3 = 1)
-    C(hl2 = 2, hl3 = 1.0)
     C(hl2 = 2, hl3 = 0)
 
     # This should be caught
     catch("x")
     catch(4.2)
+    catch(2.0)
     catch(None)
     catch(-1)
 
@@ -265,7 +265,7 @@ def representation(C):
 
 def scoringfunction(C):
     """
-    This function checks that the function _set_scoring_function accepts only mae, rmsd and r2 as scoring functions.
+    This function checks that the function _set_scoring_function accepts only mae, negmae, rmsd and r2 as scoring functions.
     """
 
     def catch(s):
@@ -275,7 +275,7 @@ def scoringfunction(C):
         except InputError:
             pass
 
-    accepted_inputs = ['mae', 'rmse', 'r2']
+    accepted_inputs = ['mae', 'rmse', 'r2', 'negmae']
     unaccepted_inputs = [0, "none", True, None]
 
     # This should not raise an exception

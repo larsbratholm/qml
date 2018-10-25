@@ -160,26 +160,36 @@ class _NN(BaseEstimator):
         :type activation_function: string or tf class
         :return: None
         """
-        if activation_function in ['sigmoid', tf.nn.sigmoid]:
-            self.activation_function = tf.nn.sigmoid
-        elif activation_function in ['tanh', tf.nn.tanh]:
-            self.activation_function = tf.nn.tanh
-        elif activation_function in ['elu', tf.nn.elu]:
-            self.activation_function = tf.nn.elu
-        elif activation_function in ['softplus', tf.nn.softplus]:
-            self.activation_function = tf.nn.softplus
-        elif activation_function in ['softsign', tf.nn.softsign]:
-            self.activation_function = tf.nn.softsign
-        elif activation_function in ['relu', tf.nn.relu]:
-            self.activation_function = tf.nn.relu
-        elif activation_function in ['relu6', tf.nn.relu6]:
-            self.activation_function = tf.nn.relu6
-        elif activation_function in ['crelu', tf.nn.crelu]:
-            self.activation_function = tf.nn.crelu
-        elif activation_function in ['relu_x', tf.nn.relu_x]:
-            self.activation_function = tf.nn.relu_x
+        if activation_function in ['sigmoid', 'tanh', 'elu', 'softplus', 'softsign', 
+                'relu', 'relu6', 'crelu', 'relu_x']:
+            self.activation_function = activation_function
         else:
             raise InputError("Unknown activation function. Got %s" % str(activation_function))
+
+    def _update_activation_function(self):
+        """
+        Has to set activation function at fit time due to sklearn requiring that
+        an init param X has the same id as self.X.
+        """
+
+        if self.activation_function == 'sigmoid':
+            self.activation_function = tf.nn.sigmoid
+        elif self.activation_function == 'tanh':
+            self.activation_function = tf.nn.tanh
+        elif self.activation_function == 'elu':
+            self.activation_function = tf.nn.elu
+        elif self.activation_function == 'softplus':
+            self.activation_function = tf.nn.softplus
+        elif self.activation_function == 'softsign':
+            self.activation_function = tf.nn.softsign
+        elif self.activation_function == 'relu':
+            self.activation_function = tf.nn.relu
+        elif self.activation_function == 'relu6':
+            self.activation_function = tf.nn.relu6
+        elif self.activation_function == 'crelu':
+            self.activation_function = tf.nn.crelu
+        elif self.activation_function == 'relu_x':
+            self.activation_function = tf.nn.relu_x
 
     def _set_l1_reg(self, l1_reg):
         """
@@ -219,7 +229,7 @@ class _NN(BaseEstimator):
                 raise InputError("Expected 'batch_size' to be a positive integer. Got %s" % str(batch_size))
             elif batch_size == 1:
                 raise InputError("batch_size must be larger than 1. Got %s" % str(batch_size))
-            self.batch_size = int(batch_size)
+            self.batch_size = batch_size
         else:
             self.batch_size = batch_size
 
@@ -233,7 +243,7 @@ class _NN(BaseEstimator):
         """
         if not is_positive(learning_rate):
             raise InputError("Expected positive float value for variable learning_rate. Got %s" % str(learning_rate))
-        self.learning_rate = float(learning_rate)
+        self.learning_rate = learning_rate
 
     def _set_iterations(self, iterations):
         """
@@ -245,7 +255,24 @@ class _NN(BaseEstimator):
         """
         if not is_positive_integer(iterations):
             raise InputError("Expected positive integer value for variable iterations. Got %s" % str(iterations))
-        self.iterations = int(iterations)
+        self.iterations = iterations
+
+    # TODO check that the estimators actually use this
+    def _update_tf_dtype(self):
+        """
+        Has to set dtype at fit time due to sklearn requiring that
+        an init param X has the same id as self.X.
+        """
+        # 2 == tf.float64 and 1 == tf.float32 for some reason
+        # np.float64 recognised as tf.float64 as well
+        if self.tf_dtype in ['64', 64, 'float64', tf.float64]:
+            self.tf_dtype = tf.float64
+        elif self.tf_dtype in ['32', 32, 'float32', tf.float32]:
+            self.tf_dtype = tf.float32
+        elif self.tf_dtype in ['16', 16, 'float16', tf.float16]:
+            self.tf_dtype = tf.float16
+        else:
+            raise InputError("Unknown tensorflow data type. Got %s" % str(tf_dtype))
 
     # TODO check that the estimators actually use this
     def _set_tf_dtype(self, tf_dtype):
@@ -258,12 +285,9 @@ class _NN(BaseEstimator):
         """
         # 2 == tf.float64 and 1 == tf.float32 for some reason
         # np.float64 recognised as tf.float64 as well
-        if tf_dtype in ['64', 64, 'float64', tf.float64]:
-            self.tf_dtype = tf.float64
-        elif tf_dtype in ['32', 32, 'float32', tf.float32]:
-            self.tf_dtype = tf.float32
-        elif tf_dtype in ['16', 16, 'float16', tf.float16]:
-            self.tf_dtype = tf.float16
+        if tf_dtype in ['64', 64, 'float64', tf.float64, '32', 32, 'float32', tf.float32,
+                '16', 16, 'float16', tf.float16]:
+            self.tf_dtype = tf_dtype
         else:
             raise InputError("Unknown tensorflow data type. Got %s" % str(tf_dtype))
 
@@ -293,28 +317,28 @@ class _NN(BaseEstimator):
         """
         if not is_positive(beta1) and not is_positive(beta2):
             raise InputError("Expected positive float values for variable beta1 and beta2. Got %s and %s." % (str(beta1),str(beta2)))
-        self.beta1 = float(beta1)
-        self.beta2 = float(beta2)
+        self.beta1 = beta1
+        self.beta2 = beta2
 
         if not is_positive(epsilon):
             raise InputError("Expected positive float value for variable epsilon. Got %s" % str(epsilon))
-        self.epsilon = float(epsilon)
+        self.epsilon = epsilon
 
         if not is_positive(rho):
             raise InputError("Expected positive float value for variable rho. Got %s" % str(rho))
-        self.rho = float(rho)
+        self.rho = rho
 
         if not is_positive(initial_accumulator_value) and not is_positive(initial_gradient_squared_accumulator_value):
             raise InputError("Expected positive float value for accumulator values. Got %s and %s" %
                              (str(initial_accumulator_value), str(initial_gradient_squared_accumulator_value)))
-        self.initial_accumulator_value = float(initial_accumulator_value)
-        self.initial_gradient_squared_accumulator_value = float(initial_gradient_squared_accumulator_value)
+        self.initial_accumulator_value = initial_accumulator_value
+        self.initial_gradient_squared_accumulator_value = initial_gradient_squared_accumulator_value
 
         if not is_positive_or_zero(l1_regularization_strength) and not is_positive_or_zero(l2_regularization_strength):
             raise InputError("Expected positive or zero float value for regularisation variables. Got %s and %s" %
                              (str(l1_regularization_strength), str(l2_regularization_strength)))
-        self.l1_regularization_strength = float(l1_regularization_strength)
-        self.l2_regularization_strength = float(l2_regularization_strength)
+        self.l1_regularization_strength = l1_regularization_strength
+        self.l2_regularization_strength = l2_regularization_strength
 
     def _set_optimiser_type(self, optimiser):
         """
@@ -352,22 +376,22 @@ class _NN(BaseEstimator):
         """
         self.AdagradDA = False
         if self.optimiser in ['AdamOptimizer', tf.train.AdamOptimizer]:
-            optimiser_obj = tf.train.AdamOptimizer(learning_rate=self.learning_rate, beta1=self.beta1, beta2=self.beta2,
-                                                    epsilon=self.epsilon)
+            optimiser_obj = tf.train.AdamOptimizer(learning_rate=float(self.learning_rate), beta1=float(self.beta1), beta2=float(self.beta2),
+                                                    epsilon=float(self.epsilon))
         elif self.optimiser in ['AdadeltaOptimizer', tf.train.AdadeltaOptimizer]:
-             optimiser_obj = tf.train.AdadeltaOptimizer(learning_rate=self.learning_rate, rho=self.rho, epsilon=self.epsilon)
+             optimiser_obj = tf.train.AdadeltaOptimizer(learning_rate=float(self.learning_rate), rho=float(self.rho), epsilon=float(self.epsilon))
         elif self.optimiser in ['AdagradOptimizer', tf.train.AdagradOptimizer]:
-             optimiser_obj = tf.train.AdagradOptimizer(learning_rate=self.learning_rate,
-                                                       initial_accumulator_value=self.initial_accumulator_value)
+             optimiser_obj = tf.train.AdagradOptimizer(learning_rate=float(self.learning_rate),
+                                                       initial_accumulator_value=float(self.initial_accumulator_value))
         elif self.optimiser in ['AdagradDAOptimizer', tf.train.AdagradDAOptimizer]:
             self.global_step = tf.placeholder(dtype=tf.int64)
-            optimiser_obj = tf.train.AdagradDAOptimizer(learning_rate=self.learning_rate, global_step=self.global_step,
-                                                         initial_gradient_squared_accumulator_value=self.initial_gradient_squared_accumulator_value,
-                                                         l1_regularization_strength=self.l1_regularization_strength,
-                                                         l2_regularization_strength=self.l2_regularization_strength)
+            optimiser_obj = tf.train.AdagradDAOptimizer(learning_rate=float(self.learning_rate), global_step=self.global_step,
+                                                         initial_gradient_squared_accumulator_value=float(self.initial_gradient_squared_accumulator_value),
+                                                         l1_regularization_strength=float(self.l1_regularization_strength),
+                                                         l2_regularization_strength=float(self.l2_regularization_strength))
             self.AdagradDA = True
         elif self.optimiser in ['GradientDescentOptimizer', tf.train.GradientDescentOptimizer]:
-            optimiser_obj = tf.train.GradientDescentOptimizer(learning_rate=self.learning_rate)
+            optimiser_obj = tf.train.GradientDescentOptimizer(learning_rate=float(self.learning_rate))
         else:
             raise InputError("Unknown optimiser class. Got %s" % str(self.optimiser))
 
@@ -824,6 +848,7 @@ class _NN(BaseEstimator):
             else:
                 raise InputError('Variable "classes" expected to be array like of positive integers.')
 
+
     def fit(self, x, y=None, classes=None, dy=None, dgdr=None):
         """
         This function calls the specific fit method of the child classes.
@@ -841,6 +866,9 @@ class _NN(BaseEstimator):
 
         :return: None
         """
+
+        # Sets activation function at fit time for sklearn compatibility
+        self._update_activation_function()
 
         return self._fit(x, y, classes, dy, dgdr)
 
