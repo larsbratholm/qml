@@ -663,9 +663,11 @@ class _NN(BaseEstimator):
         """
         if self.scoring_function == 'mae':
             return self._score_mae(x, y, classes, dy, dgdr)
-        if self.scoring_function == 'rmse':
+        elif self.scoring_function == 'negmae':
+            return -self._score_mae(x, y, classes, dy, dgdr)
+        elif self.scoring_function == 'rmse':
             return self._score_rmse(x, y, classes, dy, dgdr)
-        if self.scoring_function == 'r2':
+        elif self.scoring_function == 'r2':
             return self._score_r2(x, y, classes, dy, dgdr)
 
     def generate_compounds(self, filenames):
@@ -2787,7 +2789,7 @@ class ARMP_G(ARMP, _NN):
                  rho=0.95, initial_accumulator_value=0.1, initial_gradient_squared_accumulator_value=0.1,
                  l1_regularization_strength=0.0, l2_regularization_strength=0.0,
                  tensorboard_subdir=os.getcwd() + '/tensorboard', representation_name='acsf', representation_params=None,
-                 phi=1.0):
+                 phi=1.0, forces_score_weight=0.0):
 
         super(ARMP_G, self).__init__(hidden_layer_sizes, l1_reg, l2_reg, batch_size, learning_rate,
                                    iterations, tensorboard, store_frequency, tf_dtype, scoring_function,
@@ -2800,6 +2802,7 @@ class ARMP_G(ARMP, _NN):
 
         self._initialise_representation(representation_name, representation_params)
         self._set_phi(phi)
+        self._set_forces_score_weight(forces_score_weight)
 
     def _set_phi(self, phi):
         """
@@ -2815,6 +2818,22 @@ class ARMP_G(ARMP, _NN):
             self.phi = phi
         else:
             raise InputError("Phi should be positive or zero.")
+
+    def _set_forces_score_weight(self, forces_score_weight):
+        """
+        Sets the parameter that weights the forces term in the score function.
+        If forces_score_weight = 0, then it will be equivalent to only score the energy predictions.
+        If forces_score_weight = 1, then it will be equivalent to only score the forces predictions.
+
+        :param forces_score_weight: Weight of the forces in the scoring
+        :type forces_score_weight: float
+        :return: None
+        """
+
+        if is_positive_or_zero(forces_score_weight) and forces_score_weight <= 1:
+            self.forces_score_weight = forces_score_weight
+        else:
+            raise InputError("forces_score_weight should be between zero and one")
 
     def _check_inputs(self, x, y, classes, dy, dgdr):
         """
@@ -3342,7 +3361,7 @@ class ARMP_G(ARMP, _NN):
         dy_approved = np.reshape(dy_approved, (dy_approved.shape[0], dy_approved.shape[1]*dy_approved.shape[2]))
         dy_pred = np.reshape(dy_pred, (dy_pred.shape[0], dy_pred.shape[1] * dy_pred.shape[2]))
         dy_r2 = r2_score(dy_approved, dy_pred, sample_weight= None)
-        r2 = (y_r2 + dy_r2)*0.5
+        r2 = (1 - self.forces_score_weight) * y_r2 + dy_r2 * self.forces_score_weight
         return r2
 
     def _score_mae(self, x, y=None, classes=None, dy=None, dgdr=None):
@@ -3374,10 +3393,9 @@ class ARMP_G(ARMP, _NN):
 
         dy_approved = np.reshape(dy_approved, (dy_approved.shape[0], dy_approved.shape[1] * dy_approved.shape[2]))
         dy_pred = np.reshape(dy_pred, (dy_pred.shape[0], dy_pred.shape[1] * dy_pred.shape[2]))
-        y_mae = (-1.0) * mean_absolute_error(y_approved, y_pred, sample_weight=None)
-        dy_mae = (-1.0) * mean_absolute_error(dy_approved, dy_pred, sample_weight=None)
-        mae = 0.5*y_mae + 0.5*dy_mae
-        print("Warning! The mae is multiplied by -1 so that it can be minimised in Osprey!")
+        y_mae = mean_absolute_error(y_approved, y_pred, sample_weight=None)
+        dy_mae = mean_absolute_error(dy_approved, dy_pred, sample_weight=None)
+        mae = (1 - self.forces_score_weight) * y_mae + dy_mae * self.forces_score_weight
         return mae
 
     def _score_rmse(self, x, y=None, classes=None, dy=None, dgdr=None):
@@ -3407,7 +3425,7 @@ class ARMP_G(ARMP, _NN):
         dy_pred = np.reshape(dy_pred, (dy_pred.shape[0], dy_pred.shape[1] * dy_pred.shape[2]))
         y_rmse = np.sqrt(mean_squared_error(y_approved, y_pred, sample_weight = None))
         dy_rmse = np.sqrt(mean_squared_error(dy_approved, dy_pred, sample_weight=None))
-        rmse = 0.5*y_rmse + 0.5*dy_rmse
+        rmse = (1 - self.forces_score_weight) * y_rmse + dy_rmse * self.forces_score_weight
         return rmse
 
     # TODO modify so that it inherits from ARMP
