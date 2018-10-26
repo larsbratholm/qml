@@ -3071,7 +3071,7 @@ class ARMP_G(ARMP, _NN):
 
         return cost_function
 
-    def _fit(self, x, y, classes, dy, dgdr):
+    def _fit(self, x, y, classes, dy):
         """
         This fit function checks whether there is a model that has already been loaded. If yes, it calls the fit function
         that restarts training from where it was left off. Otherwise, the fitting is started from scratch.
@@ -3084,8 +3084,6 @@ class ARMP_G(ARMP, _NN):
         :type dy: numpy array of shape (n_samples, n_atoms, 3)
         :param classes: type of the atoms in the system
         :type classes: numpy array of shape (n_samples, n_atoms)
-        :param dg_dr: gradients of the representation with respect to the cartesian coordinates
-        :type dg_dr: numpy array of shape (n_samples, n_atoms, n_features, n_atoms, 3)
         :return: None
         """
         if not self.loaded_model:
