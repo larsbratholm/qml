@@ -59,7 +59,7 @@ def test_set_representation():
 
     estimator = MRMP(representation_name='slatm', representation_params=parameters)
 
-    assert estimator.representation == 'slatm'
+    assert estimator.representation_name == 'slatm'
     assert estimator.representation_params == parameters
 
 def test_set_properties():
@@ -93,11 +93,11 @@ def test_set_descriptor():
 
     estimator = MRMP()
 
-    assert estimator.representation == None
+    assert estimator.g == None
 
     estimator.set_representations(representations=descriptor_correct)
 
-    assert np.all(estimator.representation == descriptor_correct)
+    assert np.all(estimator.g == descriptor_correct)
 
     # Pass a descriptor with the wrong shape
     try:

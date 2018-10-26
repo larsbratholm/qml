@@ -133,7 +133,7 @@ class _NN(BaseEstimator):
                                   initial_gradient_squared_accumulator_value, l1_regularization_strength,
                                   l2_regularization_strength)
 
-        self.optimiser = self._set_optimiser_type(optimiser)
+        self._set_optimiser_type(optimiser)
 
         # Placholder variables for data
         self.xyz = None
@@ -350,21 +350,12 @@ class _NN(BaseEstimator):
         :rtype: tf class
         """
         self.AdagradDA = False
-        if optimiser in ['AdamOptimizer', tf.train.AdamOptimizer]:
-            optimiser_type = tf.train.AdamOptimizer
-        elif optimiser in ['AdadeltaOptimizer', tf.train.AdadeltaOptimizer]:
-            optimiser_type = tf.train.AdadeltaOptimizer
-        elif optimiser in ['AdagradOptimizer', tf.train.AdagradOptimizer]:
-            optimiser_type = tf.train.AdagradOptimizer
-        elif optimiser in ['AdagradDAOptimizer', tf.train.AdagradDAOptimizer]:
-            optimiser_type = tf.train.AdagradDAOptimizer
-            self.AdagradDA = True
-        elif optimiser in ['GradientDescentOptimizer', tf.train.GradientDescentOptimizer]:
-            optimiser_type = tf.train.GradientDescentOptimizer
+        if optimiser in ['AdamOptimizer', tf.train.AdamOptimizer, 'AdadeltaOptimizer', tf.train.AdadeltaOptimizer,
+                'AdagradOptimizer', tf.train.AdagradOptimizer, 'AdagradDAOptimizer', tf.train.AdagradDAOptimizer,
+                'GradientDescentOptimizer', tf.train.GradientDescentOptimizer]:
+            self.optimiser = optimiser
         else:
             raise InputError("Unknown optimiser. Got %s" % str(optimiser))
-
-        return optimiser_type
 
     def _set_optimiser(self):
         """
@@ -407,7 +398,7 @@ class _NN(BaseEstimator):
         """
         if not is_string(scoring_function):
             raise InputError("Expected a string for variable 'scoring_function'. Got %s" % str(scoring_function))
-        if scoring_function.lower() not in ['mae', 'rmse', 'r2']:
+        if scoring_function.lower() not in ['mae', 'rmse', 'r2', 'negmae']:
             raise InputError("Available scoring functions are 'mae', 'rmse', 'r2'. Got %s" % str(scoring_function))
 
         self.scoring_function = scoring_function
@@ -449,7 +440,7 @@ class _NN(BaseEstimator):
 
         if not is_bool(tensorboard):
             raise InputError("Expected boolean value for variable tensorboard. Got %s" % str(tensorboard))
-        self.tensorboard = bool(tensorboard)
+        self.tensorboard = tensorboard
 
         if not self.tensorboard:
             return
@@ -867,8 +858,9 @@ class _NN(BaseEstimator):
         :return: None
         """
 
-        # Sets activation function at fit time for sklearn compatibility
+        # Sets activation_function and tf_dtypes at fit time for sklearn compatibility
         self._update_activation_function()
+        self._update_tf_dtype()
 
         return self._fit(x, y, classes, dy, dgdr)
 
@@ -1094,12 +1086,12 @@ class MRMP(_NN):
     2) predicting local properties, such as chemical shieldings, using atomic representations.
     """
 
-    def __init__(self, hidden_layer_sizes = (5,), l1_reg = 0.0, l2_reg = 0.0001, batch_size = 'auto', learning_rate = 0.001,
-                 iterations = 500, tensorboard = False, store_frequency = 200, tf_dtype = tf.float32, scoring_function = 'mae',
-                 activation_function = tf.sigmoid, optimiser = tf.train.AdamOptimizer, beta1 = 0.9, beta2 = 0.999, epsilon = 1e-08,
-                 rho = 0.95, initial_accumulator_value = 0.1, initial_gradient_squared_accumulator_value = 0.1,
-                 l1_regularization_strength = 0.0, l2_regularization_strength = 0.0,
-                 tensorboard_subdir = os.getcwd() + '/tensorboard', representation_name='unsorted_coulomb_matrix', representation_params=None):
+    def __init__(self, hidden_layer_sizes=(5,), l1_reg=0.0, l2_reg=0.0001, batch_size='auto', learning_rate=0.001,
+                 iterations=500, tensorboard=False, store_frequency=200, tf_dtype=tf.float32, scoring_function='mae',
+                 activation_function="sigmoid", optimiser=tf.train.AdamOptimizer, beta1=0.9, beta2=0.999, epsilon=1e-08,
+                 rho=0.95, initial_accumulator_value=0.1, initial_gradient_squared_accumulator_value=0.1,
+                 l1_regularization_strength=0.0, l2_regularization_strength=0.0,
+                 tensorboard_subdir=os.getcwd() + '/tensorboard', representation_name='unsorted_coulomb_matrix', representation_params=None):
         """
         Descriptors is used as input to a single or multi layered feed-forward neural network with a single output.
         This class inherits from the _NN class and all inputs not unique to the NN class is passed to the _NN
@@ -1187,7 +1179,7 @@ class MRMP(_NN):
 
         n_samples = len(self.compounds)
 
-        if self.representation == 'unsorted_coulomb_matrix':
+        if self.representation_name == 'unsorted_coulomb_matrix':
 
             nmax = self._get_msize()
             representation_size = (nmax*(nmax+1))//2
@@ -1196,7 +1188,7 @@ class MRMP(_NN):
                 mol.generate_coulomb_matrix(size = nmax, sorting = "unsorted")
                 x[i] = mol.representation
 
-        elif self.representation == 'sorted_coulomb_matrix':
+        elif self.representation_name == 'sorted_coulomb_matrix':
 
             nmax = self._get_msize()
             representation_size = (nmax*(nmax+1))//2
@@ -1205,7 +1197,7 @@ class MRMP(_NN):
                 mol.generate_coulomb_matrix(size = nmax, sorting = "row-norm")
                 x[i] = mol.representation
 
-        elif self.representation == "bag_of_bonds":
+        elif self.representation_name == "bag_of_bonds":
             asize = self._get_asize()
             x = np.empty(n_samples, dtype=object)
             for i, mol in enumerate(self.compounds):
@@ -1213,7 +1205,7 @@ class MRMP(_NN):
                 x[i] = mol.representation
             x = np.asarray(list(x), dtype=float)
 
-        elif self.representation == "slatm":
+        elif self.representation_name == "slatm":
             mbtypes = self._get_slatm_mbtypes([mol.nuclear_charges for mol in self.compounds])
             x = np.empty(n_samples, dtype=object)
             for i, mol in enumerate(self.compounds):
@@ -1654,7 +1646,7 @@ class ARMP(_NN):
 
     def __init__(self, hidden_layer_sizes = (5,), l1_reg = 0.0, l2_reg = 0.0001, batch_size = 'auto', learning_rate = 0.001,
                  iterations = 500, tensorboard = False, store_frequency = 200, tf_dtype = tf.float32, scoring_function = 'mae',
-                 activation_function = tf.sigmoid, optimiser = tf.train.AdamOptimizer, beta1 = 0.9, beta2 = 0.999, epsilon = 1e-08,
+                 activation_function = "sigmoid", optimiser = tf.train.AdamOptimizer, beta1 = 0.9, beta2 = 0.999, epsilon = 1e-08,
                  rho = 0.95, initial_accumulator_value = 0.1, initial_gradient_squared_accumulator_value = 0.1,
                  l1_regularization_strength = 0.0, l2_regularization_strength = 0.0,
                  tensorboard_subdir = os.getcwd() + '/tensorboard', representation_name='acsf', representation_params=None):
@@ -2812,7 +2804,7 @@ class ARMP_G(ARMP, _NN):
 
     def __init__(self, hidden_layer_sizes=(5,), l1_reg=0.0, l2_reg=0.0001, batch_size='auto', learning_rate=0.001,
                  iterations=500, tensorboard=False, store_frequency=200, tf_dtype=tf.float32, scoring_function='mae',
-                 activation_function=tf.sigmoid, optimiser=tf.train.AdamOptimizer, beta1=0.9, beta2=0.999,
+                 activation_function="sigmoid", optimiser=tf.train.AdamOptimizer, beta1=0.9, beta2=0.999,
                  epsilon=1e-08,
                  rho=0.95, initial_accumulator_value=0.1, initial_gradient_squared_accumulator_value=0.1,
                  l1_regularization_strength=0.0, l2_regularization_strength=0.0,
