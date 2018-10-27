@@ -48,16 +48,11 @@ class ARMP_G_Wrapper(ARMP_G):
         self.energies = energies
         self.forces = forces
 
-        eta = 4 * np.log(self.acsf_precision) * ((self.acsf_nbasis-1)/(self.acsf_cutoff))**2
-        zeta = - np.log(self.acsf_precision) / np.log(np.cos(np.pi / (4 * (self.acsf_nbasis - 1)))**2)
-
-        acsf_parameters = {'rcut': self.acsf_cutoff, 'acut': self.acsf_cutoff, 'nRs2': self.acsf_nbasis,
-                'nRs3': self.acsf_nbasis, 'nTs': self.acsf_nbasis, 'zeta': zeta, 'eta': eta}
 
         super(ARMP_G_Wrapper, self).__init__(l1_reg=l1_reg, l2_reg=l2_reg,
                 batch_size=batch_size, learning_rate=learning_rate, iterations=iterations,
                 scoring_function=scoring_function, forces_score_weight=forces_score_weight,
-                representation_params=acsf_parameters, phi=phi)
+                phi=phi)
 
     def fit(self, x, y=None):
         """
@@ -73,9 +68,15 @@ class ARMP_G_Wrapper(ARMP_G):
         self._update_activation_function()
         self._update_tf_dtype()
         self.hidden_layers = [n for n in 2**np.asarray([self.hl1, self.hl2, self.hl3, self.hl4], dtype=int) if n > 1]
+        eta = 4 * np.log(self.acsf_precision) * ((self.acsf_nbasis-1)/(self.acsf_cutoff))**2
+        zeta = - np.log(self.acsf_precision) / np.log(np.cos(np.pi / (4 * (self.acsf_nbasis - 1)))**2)
+
+        self.acsf_parameters = {'rcut': self.acsf_cutoff, 'acut': self.acsf_cutoff, 'nRs2': self.acsf_nbasis,
+                'nRs3': self.acsf_nbasis, 'nTs': self.acsf_nbasis, 'zeta': zeta, 'eta': eta}
 
         # Osprey converts int to float, so revert that
         idx = x.ravel().astype(int)
+        tf.reset_default_graph()
 
         return self._fit(self.coordinates[idx], self.energies[idx],
                 self.nuclear_charges[idx], self.forces[idx])

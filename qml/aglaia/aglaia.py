@@ -149,8 +149,6 @@ class _NN(BaseEstimator):
         # To enable restart model
         self.loaded_model = False
 
-        # To enable restart model
-        self.loaded_model = False
 
     def _set_activation_function(self, activation_function):
         """
