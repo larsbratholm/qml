@@ -68,7 +68,8 @@ class ARMP_G_Wrapper(ARMP_G):
         # Sets activation_function, tf_dtypes and hidden_layers at fit time for sklearn compatibility
         self._update_activation_function()
         self._update_tf_dtype()
-        self.hidden_layers = [n for n in 2**np.asarray([self.hl1, self.hl2, self.hl3, self.hl4], dtype=int) if n > 1]
+        self.hidden_layer_sizes = np.asarray([n for n in 
+                2**np.asarray([self.hl1, self.hl2, self.hl3, self.hl4], dtype=int) if n > 1])
         eta = 4 * np.log(self.acsf_precision) * ((self.acsf_nbasis-1)/(self.acsf_cutoff))**2
         zeta = - np.log(self.acsf_precision) / np.log(np.cos(np.pi / (4 * (self.acsf_nbasis - 1)))**2)
 
@@ -78,7 +79,6 @@ class ARMP_G_Wrapper(ARMP_G):
         # Osprey converts int to float, so revert that
         idx = x.ravel().astype(int)
         tf.reset_default_graph()
-        print(self.loaded_model)
 
         return self._fit(self.coordinates[idx], self.energies[idx],
                 self.nuclear_charges[idx], self.forces[idx])
