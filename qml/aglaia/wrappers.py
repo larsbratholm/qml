@@ -78,6 +78,7 @@ class ARMP_G_Wrapper(ARMP_G):
         # Osprey converts int to float, so revert that
         idx = x.ravel().astype(int)
         tf.reset_default_graph()
+        print(self.loaded_model)
 
         return self._fit(self.coordinates[idx], self.energies[idx],
                 self.nuclear_charges[idx], self.forces[idx])
