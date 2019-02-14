@@ -1,6 +1,6 @@
 # MIT License
 #
-# Copyright (c) 2018 Silvia Amabilino, Lars Andersen Bratholm
+# Copyright (c) 2018-2019 Silvia Amabilino, Lars Andersen Bratholm
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -85,7 +85,7 @@ def _is_positive_or_zero_array(x):
         return True
     return False
 
-def _is_integer_array(x):
+def is_integer_array(x):
     if is_numeric_array(x):
         if (np.asarray(x, dtype = float) == np.asarray(x, dtype = int)).all():
             return True
@@ -95,10 +95,10 @@ def is_positive_integer_1d_array(x):
     return is_positive_integer_array(x) and is_1d_array(x)
 
 def is_positive_integer_array(x):
-    return (_is_integer_array(x) and _is_positive_array(x))
+    return (is_integer_array(x) and _is_positive_array(x))
 
 def is_positive_integer_or_zero_array(x):
-    return (_is_integer_array(x) and _is_positive_or_zero_array(x))
+    return (is_integer_array(x) and _is_positive_or_zero_array(x))
 
 # ------------- ** Checking inputs ** --------------------------
 
