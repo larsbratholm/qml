@@ -174,9 +174,9 @@ class Data(object):
         if name in self._properties:
             raise SystemExit("Property named %s already exists" % name)
 
-        # Todo handle object types here
-        if not is_numeric_array(data) or :
-            raise SystemExit("Expected `data` to be numeric array.")
+        # TODO handle object types here
+        #if not is_numeric_array(data) or :
+        #    raise SystemExit("Expected `data` to be numeric array.")
 
         data = np.asarray(data)
 
