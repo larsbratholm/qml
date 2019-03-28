@@ -29,17 +29,15 @@ import copy
 import numpy as np
 
 from ..utils import NUCLEAR_CHARGE, is_string, is_1d_array, is_integer_array, \
-        is_numeric_array
+        is_numeric_array, is_positive_integer_array
 
 #TODO:
 # Check all different things in dicts
-# set_atomic_property
-# Set coordinates/nuclear_charges
-# Unset/delete attributes
 # Don't be lazy with docs
 # Don't be lazy with checks
 # Do tests
-# Get named properties
+# Finish setting properties in xyz reader
+# Set natoms in coordinates and nuclear charges, and check that they don't change
 
 class Data(object):
     """
@@ -135,29 +133,33 @@ class Data(object):
         if not is_string(name):
             raise SystemExit("Expected argument `name` to be string. Got %s" % type(name))
 
-        if name in self._properties:
+        # These should be redundant, but no reason not to check both.
+        if name in self._properties or hasattr(self, name):
             raise SystemExit("Property named %s already exists" % name)
 
+        # Check that array is numeric. Also checks if the array is an object array, which
+        # only should occur when the number of molecular properties differs between compounds.
         if not is_numeric_array(data):
-            raise SystemExit("Expected `data` to be numeric array.")
+            raise SystemExit("Expected `data` to be numeric array. Either the content is non-numeric, \
+                              or the number of molecular properties differs between compounds.")
 
         data = np.asarray(data)
 
         # Note we might want to remove this check in the future,
         # if we ever want to add matrix molecular properties
         if data.ndim > 2:
-            raise SystemExit("Expected `data` to be at most 2d.")
+            raise SystemExit("Expected molecular properties to one dimensional. I.e. arrays, not matrices.")
 
-        # Check that properties are the same shape for all compounds
-        if data.dtype == "object":
-            raise SystemExit("Expected molecular properties to have the same shape for all compounds")
+        # Expand array to explicitly include the dimensionality of
+        # the molecular property
+        if data.ndim == 1:
+            data = data[:,None]
 
         self._set_ncompounds(data.shape[0])
 
         setattr(self, name, data)
         self._properties[name] = 'Molecular'
 
-    #TODO fix
     def add_atomic_property(self, data, name):
         """
         Adds a atomic property to the Data class.
@@ -171,29 +173,186 @@ class Data(object):
         if not is_string(name):
             raise SystemExit("Expected argument `name` to be string. Got %s" % type(name))
 
-        if name in self._properties:
+        # These should be redundant, but no reason not to check both.
+        if name in self._properties or hasattr(self, name):
             raise SystemExit("Property named %s already exists" % name)
 
-        # TODO handle object types here
-        #if not is_numeric_array(data) or :
-        #    raise SystemExit("Expected `data` to be numeric array.")
+        # Data must be either a numeric array or an object array where
+        # each element is an array of size (?,) or (?,n), where n is constant
+        # but ? can vary.
+        if is_numeric_array(data):
+            data = np.asarray(data)
+            if data.ndim < 2:
+                raise SystemExit("Unexpected shape of argument `data`.")
+            # Expand array to explicitly include the dimensionality of
+            # the atomic property
+            if data.ndim == 2:
+                data = data[:,:,None]
+            # NOTE: we might want to remove this check in the future,
+            # if we ever want to add matrix atomic properties
+            elif data.ndim > 3:
+                raise SystemExit("Expected each atomic property to be one dimensional. I.e. arrays not matrices.")
+        else:
+            try:
+                # Convert data to object array
+                data = np.asarray([np.asarray(mol) for mol in data])
 
-        data = np.asarray(data)
+                # If all compounds have the same size, data will no longer
+                # be an object array, and we'll pass the array back to the function
+                # to be accepted in the former if statement
+                if data.dtype != "object":
+                    return self.add_atomic_properties(data, name)
 
-        # Note we might want to remove this check in the future,
-        # if we ever want to add matrix atomic properties
-        if data.ndim > 2:
-            raise SystemExit("Expected `data` to be at most 2d.")
+                # Check that array is numeric
+                if not all(is_numeric_array(mol) for mol in data):
+                    raise ValueError
 
-        # Check that properties are the same shape for all compounds
-        if data.dtype == "object":
-            raise SystemExit("Expected atomic properties to have the same shape for all compounds")
+            except ValueError:
+                raise SystemExit("Expected `data` to be numeric array.")
+
+            try:
+                # Simple way to check that there's the same number of atomic properties
+                shapes = np.asarray([mol.shape for mol in data], dtype=int)
+
+                # Check that all properties have the same size
+                if (shapes[:,1] != shapes[0,1]).any():
+                    raise ValueError
+
+            except ValueError:
+                raise SystemExit("Expected atomic properties to have the same shape for all compounds")
+
+            # NOTE: we might want to remove this check in the future,
+            # if we ever want to add matrix atomic properties
+            if shapes.ndim > 2:
+                raise SystemExit("Expected each atomic property to be one dimensional. I.e. arrays not matrices.")
+
+            # Expand array to explicitly include the dimensionality of
+            # the atomic property if necessary.
+            if shapes[0,1] == 1:
+                data = np.asarray([np.asarray(mol)[:,None] for mol in data], dtype=object)
 
         self._set_ncompounds(data.shape[0])
 
         setattr(self, name, data)
-        self._properties[name] = 'atomic'
+        self._properties[name] = 'Atomic'
 
+    def set_coordinates(self, coordinates):
+        """
+        Sets the coordinates attribute with the given `coordinates`.
+        :param coordinates: Array with coordinates.
+        :type coordinates: Array
+        """
+
+        # coordinates must be a numeric array or an object array where
+        # each element is an array of size (?,3), where ? can vary.
+        if is_numeric_array(coordinates):
+            coordinates = np.asarray(coordinates, dtype=float)
+
+            if coordinates.ndim != 3:
+                raise SystemExit("Unexpected shape of coordinates.")
+
+            if coordinates.shape[2] != 3:
+                raise SystemExit("Expected each atom to have three euclidian coordinates. Got %d" % coordinates.shape[2])
+        else:
+            try:
+                # Convert to array
+                coordinates = np.asarray([np.asarray(coord, dtype=float) for coord in coordinates])
+
+                # If all compounds have the same size, coordinates will no longer
+                # be an object array, and we'll pass the array back to the function
+                # to be accepted in the former if statement
+                if coordinates.dtype != "object":
+                    return self.set_coordinates(coordinates)
+            except ValueError:
+                raise SystemExit("Expected `coordinates` to be numeric array.")
+            try:
+                # Simple way to check that there's three coordinates for every compounds
+                shapes = np.asarray([np.asarray(coord).shape for coord in coordinates], dtype=int)
+
+                if shapes.ndim > 2:
+                    raise ValueError
+
+            except ValueError:
+                raise SystemExit("Unexpected shape of coordinates.")
+
+            if (shapes[:,1] != 3).any():
+                raise SystemExit("Expected each atom to have three euclidian coordinates.")
+
+        self._set_ncompounds(coordinates.shape[0])
+
+        self.coordinates = coordinates
+
+    def set_nuclear_charges(self, nuclear_charges):
+        """
+        Sets the nuclear_charges attribute with the given `nuclear_charges`.
+        :param nuclear_charges: Array with nuclear_charges.
+        :type nuclear_charges: Array
+        """
+
+        # nuclear_charges must be a numeric array or an object array where
+        # each element is an array of size (?,) or (?,1), where ? can vary.
+        if is_numeric_array(nuclear_charges):
+            if not is_positive_integer_array(nuclear_charges):
+                raise SystemExit("Expected `nuclear_charges` to be positive integer array")
+
+            nuclear_charges = np.asarray(nuclear_charges, dtype=int)
+
+            # Remove a third explicit dimension in necessary.
+            if nuclear_charges.ndim == 3 and nuclear_charges.shape[2] == 1:
+                nuclear_charges = np.squeeze(nuclear_charges, 2)
+
+            elif nuclear_charges.ndim != 2:
+                raise SystemExit("Unexpected shape of nuclear_charges.")
+        else:
+            try:
+                # Convert to array
+                nuclear_charges = np.asarray([np.asarray(char, dtype=int) for char in nuclear_charges])
+
+                # If all compounds have the same size, coordinates will be an integer 
+                # array, and we'll pass the array back to the function
+                # to be accepted in the former if statement
+                if nuclear_charges.dtype == "int":
+                    return self.set_nuclear_charges(nuclear_charges)
+
+            except ValueError:
+                raise SystemExit("Expected `nuclear_charges` to be integer array.")
+            try:
+                # Simple way to check that the nuclear_charges has the expected shape.
+                shapes = np.asarray([np.asarray(mol).shape for mol in nuclear_charges], dtype=int)
+
+                if shapes.ndim > 2:
+                    raise ValueError
+                if shapes.shape[1] != 1:
+                    # Check if the nuclear charges for compounds have shape (natoms, 1) instead of (natoms,).
+                    # And if that's the case, fix it.
+                    if shapes[0,1] == 1:
+                        nuclear_charges = np.asarray([char.ravel() for char in nuclear_charges])
+                    else:
+                        raise ValueError
+
+            except ValueError:
+                raise SystemExit("Unexpected shape of nuclear_charges.")
+
+
+        self._set_ncompounds(nuclear_charges.shape[0])
+
+        self.nuclear_charges = nuclear_charges
+
+    def remove_property(self, name):
+        """
+        Removes a property by name.
+        """
+
+        if not is_string(name):
+            raise SystemExit("Expected the argument `name` to be a string.")
+
+        if name in ["coordinates", "nuclear_charges"]:
+            raise SystemExit("Can't remove coordinates or nuclear_charges from Data object. \
+                              Try creating a new Data object instead.")
+
+        if name in self._properties and hasattr(self, name):
+            delattr(self, name)
+            self._properties.pop(name)
 
     def __getitem__(self, i):
         """
@@ -353,13 +512,10 @@ class XYZReader(Data):
             n_tokens = len(tokens)
 
             if n_tokens == 0:
-                if n_properties == 0:
-                    return None
-                else:
-                    raise SystemExit("Expected %d properties, but none was present in XYZ file" % n_properties)
+                raise SystemExit("Expected %d properties, but none was present in XYZ file" % n_properties)
             elif n_tokens == 1:
                 if n_properties == 1:
-                    prop = tokens[0]
+                    prop = [tokens[0]]
                 else:
                     raise SystemExit("Read 1 property from XYZ file, but expected %d" % n_properties)
             else:
@@ -369,18 +525,12 @@ class XYZReader(Data):
                     raise SystemExit("Expected %d properties, but %d was found in XYZ file" % (n_properties, n_tokens))
 
             # Catch non-numeric properties
-            try:
-                if is_1d_array(prop):
-                    if is_integer_array(prop):
-                        prop = np.asarray(prop, dtype=int)
-                    else:
-                        prop = np.asarray(prop, dtype=float)
+            if is_numeric_1d_array(prop):
+                if is_integer_array(prop):
+                    prop = np.asarray(prop, dtype=int)
                 else:
-                    if "." in prop:
-                        prop = float(prop)
-                    else:
-                        prop = int(prop)
-            except ValueError:
+                    prop = np.asarray(prop, dtype=float)
+            else:
                 raise SystemExit("Non-numeric property in XYZ file")
 
             return prop
@@ -394,10 +544,8 @@ class XYZReader(Data):
                 n = len(prop)
             return n
 
-        self._set_ncompounds(len(filenames))
         coordinates = np.empty(self.ncompounds, dtype=object)
         nuclear_charges = np.empty(self.ncompounds, dtype=object)
-        self.natoms = np.empty(self.ncompounds, dtype=int)
 
         # Get expected property sizes
         n_molprop = get_property_size(molecular_property_name)
@@ -408,60 +556,58 @@ class XYZReader(Data):
         if n_atprop > 0:
             atomic_properties = []
 
-        for i, filename in enumerate(filenames):
-            with open(filename, "r") as f:
-                lines = f.readlines()
-
-            natoms = int(lines[0])
-            self.natoms[i] = natoms
-
-            #Handle molecular properties
-            tokens = lines[1].split()
-            if n_molprop > 0:
-                molecular_properties.append(parse_properties(tokens, n_molprop))
-
-            nuclear_charges[i] = np.empty(natoms, dtype=int)
-            coordinates[i] = np.empty((natoms, 3), dtype=float)
-
-            if n_atprop > 0:
-                # Atomic properties for this compound
-                atomic = []
-            for j, line in enumerate(lines[2:natoms+2]):
-                tokens = line.split()
-
-                if len(tokens) < 4:
-                    raise SystemExit("Error in parsing coordinates in XYZ file")
-
-                #Handle atomic properties
-                if n_atprop > 0:
-                    atomic.append(parse_properties(tokens[4:], n_atprop))
-
-                nuclear_charges[i][j] = NUCLEAR_CHARGE[tokens[0]]
-                coordinates[i][j] = np.asarray(tokens[1:4], dtype=float)
-
-            if n_atprop > 0:
-                prop = np.asarray(atomic)
-                if prop.dtype == "object":
-                    raise SystemExit("Different number of atomic properties found in %s" % filename)
-                atomic_properties.append(prop)
-                if i > 0:
-                    shape_this = atomic_properties[i].shape
-                    shape_last = atomic_properties[i-1].shape
-                    # Make sure that there's not different number of atomic properties
-                    # in the XYZ files
-                    if shape_this[1:] != shape_last[1:]:
-                        raise SystemExit("Different number of atomic properties in %s and %s" % (filename, filenames[i-1]))
-
-        # Try to convert dtype to int/float in cases where you have the
-        # same molecule, just different conformers.
+        # Report if there's any error in reading the xyz files.
+        # This is a lazy approach, but the XYZ reader might be replaced
+        # with ASE at some point.
         try:
-            self.nuclear_charges = np.asarray([self.nuclear_charges[i] for i in range(self.ncompounds)],
-                    dtype=int)
-            self.coordinates = np.asarray([self.coordinates[i] for i in range(self.ncompounds)],
-                    dtype=float)
-        except ValueError:
-            self.nuclear_charges = nuclear_charges
-            self.coordinates = coordinates
+            for i, filename in enumerate(filenames):
+                with open(filename, "r") as f:
+                    lines = f.readlines()
+
+                natoms = int(lines[0])
+
+                #Handle molecular properties
+                tokens = lines[1].split()
+                if n_molprop > 0:
+                    molecular_properties.append(parse_properties(tokens, n_molprop))
+
+                nuclear_charges[i] = np.empty(natoms, dtype=int)
+                coordinates[i] = np.empty((natoms, 3), dtype=float)
+
+                if n_atprop > 0:
+                    # Atomic properties for this compound
+                    atomic = []
+                for j, line in enumerate(lines[2:natoms+2]):
+                    tokens = line.split()
+
+                    if len(tokens) < 4:
+                        raise SystemExit("Error in parsing coordinates in XYZ file")
+
+                    #Handle atomic properties
+                    if n_atprop > 0:
+                        atomic.append(parse_properties(tokens[4:], n_atprop))
+
+                    nuclear_charges[i][j] = NUCLEAR_CHARGE[tokens[0]]
+                    coordinates[i][j] = np.asarray(tokens[1:4], dtype=float)
+
+                if n_atprop > 0:
+                    atomic = np.asarray(atomic)
+                    if atomic.dtype == "object":
+                        raise SystemExit("Different number of atomic properties found in %s" % filename)
+                    atomic_properties.append(prop)
+                    if i > 0:
+                        shape_this = atomic_properties[i].shape
+                        shape_last = atomic_properties[i-1].shape
+                        # Make sure that there's not different number of atomic properties
+                        # in the XYZ files
+                        if shape_this[1:] != shape_last[1:]:
+                            raise SystemExit("Different number of atomic properties in %s and %s" % (filename, filenames[i-1]))
+        except:
+            raise SystemExit("Error in reading %s" % filename)
+
+        # Set coordinates and nuclear_charges
+        self.set_coordinates(coordinates)
+        self.set_nuclear_charges(nuclear_charges)
 
         # Handle setting properties
         if n_molprop > 0:
